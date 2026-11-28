@@ -24,7 +24,7 @@ export async function checkLiteralFieldCall(kind = "text") {
     export function read(actual: { ${sibling}: boolean; ${declaration}: boolean }): boolean {
       return choose(actual);
     }
-  `);
+  `, ["read"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const module = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;

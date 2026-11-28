@@ -5,13 +5,13 @@ import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, PropertyName, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
-import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand, TypedBindingElement,
+import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirDefaultInitializer, TirLayoutOperand, TypedBindingElement,
   TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue, TypeEvidence, TypeTerm } from "../ir-types/contract.js";
 import { admitTypePublicationStep, artifactBindingsKey, optionalValueDomainOf, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
-import { attachFormalDefault, elaborateCatchBinding, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
+import { attachDefault, elaborateCatchBinding, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
 
 const failure = (kind: string, what: string, origin: Origin | null): InvariantFailure =>
@@ -191,7 +191,9 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     for (const statement of moduleStatements) if (!isInlineModuleStatement(statement)) skipped.push(statement.id);
     for (const child of children.values()) skipped.push(child.root.id);
   } else {
-    for (const child of children.values()) {
+    for (const state of childStates.values()) {
+      if ("kind" in state && state.kind === "no-result") continue;
+      const child = "kind" in state ? state.body : state;
       const path = decodeBodyId(child.body);
       if (path.kind === "decoded" && (path.value.role === "layout-operand"
         || path.value.role === "initializer" && child.root.parent !== null
@@ -442,7 +444,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (selected.kind === "refused") return selected;
     if (initializer !== null && slot.kind === "checked-default") {
       const formal = selected.value;
-      const attach = (ready: TirBody) => attachFormalDefault(deps, formal, slot, ready);
+      const attach = (ready: TirBody) => attachDefault(deps, formal, slot, ready);
       const stopped = "kind" in initializer ? initializer.onRequired(attach) : attach(initializer);
       if (stopped.kind === "refused") return stopped;
     }
@@ -886,7 +888,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return { kind: "pattern", pattern, storage, tuple, through, nodes: [], index: 0 };
     };
     const typedElement = (element: BindingElement<CheckedPhase>, name: BindingName<TypedPhase> | null, tsonic: TypedBindingElement):
-      BindingElement<TypedPhase> => ({ ...header(element), kind: element.kind, name, tsonic, initializer: null, dotDotDotToken: null, propertyName: null });
+      BindingElement<TypedPhase> => ({ ...header(element), kind: element.kind, name, tsonic, initializer: { kind: "none" }, dotDotDotToken: null, propertyName: null });
     const root = enter(pattern, source, null);
     if (root.kind === "refused") return root;
     const pending = [root];
@@ -959,27 +961,35 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         propertyName = authored.kind === "Identifier" ? { ...source, kind: authored.kind, text: authored.text, tsonic }
           : { ...source, kind: authored.kind, text: authored.text, tsonic, tokenFlags: authored.tokenFlags };
       }
-      let initializer: Expression<TypedPhase> | null = null;
+      const authoredInitializer = element.initializer;
       let initializerBody: BodyId | null = null;
-      if (element.initializer !== null) {
+      let initializerChild: ElaborationChild | null = null;
+      if (authoredInitializer !== null) {
         const source = target.kind === "local" ? body.locals[target.local.local]?.declaration : null;
         const definition = target.kind === "definition" ? target.definition : source?.kind === "item" ? source.value.owner : null;
         if (definition === null || source?.kind === "item" && source.value.node !== element.id)
           return callerDefect("a binding initializer requires its actual named owner", element.origin);
         initializerBody = encodeBodyId({ owner: definition, role: "initializer", ordinal: 0 });
-        const child = childStates.get(initializerBody);
-        if (child !== undefined && "kind" in child && child.kind === "no-result") return { ...child, instance, diagnostics: [] };
-        if (child === undefined || "kind" in child || child.root.kind === "Block" || child.root.kind === "SourceFile"
-          || child.root.id !== element.initializer.id || child.root.parent !== element.id || child.owner !== definition || child.completion !== fit.destination)
-          return callerDefect("a binding initializer must retain its independently completed root and destination", element.origin);
-        initializer = child.root;
+        initializerChild = childStates.get(initializerBody) ?? callerDefect("a binding default needs its actual placed initializer", element.origin);
+        if ("kind" in initializerChild && initializerChild.kind === "no-result")
+          return { ...initializerChild, instance, diagnostics: [] };
+        if ("kind" in initializerChild && (initializerChild.body.root !== authoredInitializer || initializerChild.body.owner !== definition))
+          return callerDefect("an unopened binding default must retain its actual Checked expression and owner", element.origin);
       }
       read.members.add(position);
       read.flows.add(position);
-      nodes.push({ ...header(element), kind: element.kind, dotDotDotToken: null, propertyName, initializer,
+      const initializer: TirDefaultInitializer = authoredInitializer === null
+        ? { kind: "none" } : { kind: "checked-default", root: authoredInitializer };
+      const destination: BindingElement<TypedPhase> = { ...header(element), kind: element.kind, dotDotDotToken: null, propertyName, initializer,
         name: { ...header(name), kind: name.kind, text: name.text, tsonic: { role: "declaration-name", declaration: target, storage: fit.destination } },
         tsonic: { role: "field-binding", declaration: target, storage: fit.destination, initializer: initializerBody,
-          field: { decision: member, getter: null, setter: null }, present } });
+          field: { decision: member, getter: null, setter: null }, present } };
+      if (initializerChild !== null && initializer.kind === "checked-default" && (instance.bindings.kind === "parametric" || present !== null)) {
+        const attach = (ready: TirBody) => attachDefault(deps, destination, initializer, ready);
+        const stopped = "kind" in initializerChild ? initializerChild.onRequired(attach) : attach(initializerChild);
+        if (stopped.kind === "refused") return stopped;
+      }
+      nodes.push(destination);
     }
     return { kind: "ok", diagnostics: [], value: { ...header(pattern), kind: pattern.kind,
       elements: { loc: pattern.elements.loc, nodes }, tsonic: { storage } } };
@@ -1651,7 +1661,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   if (rootBlock !== undefined) return rootBlock;
   for (const child of childStates.values()) if ("kind" in child) {
     if (child.kind === "no-result") return { ...child, instance, diagnostics: [] };
-    if (root.kind !== "SourceFile") return callerDefect("only an actual module declaration may have an unopened child", rootOrigin);
+    if (root.kind !== "SourceFile") {
+      const parent = child.body.root.parent;
+      if (parent === null || deps.nodeOf({ kind: "item", value: { owner: child.body.owner, node: parent } })?.kind !== "BindingElement")
+        return callerDefect("an unopened execution must retain its actual placed binding default", rootOrigin);
+    }
   }
   const typedRoot = moduleRoot === null ? root.kind === "Block" ? block(root) : expressionOf(root) : moduleRoot.value;
   const refuseUnread = (entries: readonly unknown[], seen: ReadonlySet<number>, label: string): void => {

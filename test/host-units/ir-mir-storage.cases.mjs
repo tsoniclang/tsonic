@@ -281,7 +281,7 @@ test("a lowered static load and authored store use the actual declaration and se
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
   const result = await analyzeOptionalSource("export let spare: undefined; export let state: boolean = true; "
-    + "export function read(next: boolean): boolean { state = next; return state; }");
+    + "export function read(next: boolean): boolean { state = next; return state; }", {}, ["read"]);
   assert.equal(result.kind, "ok");
   const bodies = result.value.modules.flatMap(module => module.bodies).filter(body => body.kind === "selected");
   const reader = bodies.find(body => body.tir.root.kind === "Block");

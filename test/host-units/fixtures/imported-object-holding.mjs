@@ -23,11 +23,12 @@ export async function checkImportedObjectHolding() {
     ["re-export", 'export type { Shape as Alias } from "./base.js";'],
     ["star", 'export type * from "./source.js";'],
   ]) {
-    const input = analysisInput(fixture, "sdk-minimal", main);
+    const input = analysisInput(fixture, "sdk-minimal", main, ["read"]);
     input.snapshot = fixture.projectSnapshot({ sourceFiles: {
       "main.ts": main, "bridge.ts": bridge, "source.ts": 'export type { Shape as Alias } from "./base.js";',
       "base.ts": "export type Shape = { flag: boolean; other: boolean }; export type Decoy = { flag: boolean; other: boolean };",
-    }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: input.snapshot.contributions.externalEntries });
     const result = captureSourceBarrier(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { checked, modules, types, bindingOf } = result.value;

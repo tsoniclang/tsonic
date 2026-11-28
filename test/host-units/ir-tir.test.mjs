@@ -613,11 +613,11 @@ function bindingPatternScenario(includeHole) {
   const sourceName = { ...header(nameId, bindingId), kind: "Identifier", text: "v",
     tsonic: { core: emptyCore(), role: "declaration-name", declaration } };
   const binding = { ...header(bindingId, 6), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
-    name, initializer: null, tsonic: { declaration, storage: 1, initializer: null, role: "binding" } };
+    name, initializer: { kind: "none" }, tsonic: { declaration, storage: 1, initializer: null, role: "binding" } };
   const sourceBinding = { ...header(bindingId, 6), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
     name: sourceName, initializer: null, tsonic: { core: emptyCore(), declaration, declaredType: available(1) } };
   const hole = { ...header(7, 6), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
-    name: null, initializer: null, tsonic: { role: "hole" } };
+    name: null, initializer: { kind: "none" }, tsonic: { role: "hole" } };
   const sourceHole = { ...header(7, 6), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
     name: null, initializer: null, tsonic: { core: emptyCore(), declaration: null, declaredType: available(null) } };
   const pattern = { ...header(6, 5), kind: "ArrayBindingPattern", elements: nodeList(includeHole ? [hole, binding] : [binding]),
@@ -666,7 +666,7 @@ function nestedDeclarationScenario(bodyless) {
   const valueName = { ...header(6, 5), kind: "Identifier", text: "value",
     tsonic: { role: "declaration-name", declaration: { kind: "local", local: local(1) }, storage: 1 } };
   const element = { ...header(5, 4), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
-    name: valueName, initializer: null, tsonic: { role: "binding", declaration: { kind: "local", local: local(1) }, storage: 1, initializer: null } };
+    name: valueName, initializer: { kind: "none" }, tsonic: { role: "binding", declaration: { kind: "local", local: local(1) }, storage: 1, initializer: null } };
   const pattern = { ...header(4, 3), kind: "ArrayBindingPattern", elements: nodeList([element]), tsonic: { storage: 2 } };
   const parameter = { ...header(3, 1), kind: "Parameter", modifiers: null, dotDotDotToken: null, name: pattern,
     questionToken: null, type: null, initializer: { kind: "none" }, tsonic: { declaration: parameterDefinition, local: local(0),
@@ -705,6 +705,7 @@ function nestedDeclarationScenario(bodyless) {
       declaration: { kind: "local", local: local(0) }, declaredType: available(2), inferredTypeBound: null, initializer: null };
     sourceParameter.name.tsonic = { core: emptyCore(), declaration: null, declaredType: available(2) };
     const sourceElement = sourceParameter.name.elements.nodes[0];
+    sourceElement.initializer = null;
     sourceElement.tsonic = { core: emptyCore(), declaration: { kind: "local", local: local(1) }, declaredType: available(1) };
     sourceElement.name.tsonic = { core: emptyCore(), role: "declaration-name", declaration: { kind: "local", local: local(1) } };
     sourceDeclaration.body.statements.nodes[0].expression.tsonic = { core: emptyCore(), ...checkedValue(1),
@@ -801,7 +802,7 @@ test("ready chapter callable and body share the actual pattern formal and reject
 });
 
 test("one Typed formal initializer slot admits its tag and only the reached phase root", async () => {
-  const { chapterSyntaxSlots, admitFormalInitializer } = await import("../../packages/host/dist/ir-tir/chapter-syntax.js");
+  const { chapterSyntaxSlots, admitDefaultInitializer } = await import("../../packages/host/dist/ir-tir/chapter-syntax.js");
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
   const fixture = nestedDeclarationScenario(false);
@@ -811,17 +812,18 @@ test("one Typed formal initializer slot admits its tag and only the reached phas
   const limits = (maximumWork, maximumCreatedRecords) => ({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
     typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
   const reads = [];
-  const invoke = (kind, root, maximumWork, maximumRecords) => {
+  const invoke = (kind, root, maximumWork, maximumRecords, borrow = null) => {
     reads.length = 0;
     Object.defineProperty(formal, "initializer", { configurable: true, get() {
       reads.push("tag");
       if (kind === "none") return { kind, get root() { assert.fail("none has no child"); } };
       return { kind, get root() { reads.push("root"); return root; } };
     } });
-    const slot = [...chapterSyntaxSlots({ kind: "formal", node: formal })].find(row => row.kind === "formal-initializer");
+    const slot = [...chapterSyntaxSlots({ kind: "formal", node: formal })].find(row => row.kind === "default-initializer");
     assert.deepEqual(reads, []);
     const meter = createInstantiationMeter(limits(maximumWork, maximumRecords));
-    const selected = admitFormalInitializer(slot, () => admitCheckedProjection(meter, 1, 1), () => chargeInstantiationWork(meter));
+    const selected = admitDefaultInitializer(slot, () => admitCheckedProjection(meter, 1, 1), () => chargeInstantiationWork(meter),
+      borrow === null ? null : () => { reads.push("checked"); return borrow(meter); });
     return { selected, stop: meter.failure ?? accountFailure(meter.account) };
   };
   for (const [kind, root] of [["ready-default", typed], ["checked-default", checked]]) {
@@ -841,6 +843,17 @@ test("one Typed formal initializer slot admits its tag and only the reached phas
   assert.equal(selected.kind, "complete");
   assert.deepEqual(selected.value, { kind: "none" });
   assert.deepEqual(reads, ["tag"]);
+  const borrow = () => ({ kind: "complete", value: checked });
+  const afterEdge = invoke("ready-default", typed, 2, 1, borrow);
+  assert.equal(afterEdge.selected.kind === "complete" && afterEdge.selected.value.kind === "checked-default"
+    && afterEdge.selected.value.root === checked, true);
+  assert.deepEqual(reads, ["tag", "checked"]);
+  const beforeEdge = invoke("ready-default", typed, 1, 1, borrow);
+  assert.equal(beforeEdge.selected.kind === "refused" && beforeEdge.selected.stop === beforeEdge.stop, true);
+  assert.deepEqual(reads, ["tag"]);
+  const afterRead = invoke("ready-default", typed, 2, 1, meter => ({ kind: "refused", stop: chargeInstantiationWork(meter) }));
+  assert.equal(afterRead.selected.kind === "refused" && afterRead.selected.stop === afterRead.stop, true);
+  assert.deepEqual(reads, ["tag", "checked"]);
 });
 
 test("the standalone TIR wire preserves actual unopened declarations and supplied defaults in its checked domain", async () => {
@@ -850,8 +863,9 @@ test("the standalone TIR wire preserves actual unopened declarations and supplie
   const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
   const source = 'import { choose } from "dependency"; '
     + "export function supplied(value:boolean):boolean { return choose(value, value); }";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["supplied"]);
   input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    externalEntries: input.snapshot.contributions.externalEntries,
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
     extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
     otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
@@ -1548,8 +1562,8 @@ for (const path of [...functionCases, ...verifierCases]) {
   });
 }
 test("exact annotated runtime ports include the owning operation projection and retire the second binding walk", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["admitFormalInitializer", "bodyOccurrenceSlots", "chapterStatementSyntax", "chapterSyntaxSlots", "chapterTransportSlots",
-    "formalInitializerSlot", "formalInitializerSyntax", "indexChapterSyntax", "isLayoutOperandBody", "layoutArgumentSlots", "layoutBindingOf", "layoutObservationOf", "memberSelectionKey", "parseTir", "printTir", "rawValueTypeOf", "readChapterSyntaxSlot", "tirBodySyntaxOf",
+  assertCompleteValue(Object.keys(product).sort(), ["admitDefaultInitializer", "bodyOccurrenceSlots", "chapterStatementSyntax", "chapterSyntaxSlots", "chapterTransportSlots",
+    "defaultInitializerSlot", "defaultInitializerSyntax", "indexChapterSyntax", "isLayoutOperandBody", "layoutArgumentSlots", "layoutBindingOf", "layoutObservationOf", "memberSelectionKey", "parseTir", "printTir", "rawValueTypeOf", "readChapterSyntaxSlot", "tirBodySyntaxOf",
     "tirOperationsOf", "tupleArgumentOperation", "verifyTir", "verifyTirModule"]);
 });
 
@@ -1626,7 +1640,7 @@ test("body and chapter paid readers preserve the original refusal at every reach
     function callee(value: boolean = true): boolean { return value; }
     export function supplied(value: boolean): boolean { return callee(value); }
     export function omitted(): boolean { return callee(); }
-  `);
+  `, ["supplied", "omitted"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
@@ -1665,7 +1679,7 @@ test("normal TIR verification rejects a crossed throw parenthesis and selected a
     function effect(): void { return; }
     function value(): boolean { return true; }
     export function explicit(): void { throw (void effect()); }
-    export function ordinary(): void { throw ((value())); }`);
+    export function ordinary(): void { throw ((value())); }`, ["explicit", "ordinary"]);
   const checked = captureSourceBarrier(source);
   assert.equal(checked.kind, "ok");
   const typed = typeSourceBarrier(source, checked.value, createAccount(source.limits.dataflow));
@@ -1709,9 +1723,9 @@ test("actual wide typed modules admit one independent membership vector and exac
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const fixture = await loadFrontFixture();
   for (const count of [4, 16, 64]) {
-    const text = Array.from({ length: count }, (_, ordinal) =>
-      `export function f${ordinal.toString().padStart(2, "0")}(value: boolean): boolean { return value; }`).join("\n");
-    const source = analysisInput(fixture, "sdk-minimal", text);
+    const requested = Array.from({ length: count }, (_, ordinal) => `f${ordinal.toString().padStart(2, "0")}`);
+    const text = requested.map(name => `export function ${name}(value: boolean): boolean { return value; }`).join("\n");
+    const source = analysisInput(fixture, "sdk-minimal", text, requested);
     const checked = captureSourceBarrier(source);
     assert.equal(checked.kind, "ok");
     const typed = typeSourceBarrier(source, checked.value, createAccount(source.limits.dataflow));
@@ -1922,7 +1936,7 @@ test("bodyless parameter verification retains the exact checked formal, selected
     return { ...current, parent, checked, parameter, original, originals, signature: current.input.types.signatures[1], verify };
   };
   assert.deepEqual(fixture().verify(), []);
-  for (const change of ["no-endpoint", "signature", "signature-owner", "formal-owner", "formal-type", "passing", "role", "formal-initializer",
+  for (const change of ["no-endpoint", "signature", "signature-owner", "formal-owner", "formal-type", "passing", "role", "default-initializer",
     "missing-header", "foreign-header", "checked-owner", "checked-local", "checked-initializer", "initializer", "unavailable-type", "null-type", "local", "null-passing", "extra-formal"]) {
     const current = fixture();
     if (change === "no-endpoint") current.checked.tsonic.signatures = [];
@@ -1932,7 +1946,7 @@ test("bodyless parameter verification retains the exact checked formal, selected
     if (change === "formal-type") current.signature.parameters[0].type = 0;
     if (change === "passing") current.signature.parameters[0].passing = "move";
     if (change === "role") current.signature.parameters[0].kind = "optional";
-    if (change === "formal-initializer") current.signature.parameters[0].initializer = bodyId;
+    if (change === "default-initializer") current.signature.parameters[0].initializer = bodyId;
     if (change === "missing-header") current.checked.parameters.nodes = [];
     if (change === "foreign-header") current.parameter.id = 99;
     if (change === "checked-owner") current.original.tsonic.parent = ownerId;
@@ -2081,7 +2095,8 @@ test("native syntax comparison checks every declared ordinary field without disc
   const kinds = [...canonical.keys()];
   assert.equal(kinds.length, syntaxFieldMutations.size, "the actual independent constructor and declared-field families agree completely");
   const exercised = new Set();
-  const headerFields = (kind, fields) => kind !== "Parameter" ? fields : fields.filter(field => !field.name.startsWith("initializer."));
+  const headerFields = (kind, fields) => kind !== "Parameter" && kind !== "BindingElement" ? fields
+    : fields.filter(field => !field.name.startsWith("initializer."));
   for (const { node } of rows) {
     const fields = syntaxFieldMutations.get(node.kind);
     assert.equal(fields !== undefined, true, `${node.kind}: complete field relation`);
@@ -3873,11 +3888,11 @@ for (const using of [false, true]) {
 for (const kind of ["ObjectBindingPattern", "ArrayBindingPattern"]) {
   test(`actual ${kind} retains every real binding-element child and its storage declaration`, () => {
     const element = { ...header(5, 4), kind: "BindingElement", dotDotDotToken: { ...header(6, 5), kind: "DotDotDotToken", tsonic: null },
-      propertyName: codecName(7, 5), name: codecName(8, 5), initializer: codecName(9, 5),
+      propertyName: codecName(7, 5), name: codecName(8, 5), initializer: { kind: "ready-default", root: codecName(9, 5) },
       tsonic: { declaration: { kind: "definition", definition: ownerId }, storage: 0, initializer: bodyId, role: "binding" } };
     assertSyntaxPayload({ ...header(4, 2), kind, elements: nodeList([element]), tsonic: { storage: 0 } }, [
       `${kind}(${syntaxHeaderWire(4, 2)}, elements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:5]), tsonic=TypedBindingPattern(storage=t:0))`,
-      `BindingElement(${syntaxHeaderWire(5, 4)}, dotDotDotToken=n:6, propertyName=n:7, name=n:8, initializer=n:9, ` +
+      `BindingElement(${syntaxHeaderWire(5, 4)}, dotDotDotToken=n:6, propertyName=n:7, name=n:8, initializer=ready-default(root=n:9), ` +
         `tsonic=TypedBindingElement(declaration=definition(definition=def:"${ownerId}"), storage=t:0, initializer=body:"${bodyId}", role="binding"))`,
       `DotDotDotToken(${syntaxHeaderWire(6, 5)}, tsonic=null)`, codecNameWire(7, 5), codecNameWire(8, 5), codecNameWire(9, 5),
     ], kind);
@@ -3885,16 +3900,16 @@ for (const kind of ["ObjectBindingPattern", "ArrayBindingPattern"]) {
 }
 test("an actual binding-element hole has no invented declaration or storage in the complete text/value vector", () => {
   assertSyntaxPayload({ ...header(4, 2), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
-    name: null, initializer: null, tsonic: { role: "hole" } }, [
-    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=null, ` +
+    name: null, initializer: { kind: "none" }, tsonic: { role: "hole" } }, [
+    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=none(), ` +
       'tsonic=TypedBindingElement(role="hole"))',
   ], "binding hole");
 });
 
 test("the removed untagged binding-element phase is invalid text, not a compatibility arm", () => {
   const { body, expected } = syntaxPayloadCase({ ...header(4, 2), kind: "BindingElement", dotDotDotToken: null,
-    propertyName: null, name: null, initializer: null, tsonic: { role: "hole" } }, [
-    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=null, ` +
+    propertyName: null, name: null, initializer: { kind: "none" }, tsonic: { role: "hole" } }, [
+    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=none(), ` +
       'tsonic=TypedBindingElement(role="hole"))',
   ]);
   const old = `TypedBinding(declaration=definition(definition=def:"${ownerId}"), storage=t:0, initializer=null)`;
@@ -3904,12 +3919,14 @@ test("the removed untagged binding-element phase is invalid text, not a compatib
   assertCompleteValue(product.parseTir(input), { kind: "invalid-text", offset, line: lines.length,
     column: lines[lines.length - 1].length + 1, expected: ["TypedBindingElement"], found: "TypedBinding" });
   assertBodyRoundTrip(body, expected, "the complete current hole arm");
+  const oldInitializer = expected.replace("name=null, initializer=none()", "name=null, initializer=null");
+  assert.equal(product.parseTir(oldInitializer).kind, "invalid-text");
 });
 
 test("an empty binding-element phase cannot publish either required role arm", () => {
   const { expected } = syntaxPayloadCase({ ...header(4, 2), kind: "BindingElement", dotDotDotToken: null,
-    propertyName: null, name: null, initializer: null, tsonic: { role: "hole" } }, [
-    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=null, ` +
+    propertyName: null, name: null, initializer: { kind: "none" }, tsonic: { role: "hole" } }, [
+    `BindingElement(${syntaxHeaderWire(4, 2)}, dotDotDotToken=null, propertyName=null, name=null, initializer=none(), ` +
       'tsonic=TypedBindingElement(role="hole"))',
   ]);
   const input = expected.replace('TypedBindingElement(role="hole")', 'TypedBindingElement()');
@@ -8605,7 +8622,7 @@ test("actual typed numeric binding qualification preserves its own key and origi
       const {0x10: value} = source;
       return !value;
     }
-  `);
+  `, ["read"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));

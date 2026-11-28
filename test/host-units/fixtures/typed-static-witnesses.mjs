@@ -16,7 +16,7 @@ export async function checkCompoundStaticAssignment() {
   const { verifyOccurrenceOperation } = await import("../../../packages/host/dist/ir-tir/verify-occurrences.js");
   const { instanceKey } = await import("../../../packages/host/dist/ir-types/index.js");
   for (const [operator, overflow] of [["^", []], ["+", [{ carrier: "int64", operation: "add", result: "int64", law: "abort" }]]]) {
-    const input = analysisInput(fixture, "sdk-minimal", `export let state = 1; export function combine(next = 1) { return state ${operator}= (state = next); }`);
+    const input = analysisInput(fixture, "sdk-minimal", `export let state = 1; export function combine(next = 1) { return state ${operator}= (state = next); }`, ["combine"]);
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: overflow };
     const active = { ...input, snapshot: { ...input.snapshot, nativeFacts } };
     const result = analyzeHostProgram(active);
@@ -115,7 +115,7 @@ export async function checkStaticUpdates() {
     export function postUp() { return state++; }
     export function preDown() { return --state; }
     export function postDown() { return state--; }`;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["preUp", "postUp", "preDown", "postDown"]);
   for (const law of ["wrap", "abort"]) {
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: ["decrement", "increment"]
       .map(operation => ({ carrier: "int64", operation, result: "int64", law })) };

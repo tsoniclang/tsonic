@@ -4,12 +4,12 @@ import type { TypedIteration, TypedControlTransfer, TypedBindingPattern, TypedPa
 import type { Cursor, TextStep } from "./parse-values.js";
 import type { TextReader } from "./parse-values.js";
 import type { FunctionDeclarationHeader } from "../ir-hir/contract.js";
-import type { TirFormal, TirFormalInitializer, TirReadyCallable } from "../ir-tir/contract.js";
+import type { TirFormal, TirDefaultInitializer, TirReadyCallable } from "../ir-tir/contract.js";
 import type { ChapterReadPorts, SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { readBoolean, readNull, readStringChoice, atomicText, fieldText } from "./parse-values.js";
 import { readTypedBindingElementText, readTypedBindingText, readTypedBindingPatternText, readTypedParameterText, readTypedCallableText, readTypedClassText, readTypedHeritageText, readTypedInterfaceText, readTypedAliasText, readTypedStorageDeclarationText, readTypedEnumText, readTypedIndexDeclarationText, readTypedStaticBlockText } from "./parse-phase-declarations.js";
 import { readTypedCaseText, readTypedIterationText, readTypedControlTransferText, readTypedVariableListText, readTypedClassValueText } from "./parse-phase.js";
-import { resolveSyntaxValue, syntaxAlternatives, readFormalInitializer, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
+import { resolveSyntaxValue, syntaxAlternatives, readDefaultInitializer, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
 
 export function readEmptyStatementSyntax<Root>(cursor: Cursor, _ports: SyntaxReadPorts, kind: "EmptyStatement", finish: (value: SyntaxValue<EmptyStatement<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
@@ -277,19 +277,19 @@ export function readTirFormalSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts
     fieldText<SyntaxValue<BindingName<TypedPhase>>, Root>(cursor, fields, "name", (next, done) => readSyntaxReference(next, ports.BindingName, done), nameValue =>
     fieldText<SyntaxValue<QuestionToken<TypedPhase> | null>, Root>(cursor, fields, "questionToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.QuestionToken, done), done), questionTokenValue =>
     fieldText<SyntaxValue<TypeNode<TypedPhase> | null>, Root>(cursor, fields, "type", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), done), typeValue =>
-    fieldText<SyntaxValue<TirFormalInitializer>, Root>(cursor, fields, "initializer", (next, done) => readFormalInitializer(next, ports, chapter, done), initializerValue =>
+    fieldText<SyntaxValue<TirDefaultInitializer>, Root>(cursor, fields, "initializer", (next, done) => readDefaultInitializer(next, ports, chapter, done), initializerValue =>
     fieldText<TypedParameter, Root>(cursor, fields, "tsonic", readTypedParameterText, tsonicValue =>
     finishSyntaxRecord<TirFormal, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(modifiersValue, modifiersResolved => resolveSyntaxValue(dotDotDotTokenValue, dotDotDotTokenResolved => resolveSyntaxValue(nameValue, nameResolved => resolveSyntaxValue(questionTokenValue, questionTokenResolved => resolveSyntaxValue(typeValue, typeResolved => resolveSyntaxValue(initializerValue, initializerResolved => ({ ...header, kind: "Parameter", modifiers: modifiersResolved, dotDotDotToken: dotDotDotTokenResolved, name: nameResolved, questionToken: questionTokenResolved, type: typeResolved, initializer: initializerResolved, tsonic: tsonicValue }))))))),
     }, finish)))))))));
 }
 
-export function readBindingElementSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "BindingElement", finish: (value: SyntaxValue<BindingElement<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+export function readBindingElementSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts, kind: "BindingElement", finish: (value: SyntaxValue<BindingElement<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<DotDotDotToken<TypedPhase> | null>, Root>(cursor, fields, "dotDotDotToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.DotDotDotToken, done), done), dotDotDotTokenValue =>
     fieldText<SyntaxValue<PropertyName<TypedPhase> | null>, Root>(cursor, fields, "propertyName", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.PropertyName, done), done), propertyNameValue =>
     fieldText<SyntaxValue<BindingName<TypedPhase> | null>, Root>(cursor, fields, "name", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.BindingName, done), done), nameValue =>
-    fieldText<SyntaxValue<Expression<TypedPhase> | null>, Root>(cursor, fields, "initializer", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.Expression, done), done), initializerValue =>
+    fieldText<SyntaxValue<TirDefaultInitializer>, Root>(cursor, fields, "initializer", (next, done) => readDefaultInitializer(next, ports, chapter, done), initializerValue =>
     fieldText<TypedBindingElement, Root>(cursor, fields, "tsonic", readTypedBindingElementText, tsonicValue =>
     finishSyntaxRecord<BindingElement<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(dotDotDotTokenValue, dotDotDotTokenResolved => resolveSyntaxValue(propertyNameValue, propertyNameResolved => resolveSyntaxValue(nameValue, nameResolved => resolveSyntaxValue(initializerValue, initializerResolved => ({ ...header, kind, dotDotDotToken: dotDotDotTokenResolved, propertyName: propertyNameResolved, name: nameResolved, initializer: initializerResolved, tsonic: tsonicValue }))))),

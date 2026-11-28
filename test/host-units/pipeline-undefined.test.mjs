@@ -135,12 +135,14 @@ function checkCall(index, caller, callee, provided) {
 
 test("actual global undefined remains an Identifier and supplies native absence, unlike an omitted argument", async () => {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
 export function choose(flag: undefined = undefined): undefined { return flag; }
 export function supplied(): undefined { return choose(undefined); }
 export function omitted(): undefined { return choose(); }
 export function shadow(undefined: undefined): undefined { return choose(undefined); }` },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: ["supplied", "omitted", "shadow"].map(name => ({ module: entry, name })) });
   const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
   const checked = captureSourceBarrier(inputs);
   assert.equal(checked.kind, "ok");
@@ -211,10 +213,12 @@ export function shadow(undefined: undefined): undefined { return choose(undefine
 
 test("authored equality and inequality select native presence in either operand order", async () => {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
 export function present(value: boolean | undefined): boolean { return value !== undefined; }
 export function absent(value: boolean | undefined): boolean { return null === value; }` },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: ["present", "absent"].map(name => ({ module: entry, name })) });
   const result = analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
@@ -240,11 +244,12 @@ export function absent(value: boolean | undefined): boolean { return null === va
 
 test("presence comparison keeps both authored calls in evaluation order even when one produces only absence", async () => {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
 function left(value: boolean): boolean | undefined { return value; }
 function right(): boolean { return false; }
 export function compare(value: boolean): boolean { return left(value) !== void right(); }` },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: [{ module: entry, name: "compare" }] });
   const result = analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);

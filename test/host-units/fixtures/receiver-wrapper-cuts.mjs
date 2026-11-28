@@ -21,7 +21,7 @@ export async function checkReceiverWrapperCuts() {
         const { flag: selected } = ${wrap("alias")};
         return !selected;
       }
-    `);
+    `, ["read"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
     const { checked, modules, types, bindingOf } = captured.value;

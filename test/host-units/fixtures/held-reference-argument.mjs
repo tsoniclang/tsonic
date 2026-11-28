@@ -30,7 +30,7 @@ export async function checkHeldReferenceArgument() {
           : saved ? `const saved = input.part; ${rebound ? "input = other;" : ""} return choose(saved);`
           : `return choose(${argument});`}
       }
-    `);
+    `, ["read"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
     const { checked, modules, types, bindingOf } = captured.value;

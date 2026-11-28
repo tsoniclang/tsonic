@@ -7,7 +7,7 @@ import { admitSummaryIdentity } from "../ir-facts/index.js";
 import type { HirModuleExport } from "../ir-hir/contract.js";
 import { resolveModuleExport } from "../ir-hir/index.js";
 import type { ResolvedExternalEntry } from "../ir-program/contract.js";
-import type { Execution } from "../ir-types/contract.js";
+import type { ArtifactBindings, Execution } from "../ir-types/contract.js";
 import type { SourceExternalEntry } from "../snapshot/contract.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
 import type { SourceBarrier } from "./source-barrier.js";
@@ -17,7 +17,7 @@ function fail(message: string): never {
 }
 
 export interface ExternalEntrySelection {
-  readonly bodies: ReadonlySet<BodyId>;
+  readonly bodies: ReadonlyMap<BodyId, ArtifactBindings["kind"]>;
   readonly selections: readonly ExternalTarget[];
 }
 
@@ -32,7 +32,7 @@ export function selectExternalEntries(source: SourceBarrier, views: CheckedSourc
   requested: readonly SourceExternalEntry[], account: DataflowAccount): DataflowResult<ExternalEntrySelection> {
   const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
   if (initial !== null) return initial;
-  const bodies = new Set<BodyId>();
+  const bodies = new Map<BodyId, ArtifactBindings["kind"]>();
   const selections: ExternalTarget[] = [];
   if (requested.length === 0) return { kind: "complete", value: { bodies, selections } };
   const index = chargeWork(account, source.modules.length) ?? chargeResultEntries(account, source.modules.length + 2);
@@ -107,9 +107,13 @@ export function selectExternalEntries(source: SourceBarrier, views: CheckedSourc
       if (!node.tsonic.signatures.some(endpoint => endpoint.role === "api-body" && endpoint.body === body))
         return fail("An external callable entry needs its actual body endpoint.");
       if (!bodies.has(body)) {
-        const growth = chargeResultEntries(account, 1);
+        const growth = chargeWork(account, 1 + definition.length) ?? chargeResultEntries(account, 1);
         if (growth !== null) return growth;
-        bodies.add(body);
+        const scope = source.descriptions.get(definition)?.generics;
+        if (scope === undefined) return fail("An external callable entry needs its actual checked binding scope.");
+        const closed = scope.classParameters.length === 0 && scope.methodParameters.length === 0
+          && scope.capturedParameters.length === 0 && scope.selfOwners.length === 0;
+        bodies.set(body, closed ? "instantiated" : "parametric");
       }
       callable = true;
     }

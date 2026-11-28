@@ -1,11 +1,12 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, TyId } from "../ids/contract.js";
+import { encodeBodyId } from "../ids/index.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { CheckedPhase, EnumDeclaration, EnumMember, Expression, FunctionDeclaration, HirLocal, Identifier, ParameterDeclaration, SourceFile, Statement, TypeNode, VariableDeclaration } from "../ir-hir/contract.js";
-import type { TirBody, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody, TirDefaultInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import { internType, typePublicationRefusalOf } from "../ir-types/index.js";
-import type { AttachFormalDefault, ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
+import type { AttachDefault, ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
 import { callableTypeHeader, declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation, propertyName } from "./declarations.js";
 import { elaborateExport, elaborateImport, moduleLinkRefusal } from "./imports.js";
 
@@ -15,14 +16,19 @@ function defect(message: string): never {
 
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
 
-export const attachFormalDefault: AttachFormalDefault = (deps, formal, unopened, ready) => {
-  if (formal.initializer !== unopened) return defect("A required default may be attached to its actual checked slot only once.");
+export const attachDefault: AttachDefault = (deps, owner, unopened, ready) => {
+  if (owner.initializer !== unopened) return defect("A required default may be attached to its actual checked slot only once.");
+  const binding = owner.tsonic;
+  if (!("storage" in binding) || !("initializer" in binding)) return defect("A required default belongs to an actual named slot.");
   const root = ready.root;
-  if (root.kind === "SourceFile" || root.kind === "Block" || ready.owner !== formal.tsonic.declaration
-    || ready.body !== formal.tsonic.initializer || root.id !== unopened.root.id || root.parent !== formal.id
-    || ready.completion !== formal.tsonic.storage || deps.signatureOf(ready.signature).result !== ready.completion)
-    return defect("A completed formal initializer must retain its checked owner, expression and selected result.");
-  const owned: { initializer: TirFormalInitializer } = formal;
+  if (root.kind === "SourceFile" || root.kind === "Block"
+    || (owner.kind === "Parameter" ? ready.owner !== owner.tsonic.declaration
+      : ready.body !== encodeBodyId({ owner: ready.owner, role: "initializer", ordinal: 0 }))
+    || ready.body !== binding.initializer
+    || root.id !== unopened.root.id || root.parent !== owner.id
+    || ready.completion !== binding.storage || deps.signatureOf(ready.signature).result !== ready.completion)
+    return defect("A completed default must retain its checked owner, expression and selected result.");
+  const owned: { initializer: TirDefaultInitializer } = owner;
   owned.initializer = { kind: "ready-default", root };
   return { kind: "ok", value: undefined, diagnostics: [] };
 };

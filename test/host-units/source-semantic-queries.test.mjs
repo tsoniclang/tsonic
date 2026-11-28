@@ -262,10 +262,11 @@ test("type-only import retains its actual declaration and leaves an excluded dep
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const root = "/project/node_modules/dependency";
   const dependency = fixture.moduleOf(fixture.packageOf(root), "index.ts");
-  const make = source => ({
+  const make = (source, entries = []) => ({
     ...analysisInput(fixture, "sdk-minimal", source),
     snapshot: fixture.projectSnapshot({
       sourceFiles: { "main.ts": source }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      externalEntries: entries.map(name => ({ module: fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"), name })),
       extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
       otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
         "export type Item = boolean; export function denied(): boolean { import('dependency'); return true; }", false] } }],
@@ -308,7 +309,7 @@ test("type-only import retains its actual declaration and leaves an excluded dep
   const invalidTyped = readyWire.replace(/^(n:\d+=)TrueKeyword\(/m, "$1ExcludedExpression(");
   assert.equal(invalidTyped !== readyWire, true);
   assert.equal(parseModuleBodies(index, invalidTyped).kind, "invalid-text");
-  const entered = analyzeHostProgram(make("import {denied} from 'dependency'; export function run(): boolean { return denied(); }"));
+  const entered = analyzeHostProgram(make("import {denied} from 'dependency'; export function run(): boolean { return denied(); }", ["run"]));
   assert.equal(entered.kind, "refused");
   assert.deepEqual(entered.diagnostics.map(row => [row.code.rendered, row.site.origin.module]),
     [["TSONIC_SOURCE_FORM_UNSUPPORTED", dependency]]);
@@ -2426,7 +2427,7 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
-const nativeInt32Input = (sourceText, selected) => buildNativeInt32Input(fixture, sourceText, selected);
+const nativeInt32Input = (sourceText, selected, entries) => buildNativeInt32Input(fixture, sourceText, selected, entries);
 
 test("checked primitive annotations retain their selected provider carrier, not the shared checker number", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
@@ -2471,7 +2472,7 @@ export function identity(value: Native): Native { return value; }`;
 test("native tuple construction materializes exact integer constants without a floating conversion", async () => {
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const pair = value => `export function pair(): [Native, Native] { return [${value}, 2]; }`;
-  const input = await nativeInt32Input(pair("2147483647"), true);
+  const input = await nativeInt32Input(pair("2147483647"), true, ["pair"]);
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -2493,7 +2494,7 @@ test("native tuple construction materializes exact integer constants without a f
   });
   assert.deepEqual(integers, [2147483647n, 2n]);
   for (const value of ["2147483648", "1.5"]) {
-    const refused = analyzeHostProgram(await nativeInt32Input(pair(value), true));
+    const refused = analyzeHostProgram(await nativeInt32Input(pair(value), true, ["pair"]));
     assert.equal(refused.kind, "refused", value);
     assert.deepEqual(refused.diagnostics.map(row => row.code.rendered), ["TSONIC_CONSTRUCTION_PART_FIT"]);
   }
@@ -2505,7 +2506,7 @@ test("a primitive-only registration preserves the ordinary object binding and it
 export function select(o: { flag?: boolean }): boolean {
   const { flag = false } = o;
   return flag;
-}`, true);
+}`, true, ["select"]);
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -2524,7 +2525,7 @@ test("a native object binding preserves the field carrier on both the present an
 export function select(o: { a: Native; plain: number; b?: Native }): Native {
   const { a, plain, b: chosen = 3 } = o;
   return chosen;
-}`, true);
+}`, true, ["select"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const { index, modules } = result.value;
@@ -2571,7 +2572,7 @@ export function direct(): Native {
 export function nested(value: [number, [Native, number]]): Native {
   const [, [native, ordinary]]: [number, [Native, number]] = value;
   return native;
-}`, true);
+}`, true, ["direct", "nested"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const { index, modules } = result.value;
@@ -2692,7 +2693,7 @@ test("native range construction has one inferred or contextual carrier and an or
   const all${annotation} = ${expression};
   return all.length;
 }`;
-    const input = await nativeInt32Input(source, true);
+    const input = await nativeInt32Input(source, true, ["ranged"]);
     const original = input.snapshot.nativeFacts;
     const native = { ...original,
       arrayConstruction: grant ? { kind: "exact-length", extentFailure: "abort", rangeCopy: "contiguous" } : null,

@@ -187,7 +187,7 @@ test("authored MIR: finite spreads evaluate the one producer and take its slots 
       function produce(pair: ${tuple}): ${tuple} { return pair; }
       function later(): boolean { return false; }
       export function start(pair: ${tuple}): boolean { return take(...produce(pair), later()); }
-    `);
+    `, ["start"]);
     const checked = captureSourceBarrier(input);
     assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
     const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
@@ -287,7 +287,7 @@ test("authored MIR: a fixed destructuring initializes its own locals from one tu
       const [first, second] = produce(pair);
       return first;
     }
-  `);
+  `, ["start"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
@@ -364,7 +364,7 @@ test("authored MIR: array destinations check at the selected time and reuse the 
     export function compound(values: number[], value: number): void { values[key()] += amount(value); }
     export function unchanged(values: number[], value: number): void { values[key()] += value; }
     export function read(values: readonly boolean[]): boolean { return values[key()]; }
-  `);
+  `, ["write", "compound", "unchanged", "read"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   for (const [destinationCheck, arrayIndexFailure, holding] of [
@@ -504,7 +504,7 @@ test("authored MIR: switch evaluates selected labels in order and reads the subj
       switch (subject) { case false: entered = true; case false: return entered; default: return false; }
     }`, [4, 4, 3, 4, 5]],
   ]) {
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["run"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index, modules } = output.value;
@@ -636,7 +636,7 @@ test("authored MIR: an effect-only void operand pays only for a consumed absence
     export function discard(): void { void effect(); }
     export function use(): undefined { return void effect(); }
     export function direct(): void { effect(); return; }
-    export function forwarded(): void { return effect(); }`);
+    export function forwarded(): void { return effect(); }`, ["discard", "use", "direct", "forwarded"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -702,7 +702,7 @@ test("authored MIR: static and absence reads preserve their record budget and na
   const input = analysisInput(fixture, "sdk-minimal", `
     export const state: boolean = true;
     export function read(): boolean { return state; }
-    export function absent(): undefined { return undefined; }`);
+    export function absent(): undefined { return undefined; }`, ["read", "absent"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const table = result.value.index.types;

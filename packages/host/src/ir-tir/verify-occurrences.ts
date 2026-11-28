@@ -1,4 +1,4 @@
-import type { BodyId, DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, LocalRef, NodeId, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { ArrayLiteralExpression, BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
 import { checkedContextualTupleAssertionOf, checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
@@ -233,8 +233,16 @@ export interface TirSemanticInventory {
   readonly operations: readonly { readonly value: TypedOperation; readonly node: TirNode }[];
   readonly protocols: readonly { readonly value: TirProtocol; readonly node: TirNode; readonly ordinal: number | null }[];
   readonly deferred: readonly { readonly value: DeferredDecision; readonly node: TirNode }[];
-  readonly initializers: readonly { readonly value: BodyInstance; readonly node: TirNode | null }[];
+  readonly initializers: readonly TirInitializerUse[];
   readonly templates: readonly { readonly value: TypedBodyTemplate; readonly node: TirOccurrenceSite }[];
+}
+
+interface TirInitializerUse {
+  readonly value: BodyInstance;
+  readonly node: TirNode;
+  readonly signature: SigId;
+  readonly parameter: number;
+  readonly activation: BodyInstance | null;
 }
 
 export const collectTirSemantics = (structure: TirStructure): TirSemanticInventory => {
@@ -242,12 +250,9 @@ export const collectTirSemantics = (structure: TirStructure): TirSemanticInvento
   const operations: { value: TypedOperation; node: TirNode }[] = [];
   const protocols: { value: TirProtocol; node: TirNode; ordinal: number | null }[] = [];
   const deferred: { value: DeferredDecision; node: TirNode }[] = [];
-  const initializers: { value: BodyInstance; node: TirNode | null }[] = [];
+  const initializers: TirInitializerUse[] = [];
   const templates: { value: TypedBodyTemplate; node: TirOccurrenceSite }[] = [];
   const pending: TirSemanticWork[] = [];
-  const initializer = (value: BodyInstance, node: TirNode | null): void => {
-    initializers.push({ value, node });
-  };
   const operation = (value: RuleOutcome<TypedOperation> | null, node: TirNode): void => {
     if (value !== null) pending.push(value.kind === "decided" ? { kind: "operation", value: value.decision, node }
       : { kind: "deferred", value: value.deferred, node });
@@ -291,7 +296,9 @@ export const collectTirSemantics = (structure: TirStructure): TirSemanticInvento
       else {
         pending.push({ kind: "callee", value: application.decision.callee, node });
         for (const argument of application.decision.arguments) if (argument.kind === "omitted" && argument.value.kind === "initializer") {
-          initializer(argument.value.instance, node);
+          initializers.push({ value: argument.value.instance, node,
+            signature: application.decision.callee.decision.completion.signature, parameter: argument.parameter,
+            activation: application.decision.callee.activation });
         }
       }
     } else if (node.kind === "ExpressionWithTypeArguments" && node.tsonic.role === "value" && node.tsonic.application !== null) {
@@ -408,14 +415,16 @@ function verifyFieldBindings<Stop extends object>(typed: BindingPattern<TypedPha
       : binding.declaration.kind !== "definition" || binding.declaration.definition !== target.definition)
       || authored.tsonic.declaredType.kind !== "available" || authored.tsonic.declaredType.value !== binding.storage)
       emit("binding-storage", element, "a data-field binding retains its independently checked destination");
-    if (element.initializer?.id !== authored.initializer?.id || (element.initializer === null) !== (binding.initializer === null))
+    const initializer = element.initializer;
+    if ((initializer.kind === "none" ? undefined : initializer.root.id) !== authored.initializer?.id
+      || (initializer.kind === "none") !== (binding.initializer === null))
       emit("binding-storage", element, "an authored default retains its actual independently placed expression");
     const read = binding.field.decision.read;
     const beforeRead = admit({ kind: "row" });
     if (beforeRead !== null) return beforeRead;
     const term = read === null ? undefined : types.terms[read];
     let stopped: Stop | null = null;
-    const domain = term?.kind === "optional" && element.initializer !== null ? optionalValueDomainOf(term, type => {
+    const domain = term?.kind === "optional" && initializer.kind !== "none" ? optionalValueDomainOf(term, type => {
       stopped ??= admit({ kind: "row" });
       return stopped === null ? types.terms[type] ?? null : null;
     }) : null;
@@ -475,7 +484,7 @@ export function verifyPatternBinding<Stop extends object>(node: VariableDeclarat
     const element = typed.elements.nodes[index];
     const authored = source.elements.nodes[index];
     const slot = tuple.elements[index];
-    if (element === undefined || authored?.id !== element.id || slot?.kind !== "required" || element.initializer !== null
+    if (element === undefined || authored?.id !== element.id || slot?.kind !== "required" || element.initializer.kind !== "none"
       || element.dotDotDotToken !== null || element.propertyName !== null) {
       emit("binding-storage", element ?? typed, "a fixed binding slot must retain its actual authored ordinal and required selected value");
       continue;

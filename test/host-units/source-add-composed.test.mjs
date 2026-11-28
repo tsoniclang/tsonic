@@ -47,7 +47,7 @@ test("Typed tuple bindings preserve the actual producer and reject same-carrier 
       const [first, second] = produce(pair);
       return first;
     }
-  `);
+  `, ["start"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));

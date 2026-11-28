@@ -1,7 +1,7 @@
 import { constructBindingPattern, constructImportDeclaration } from "./text-syntax-construction.js";
 import { lazyReader, literalReader, nullableReader, roleSyntaxReader, sequenceReader } from "./text-construction.js";
 import type { TirRecordCodec } from "./text-layouts.js";
-import type { TirFormal, TirFormalInitializer, TypedCase } from "./contract.js";
+import type { TirFormal, TirDefaultInitializer, TypedCase } from "./contract.js";
 import type {
   TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
 } from "./contract.js";
@@ -35,7 +35,7 @@ export interface SyntaxStatementsTextReads {
   readonly work_TypedIteration: TirRecordCodec<TypedIteration>;
   readonly work_TypedNamespace: TirRecordCodec<TypedNamespace>;
   readonly work_TypedParameter: TirRecordCodec<TypedParameter>;
-  readonly work_TirFormalInitializer: TirRecordCodec<TirFormalInitializer>;
+  readonly work_TirDefaultInitializer: TirRecordCodec<TirDefaultInitializer>;
   readonly work_TypedStorageDeclaration: TirRecordCodec<TypedStorageDeclaration>;
   readonly work_TypedVariableList: TirRecordCodec<TypedVariableList>;
 }
@@ -324,7 +324,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("name", "$BindingName", value => syntaxReference("$BindingName", value.name), syntaxReads.BindingName)
     .field("questionToken", "?$QuestionToken", value => nullableWork(value.questionToken, actual => syntaxReference("$QuestionToken", actual)), nullableReader(syntaxReads.QuestionToken))
     .field("type", "?$TypeNode", value => nullableWork(value.type, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
-    .field("initializer", "TirFormalInitializer", value => read.work_TirFormalInitializer.write(value.initializer), lazyReader(() => read.work_TirFormalInitializer.reader))
+    .field("initializer", "TirDefaultInitializer", value => read.work_TirDefaultInitializer.write(value.initializer), lazyReader(() => read.work_TirDefaultInitializer.reader))
     .field("tsonic", "TypedParameter", value => read.work_TypedParameter.write(value.tsonic), lazyReader(() => read.work_TypedParameter.reader))
     .finishRole((id, origin, parent, flags, loc, modifiers, dotDotDotToken, name, questionToken, type, initializer, tsonic) =>
       ({ id, origin, parent, flags, loc, kind: "Parameter", modifiers, dotDotDotToken, name, questionToken, type, initializer, tsonic }),
@@ -335,7 +335,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("dotDotDotToken", "?$DotDotDotToken", value => nullableWork(value.dotDotDotToken, actual => syntaxReference("$DotDotDotToken", actual)), nullableReader(syntaxReads.DotDotDotToken))
     .field("propertyName", "?$PropertyName", value => nullableWork(value.propertyName, actual => syntaxReference("$PropertyName", actual)), nullableReader(syntaxReads.PropertyName))
     .field("name", "?$BindingName", value => nullableWork(value.name, actual => syntaxReference("$BindingName", actual)), nullableReader(syntaxReads.BindingName))
-    .field("initializer", "?$Expression", value => nullableWork(value.initializer, actual => syntaxReference("$Expression", actual)), nullableReader(syntaxReads.Expression))
+    .field("initializer", "TirDefaultInitializer", value => read.work_TirDefaultInitializer.write(value.initializer), lazyReader(() => read.work_TirDefaultInitializer.reader))
     .field("tsonic", "TypedBindingElement", value => read.work_TypedBindingElement.write(value.tsonic), lazyReader(() => read.work_TypedBindingElement.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_dotDotDotToken, field_propertyName, field_name, field_initializer, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, dotDotDotToken: field_dotDotDotToken, propertyName: field_propertyName, name: field_name,

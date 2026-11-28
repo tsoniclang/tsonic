@@ -24,7 +24,7 @@ export async function checkHeldFieldBinding() {
       }
       return false;
     }
-  `);
+  `, ["required", "guarded"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const { types, checked, modules } = captured.value;

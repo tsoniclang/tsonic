@@ -77,7 +77,7 @@ export async function checkSelectedStaticExposure() {
   const moduleOf = name => fixture.moduleOf(fixture.packageOf("/project"), `src/${name}.ts`);
   const request = { module: moduleOf("api"), name: "exposed" };
   const snapshot = (declaration, exposed) => fixture.projectSnapshot({ sourceFiles: {
-    "main.ts": "export const start: boolean = true; export function run(value: boolean): boolean { return value; }",
+    "main.ts": "export const start: boolean = true; export function run(value: boolean): boolean { return value; } run(start);",
     "api.ts": "export { selected as exposed } from './provider.js';",
     "provider.ts": declaration,
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: exposed ? [request] : [] });

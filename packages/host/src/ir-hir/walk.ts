@@ -1,5 +1,5 @@
 import type { ApplicationSyntaxReceipt, ArrayLiteralExpression, BindingElement, BindingName, BindingPattern, CheckedContextualTupleAssertionOf, CheckedPhase, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
-  OrdinarySyntaxPhase, ParameterDeclaration, Phase, SyntaxArgumentListReceipt, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
+  DefaultInitializerOwner, BindingElementSyntaxReceipt, OrdinarySyntaxPhase, Phase, SyntaxArgumentListReceipt, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
   SyntaxCallArgumentsImage, SyntaxInitializerImage, VisitCheckedInferredTupleProducts, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
@@ -167,12 +167,12 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
 ) {
   interface Path { readonly parent: Path | null; readonly segment: string }
   type ChildSlot = { readonly kind: "child"; readonly value: SyntaxChildSlot<PhaseType> }
-    | { readonly kind: "initializer"; readonly parameter: ParameterDeclaration<PhaseType>; readonly field: "initializer" };
-  interface FormalOccurrence {
-    readonly kind: "parameter";
+    | { readonly kind: "initializer"; readonly owner: DefaultInitializerOwner<PhaseType>; readonly field: "initializer" };
+  interface DefaultOccurrence {
+    readonly kind: "default";
     readonly ordinal: number;
     readonly initializer: Expression<PhaseType> | null;
-    readonly header: ParameterSyntaxReceipt<PhaseType>;
+    readonly header: ParameterSyntaxReceipt<PhaseType> | BindingElementSyntaxReceipt<PhaseType>;
   }
   interface CallOccurrence {
     readonly kind: "call-arguments";
@@ -186,7 +186,7 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
     | { readonly kind: "enter"; readonly node: SyntaxNode<PhaseType>; readonly path: Path }
     | { readonly kind: "children"; readonly iterator: Iterator<ChildSlot>; readonly path: Path }
     | { readonly kind: "leave"; readonly node: SyntaxNode<PhaseType> };
-  const wire = new Map<SyntaxNode<PhaseType>, number | FormalOccurrence | CallOccurrence | SyntaxStructureReceipt<PhaseType>>();
+  const wire = new Map<SyntaxNode<PhaseType>, number | DefaultOccurrence | CallOccurrence | SyntaxStructureReceipt<PhaseType>>();
   const active = new Set<SyntaxNode<PhaseType>>();
   const nodes: SyntaxNode<PhaseType>[] = [];
   const postorder: SyntaxNode<PhaseType>[] = [];
@@ -226,10 +226,10 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
           function* selectedSlots(): Generator<ChildSlot> {
             if (shape === null) {
               yield* iterateSyntaxChildSlots<PhaseType, ChildSlot>(node, value => ({ kind: "child", value }),
-                (parameter, field) => [{ kind: "initializer", parameter, field }], () => throwInvariant(missingStructure));
+                (owner, field) => [{ kind: "initializer", owner, field }], () => throwInvariant(missingStructure));
               return;
             }
-            yield* structuralSlots(shape.slots, node.kind === "Parameter" ? node : null);
+            yield* structuralSlots(shape.slots, node.kind === "Parameter" || node.kind === "BindingElement" ? node : null);
             if (shape.kind !== "application" || shape.form !== "call") return;
             const args = prepareSyntaxArgumentList<PhaseType>(shape.arguments());
             wire.set(node, { kind: "call-arguments", ordinal, header: shape, arguments: args });
@@ -243,22 +243,22 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
           const slot = frame.iterator.next();
           if (slot.done) break;
           if (slot.value.kind === "initializer") {
-            const { parameter, field } = slot.value;
-            const reserved = admission.parameter(parameter);
+            const { owner, field } = slot.value;
+            const reserved = admission.initializer(owner);
             if (reserved !== null) return reserved;
-            const retained = wire.get(parameter);
-            if (retained === undefined || typeof retained === "number" || retained.kind !== "formal-header")
-              return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
-              message: "A formal initializer must belong to its one admitted pointer." });
-            const initializer = parameter.initializer;
+            const retained = wire.get(owner);
+            if (retained === undefined || typeof retained === "number" || retained.kind !== "formal-header" && retained.kind !== "binding-element")
+              return throwInvariant({ owner: "ir-hir", query: null, origin: owner.origin,
+              message: "A default initializer must belong to its one admitted pointer." });
+            const initializer = owner.initializer;
             if (initializer === null) {
-              wire.set(parameter, { kind: "parameter", ordinal: retained.ordinal, initializer, header: retained });
+              wire.set(owner, { kind: "default", ordinal: retained.ordinal, initializer, header: retained });
               pending.push(frame);
               break;
             }
             const stop = admission.edge();
             if (stop !== null) return stop;
-            wire.set(parameter, { kind: "parameter", ordinal: retained.ordinal, initializer, header: retained });
+            wire.set(owner, { kind: "default", ordinal: retained.ordinal, initializer, header: retained });
             pending.push(frame, { kind: "enter", node: initializer, path: { parent: frame.path, segment: "." + field } });
             break;
           }
@@ -275,9 +275,9 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
     }
     return null;
   }
-  function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>, formal: ParameterDeclaration<PhaseType> | null): Generator<ChildSlot> {
+  function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>, owner: DefaultInitializerOwner<PhaseType> | null): Generator<ChildSlot> {
     for (const value of values) yield { kind: "child", value };
-    if (formal !== null) yield { kind: "initializer", parameter: formal, field: "initializer" };
+    if (owner !== null) yield { kind: "initializer", owner, field: "initializer" };
   }
   const wireOf = (node: SyntaxNode<PhaseType>): number | undefined => {
     const entry = wire.get(node);
@@ -286,15 +286,15 @@ export function createSyntaxForest<PhaseType extends OrdinarySyntaxPhase<PhaseTy
   function structure(node: RetainedSyntaxNode<PhaseType>): SyntaxStructureReceipt<PhaseType> {
     const entry = wire.get(node);
     if (entry !== undefined && typeof entry !== "number")
-      return entry.kind === "parameter" || entry.kind === "call-arguments" ? entry.header : entry;
+      return entry.kind === "default" || entry.kind === "call-arguments" ? entry.header : entry;
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Syntax requires its exact admitted structural receipt." });
   }
   const copyInitializer: SyntaxInitializerImage<PhaseType, unknown> = (node, expression) => {
     const entry = wire.get(node);
-    if (entry !== undefined && typeof entry !== "number" && entry.kind === "parameter")
+    if (entry !== undefined && typeof entry !== "number" && entry.kind === "default")
       return entry.initializer === null ? null : expression(entry.initializer);
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin,
-      message: "A formal initializer requires the actually admitted syntax pointer." });
+      message: "A default initializer requires the actually admitted syntax pointer." });
   };
   const copyCallArguments: SyntaxCallArgumentsImage<PhaseType> = (node, expression) => {
     const entry = wire.get(node);

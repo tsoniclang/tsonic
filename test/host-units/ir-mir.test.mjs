@@ -1101,7 +1101,7 @@ test("MIR verification refuses crossed, unearned and omitted required cleanup tr
   const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean {
     try { flag = !flag; } finally { flag = !flag; }
     try { return flag; } finally { flag = !flag; }
-  }`);
+  }`, ["run"]);
   const published = analyzeHostProgram(input);
   assert.equal(published.kind, "ok");
   const body = published.value.modules.flatMap(row => row.bodies)

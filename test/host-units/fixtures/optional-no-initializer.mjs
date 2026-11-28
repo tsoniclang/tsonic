@@ -27,7 +27,7 @@ export async function checkOptionalNoInitializer() {
     [declaration, true, null], [declaration + call(""), true, 0],
     [declaration + call("undefined"), true, 1], [required + call("undefined"), false, 1],
   ]) {
-    const program = await analyzeOptionalSource(source);
+    const program = await analyzeOptionalSource(source, {}, provided === null ? ["pass"] : ["pass", "call"]);
     assert.equal(program.kind, "ok");
     const { index, modules } = program.value;
     const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected" && body.tir.root.kind === "Block");
@@ -167,7 +167,7 @@ export async function checkOptionalReferenceNoInitializer() {
     "export function pass(value?: string): string | undefined { return value; }\n"
     + "export function omit(): string | undefined { return pass(); }\n"
     + "export function absent(): string | undefined { return pass(undefined); }\n"
-    + "export function present(input: string): string | undefined { return pass(input); }");
+    + "export function present(input: string): string | undefined { return pass(input); }", {}, ["omit", "absent", "present"]);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const bodies = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected");

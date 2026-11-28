@@ -158,7 +158,7 @@ export function wt5() {
 const SIG_PAIR = signature("pair", [], T.int32Pair);
 export function s1() {
   const b = builders("s1head");
-  const element = (name, local, label) => ({ $: label, kind: "BindingElement", dotDotDotToken: null, propertyName: null, name: b.declName(name, local), initializer: null,
+  const element = (name, local, label) => ({ $: label, kind: "BindingElement", dotDotDotToken: null, propertyName: null, name: b.declName(name, local), initializer: { kind: "none" },
     tsonic: { role: "binding", declaration: { kind: "local", local: b.localRef(local) }, storage: T.int32, initializer: null } });
   const program = typedBody("s1head", { signature: SIG_INT32, completion: T.int32,
     locals: [["p", "binding", T.int32], ["q", "binding", T.int32]],

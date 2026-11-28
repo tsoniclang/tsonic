@@ -436,17 +436,16 @@ export function prepareBindingPattern<P extends Phase>(node: BindingPattern<P>, 
 
 export function bindingElementSlots<P extends Phase>(fields: BindingElementSyntaxFields<P>): Iterable<SyntaxChildSlot<P>> {
   return children<P, BindingElement<P>>(["dotDotDotToken", "nullable", fields.dotDotDotToken], ["propertyName", "nullable", fields.propertyName],
-    ["name", "nullable", fields.name], ["initializer", "nullable", fields.initializer]);
+    ["name", "nullable", fields.name]);
 }
 
 export function prepareBindingElement<P extends Phase>(node: BindingElement<P>, ordinal: number): BindingElementSyntaxReceipt<P> {
   const dotDotDotToken = heldChild(() => node.dotDotDotToken);
   const propertyName = heldChild(() => node.propertyName);
   const name = heldChild(() => node.name);
-  const initializer = heldChild(() => node.initializer);
   return { kind: "binding-element", ordinal, slots: bindingElementSlots<P>({
-    dotDotDotToken: dotDotDotToken.pull, propertyName: propertyName.pull, name: name.pull, initializer: initializer.pull,
-  }), dotDotDotToken: dotDotDotToken.read, propertyName: propertyName.read, name: name.read, initializer: initializer.read };
+    dotDotDotToken: dotDotDotToken.pull, propertyName: propertyName.pull, name: name.pull,
+  }), dotDotDotToken: dotDotDotToken.read, propertyName: propertyName.read, name: name.read };
 }
 
 export function* applicationSlots<P extends Phase, Slot>(node: CallOrNewExpression<P>,

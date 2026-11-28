@@ -331,19 +331,29 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (ast.is.IsPropertySignatureDeclaration(container) && ast.hasModifierKind(container, "readonly") &&
       ast.questionToken(container) === undefined && ast.typeNode(container) === node &&
       memberName(ast.name(container)) === "initializer" &&
-      ast.is.IsInterfaceDeclaration(declaration) && ast.text(ast.name(declaration)) === "ParameterDeclaration") {
+      ast.is.IsInterfaceDeclaration(declaration) && ["ParameterDeclaration", "BindingElement"].includes(ast.text(ast.name(declaration)))) {
       const selected = phaseAccessData(node, declaration);
       return selected !== false && ast.typeParameters(declaration).length === 1 &&
-        selected.parameter === ast.typeParameters(declaration)[0] && selected.key === "ParameterInitializer";
+        selected.parameter === ast.typeParameters(declaration)[0] && selected.key === "DefaultInitializer";
     }
     if (!ast.is.IsFunctionTypeNode(container) || ast.typeNode(container) !== node || ast.typeParameters(container).length !== 0 ||
       !ast.is.IsTypeAliasDeclaration(declaration) || ast.text(ast.name(declaration)) !== "SyntaxInitializerImage") return false;
     const formals = ast.typeParameters(declaration);
     const input = ast.parameters(container);
     const selected = phaseAccessData(node, declaration);
-    return selected !== false && formals.length === 2 && selected.parameter === formals[0] && selected.key === "ParameterInitializer" &&
-      input.length === 3 && input.every(requiredValueParameter) &&
-      exactPhasePort(ast.typeNode(input[0]), "ParameterDeclaration", formals[0]) &&
+    if (selected === false || formals.length !== 2 || selected.parameter !== formals[0] || selected.key !== "DefaultInitializer"
+      || input.length !== 3 || !input.every(requiredValueParameter)) return false;
+    const owner = ast.typeNode(input[0]);
+    if (!exactPhasePort(owner, "DefaultInitializerOwner", formals[0])) return false;
+    const ownerSymbol = symbol(ast.as.AsTypeReferenceNode(owner).TypeName);
+    const [family] = checker(owner).getSymbolDeclarations(ownerSymbol);
+    const union = ast.typeNode(family);
+    const parameters = ast.typeParameters(family);
+    if (parameters.length !== 1 || !ast.is.IsUnionTypeNode(union)) return false;
+    const arms = ast.children(union);
+    const exactOwners = arms.length === 2 && ["ParameterDeclaration", "BindingElement"].every(name =>
+      arms.some(arm => exactPhasePort(arm, name, parameters[0])));
+    return exactOwners &&
       exactPhasePort(ast.typeNode(input[1]), "SyntaxExpressionImage", formals[0]) &&
       selectsParameter(ast.typeNode(input[2]), formals[1]);
   };

@@ -3,7 +3,7 @@ import type { BodyId, DefId, ModuleId, NodeId, Origin, SourceNodeRef, TyId } fro
 import type { ArtifactBindings, BindingScope, BodyInstance, NominalDefinition, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { CheckedLayoutAlias, CheckedPhase, CheckedTypingCut, CheckedTypingCuts, EnumMember, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
-import type { StaticStorageOf, TirApplication, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
+import type { StaticStorageOf, TirApplication, TirBody, TirDefaultInitializer, TypedPhase } from "../ir-tir/contract.js";
 
 export interface ElaborateDeps<State> extends HirBindingViews {
   readonly cuts: CheckedTypingCuts;
@@ -69,9 +69,9 @@ export interface SelectedCallOperands {
 export type ElaborateSelectedCall = (deps: SelectedCallDeps, decision: ApplicationDecision, bindings: ArtifactBindings,
   operands: SelectedCallOperands, origin: Origin) => TirApplication;
 
-export interface FormalDefaultDeps {
+export interface DefaultAttachmentDeps {
   readonly signatureOf: SignatureOf;
 }
 
-export type AttachFormalDefault = (deps: FormalDefaultDeps, formal: TirFormal,
-  unopened: Extract<TirFormalInitializer, { readonly kind: "checked-default" }>, ready: TirBody) => Result<void>;
+export type AttachDefault = (deps: DefaultAttachmentDeps, owner: import("../ir-hir/contract.js").DefaultInitializerOwner<TypedPhase>,
+  unopened: Extract<TirDefaultInitializer, { readonly kind: "checked-default" }>, ready: TirBody) => Result<void>;

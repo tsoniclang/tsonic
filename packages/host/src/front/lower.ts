@@ -661,7 +661,12 @@ function admitNumericAnnotation(lowering: Lowering, node: NodeId, raw: RawFact<R
 function declarationLowering(lowering: Lowering): DeclarationLowering {
   return {
     core: node => coreOf(lowering, node), definitions: lowering.definitionAt, memory: node => memoryOf(lowering, node),
-    nativeArrayAnnotationOf: node => lowering.nativeArrayAnnotations?.get(node) ?? null,
+    nativeArrayReferencesOf: node => {
+      const annotation = lowering.nativeArrayAnnotations?.get(node);
+      if (annotation === undefined) return { kind: "complete", value: [] };
+      const paid = admitTypePublicationStep(lowering.typeWork, 1 + annotation.declarations.length, 1);
+      return paid ?? { kind: "complete", value: [...annotation.declarations] };
+    },
     resolution: node => resolutionOf(lowering, node, "type"),
     heritage: node => {
       const captured = lowering.authoredTypes.get(node);
@@ -778,8 +783,8 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
         }
       }
       const annotations = store ?? (lowering.nativeArrayAnnotations = new Map());
-      annotations.set(node.id, Object.freeze({ type: typed.value.value,
-        element: element.value.kind === "available" ? element.value.value : null, declarations: Object.freeze(declarations) }));
+      annotations.set(node.id, { type: typed.value.value,
+        element: element.value.kind === "available" ? element.value.value : null, declarations });
       return typed;
     },
     numericLiteral: (type, spelling, kind) => {

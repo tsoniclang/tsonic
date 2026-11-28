@@ -2,7 +2,7 @@ import { checkedSyntaxReader, lazyReader, literalReader, mapConstruction, nullab
 import type { TirReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec, TirSyntaxFields, TirSyntaxHeaderValues, TirTypedWork } from "./text-layouts.js";
-import type { TirBodyRoot, TirEnumResolution, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
+import type { TirBodyRoot, TirEnumResolution, TirFormal, TirDefaultInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
 import type { BlockOrExpression, FunctionDeclarationHeader, SourceFileHeader } from "../ir-hir/contract.js";
 import { requirePresent } from "../diag/index.js";
 import { decodeBodyId } from "../ids/index.js";
@@ -60,7 +60,7 @@ export interface BodyTextReads {
 
 export interface BodyTextModel {
   readonly work_TirBody: TirRecordCodec<TirBody>;
-  readonly work_TirFormalInitializer: TirRecordCodec<TirFormalInitializer>;
+  readonly work_TirDefaultInitializer: TirRecordCodec<TirDefaultInitializer>;
   readonly work_TirModuleRoot: (value: TirModuleRoot) => TirTypedRecordWork;
   readonly work_TirReadyCallable: (value: TirReadyCallable) => TirTypedRecordWork;
   readonly work_TirLocal: TirRecordCodec<TirLocal>;
@@ -161,16 +161,16 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       params: field_params, locals: field_locals, root: field_root, nestedBodies: field_nestedBodies, captures: field_captures,
       scopes: field_scopes, evidence: field_evidence, asynchronous: field_asynchronous, generator: field_generator,
     })));
-  const noneInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "none" }>>("none", "TirFormalInitializer", null, "none",
+  const noneInitializer = defineRecord<Extract<TirDefaultInitializer, { readonly kind: "none" }>>("none", "TirDefaultInitializer", null, "none",
     null, null, fields => fields.finish(() => ({ kind: "none" })));
-  const checkedInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "checked-default" }>>("checked-default", "TirFormalInitializer", null,
+  const checkedInitializer = defineRecord<Extract<TirDefaultInitializer, { readonly kind: "checked-default" }>>("checked-default", "TirDefaultInitializer", null,
     "checked-default", null, null, fields => fields.field("root", "$CheckedExpression", value => checkedSyntaxReference("$CheckedExpression", value.root),
       checkedSyntaxReader("$CheckedExpression", "expression", (image, ordinal) => image.expressionOf(ordinal)))
       .finish(root => ({ kind: "checked-default", root })));
-  const readyInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "ready-default" }>>("ready-default", "TirFormalInitializer", null,
+  const readyInitializer = defineRecord<Extract<TirDefaultInitializer, { readonly kind: "ready-default" }>>("ready-default", "TirDefaultInitializer", null,
     "ready-default", null, null, fields => fields.field("root", "$Expression", value => syntaxReference("$Expression", value.root), syntaxReads.Expression)
       .finish(root => ({ kind: "ready-default", root })));
-  const work_TirFormalInitializer = unionRecord<TirFormalInitializer>("TirFormalInitializer", value => value.kind === "none"
+  const work_TirDefaultInitializer = unionRecord<TirDefaultInitializer>("TirDefaultInitializer", value => value.kind === "none"
     ? noneInitializer.write(value) : value.kind === "checked-default" ? checkedInitializer.write(value) : readyInitializer.write(value),
   () => [noneInitializer.reader, checkedInitializer.reader, readyInitializer.reader]);
   type OrdinaryStatement = Extract<TirModuleStatement, { readonly kind: "ready-statement" }>["node"];
@@ -667,5 +667,5 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "deferred": return work_O_ApplicationDecision__deferred.write(value);
     }
   }, () => [work_O_ApplicationDecision__decided.reader, work_O_ApplicationDecision__deferred.reader]);
-  return { enumResolution, work_TirFormalInitializer, work_TirModuleRoot, work_TirReadyCallable, work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
+  return { enumResolution, work_TirDefaultInitializer, work_TirModuleRoot, work_TirReadyCallable, work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
 };

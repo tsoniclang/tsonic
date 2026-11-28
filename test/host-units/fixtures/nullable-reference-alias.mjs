@@ -37,10 +37,11 @@ export async function checkNullableReferenceAliases() {
   ];
   for (const [label, header, formals, statements, paths, imported = false] of cases) {
     const text = `${header} export function read(${formals}): boolean { ${statements} }`;
-    const ordinary = analysisInput(fixture, "sdk-minimal", text);
+    const ordinary = analysisInput(fixture, "sdk-minimal", text, ["read"]);
     const snapshot = imported
       ? fixture.projectSnapshot({ sourceFiles: { "main.ts": text, "model.ts": "export type Maybe = ({ flag: boolean } | null | undefined);" },
-        libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] })
+        libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+        externalEntries: ordinary.snapshot.contributions.externalEntries })
       : ordinary.snapshot;
     const result = analyzeHostProgram({ ...ordinary, snapshot });
     assert.equal(result.kind, "ok", label);

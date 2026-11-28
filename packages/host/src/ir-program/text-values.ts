@@ -194,6 +194,7 @@ export function textTextEdit(value: TextEdit): TextWork {
 export interface SyntaxTextContext {
   readonly reference: (node: SyntaxNode<TypedPhase>) => TextWork;
   readonly checked: (node: import("../ir-hir/contract.js").HirNode) => TextWork;
+  readonly initializer: (value: import("../ir-tir/contract.js").TirDefaultInitializer) => TextWork;
 }
 
 export function textRange(value: TextRange): TextWork {

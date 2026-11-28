@@ -25,7 +25,7 @@ function checkedCall(fixture, text) {
 test("a later required formal blocks omission, and supplied absence needs the real native domain", async () => {
   const fixture = await loadFrontFixture();
   for (const [type, arguments_, hasAbsence] of [[nullable, "undefined, false", true], ["boolean", "false, false", false]]) {
-    const program = await analyzeOptionalSource(source(type, arguments_));
+    const program = await analyzeOptionalSource(source(type, arguments_), {}, ["call"]);
     assert.equal(program.kind, "ok");
     const { index, modules } = program.value;
     const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected" && body.tir.root.kind === "Block");
@@ -39,8 +39,9 @@ test("a later required formal blocks omission, and supplied absence needs the re
     assert.equal(later.kind, "required");
     assert.equal(later.acceptsOmission, false);
     assert.equal(later.initializer, null);
-    const initializer = modules.flatMap(module => module.bodies).find(body => body.instance.body === first.initializer);
-    assert.equal(initializer?.tir.root.kind, "TrueKeyword");
+    assert.equal(callee.tir.params[0].initializer.kind, "checked-default");
+    assert.equal(callee.tir.params[0].initializer.root.kind, "TrueKeyword");
+    assert.equal(modules.flatMap(module => module.bodies).some(row => row.kind === "selected" && row.instance.body === first.initializer), false);
     assert.deepEqual(callee.mir.entries.map(entry => entry.provided), [2]);
     assert.deepEqual(callee.facts.map(facts => facts.execution.provided), [2]);
     assert.ok(index.dependencyInventory);

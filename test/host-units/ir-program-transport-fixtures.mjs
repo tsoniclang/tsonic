@@ -333,7 +333,7 @@ export function nullableSyntaxCases(node, definition, body) {
       || field === "initializer" && node.kind === "PropertyAssignment"
       || field === "comment" && node.kind === "JSDoc"
       || field === "attributes" && ["ImportAttributes", "JsxOpeningElement", "JsxSelfClosingElement"].includes(node.kind)) continue;
-    if (node.kind === "Parameter" && field === "initializer") {
+    if ((node.kind === "Parameter" || node.kind === "BindingElement") && field === "initializer") {
       const initializer = node.initializer.kind === "none" ? { kind: "ready-default", root: provide() } : { kind: "none" };
       result.push({ field, node: { ...structuredClone(node), initializer } });
     } else if (node[field] === null) result.push({ field, node: { ...structuredClone(node), [field]: provide() } });

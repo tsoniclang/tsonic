@@ -10,8 +10,8 @@ import type { CreateRuleTable, DecideCaptureModes, TypePatternMatch } from "../r
 import { createRuleTable, decideCaptureModes, matchTypePattern } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
 import { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup } from "../infer/index.js";
-import type { AttachFormalDefault, Elaborate, ElaborateSelectedCall } from "../elaborate/contract.js";
-import { attachFormalDefault, elaborate, elaborateSelectedCall } from "../elaborate/index.js";
+import type { AttachDefault, Elaborate, ElaborateSelectedCall } from "../elaborate/contract.js";
+import { attachDefault, elaborate, elaborateSelectedCall } from "../elaborate/index.js";
 import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
 import type { Evaluate, ResumeEvaluate } from "../evaluate/contract.js";
@@ -42,7 +42,7 @@ export interface PipelineWiring {
     readonly matchTypePattern: TypePatternMatch };
   readonly infer: { readonly constraintsOf: ConstraintsOf; readonly groupsOf: GroupsOf; readonly resumeConstraintsOf: ResumeConstraintsOf;
     readonly resumeSolveGroup: ResumeSolveGroup; readonly solveGroup: SolveGroup };
-  readonly elaborate: { readonly attachFormalDefault: AttachFormalDefault; readonly elaborate: Elaborate;
+  readonly elaborate: { readonly attachDefault: AttachDefault; readonly elaborate: Elaborate;
     readonly elaborateSelectedCall: ElaborateSelectedCall };
   readonly lowerMir: { readonly lowerToMir: LowerToMir };
   readonly evaluate: { readonly evaluate: Evaluate; readonly resumeEvaluate: ResumeEvaluate };
@@ -89,7 +89,7 @@ export const pipelineWiring: PipelineWiring = {
     produceType, resumeProduceType, enumOf, resumeEnumOf },
   rules: { createRuleTable, decideCaptureModes, matchTypePattern },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
-  elaborate: { attachFormalDefault, elaborate, elaborateSelectedCall },
+  elaborate: { attachDefault, elaborate, elaborateSelectedCall },
   lowerMir: { lowerToMir },
   evaluate: { evaluate, resumeEvaluate },
   metadata: { layoutOf, resumeLayout, materializeMetadata, observeLayout },

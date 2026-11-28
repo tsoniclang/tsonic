@@ -136,7 +136,7 @@ test("a named field receiver preserves its own alias and the field that supplied
         ${optional ? "if (box.part === undefined) return false;" : ""}
         return box.part.flag;
       }
-    `);
+    `, ["read"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
     const { checked, modules, types } = captured.value;
@@ -521,7 +521,7 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
   assert.deepEqual(actualPlace.value.base, { kind: "receiver", node: written.expression.id });
   const roots = [checked.tree, ...checked.bodies.map(body => body.root)];
   const forest = product.walkSyntaxForest(roots.map(node => ({ path: "checked storage roots", read: () => node })), {
-    root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+    root: () => null, edge: () => null, node: () => null, initializer: () => null, structure: () => null, list: () => null,
   });
   assert.equal(forest.kind, "complete");
   const hold = value => ({ kind: "copied", value });
@@ -552,7 +552,7 @@ test("an authored excluded expression stays checked through its copied image and
   assert.equal(original.form, "DynamicImport");
   const forest = () => {
     const walked = product.walkSyntaxForest([{ path: "checked chapter", read: () => checked.tree }], {
-      root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+      root: () => null, edge: () => null, node: () => null, initializer: () => null, structure: () => null, list: () => null,
     });
     assert.equal(walked.kind, "complete");
     return walked.value;
@@ -598,7 +598,7 @@ test("checked layout copying preserves the authored selector and every geometry 
     ["row", "array", ["length", "bytesize", "bytealignment", "stride"]]];
   const roots = [checked.tree, ...checked.bodies.map(body => body.root)];
   const walk = product.walkSyntaxForest(roots.map(node => ({ path: "checked layout roots", read: () => node })), {
-    root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+    root: () => null, edge: () => null, node: () => null, initializer: () => null, structure: () => null, list: () => null,
   });
   assert.equal(walk.kind, "complete");
   const hold = value => ({ kind: "copied", value });
@@ -953,7 +953,7 @@ test("HIR structural walk pays before checked roots, required children and order
   const invoke = (maximum, roots) => {
     const account = createAccount({ maximumWork: maximum, maximumResultEntries: 0 });
     const step = () => chargeWork(account, 1);
-    const result = product.walkSyntaxForest(roots, { root: step, edge: step, node: step, parameter: step,
+    const result = product.walkSyntaxForest(roots, { root: step, edge: step, node: step, initializer: step,
       structure: () => null, list: () => null });
     if (result.kind === "resource-limit") assert.equal(result === accountFailure(account), true);
     assert.equal(remainingWork(account), 0);
@@ -1013,7 +1013,7 @@ test("HIR structural walk pays before checked roots, required children and order
     assert.deepEqual(reads, expected);
   }
   const leaf = original.left;
-  const ordinary = { root: () => null, edge: () => null, node: () => null, parameter: () => null,
+  const ordinary = { root: () => null, edge: () => null, node: () => null, initializer: () => null,
     structure: () => null, list: () => null };
   assert.equal(invoke(0, []).kind, "complete", "empty root inventory does not invent a paid edge");
   const shared = { ...binary, left: leaf, right: leaf };
@@ -1070,7 +1070,7 @@ test("HIR checked image preserves qualified nodes and stops before the next actu
   const forest = () => product.walkSyntaxForest([{ path: "first", read: () => first }, { path: "second", read: () => second },
     { path: "module", read: () => checked.tree },
     ...checked.bodies.map(body => ({ path: body.body, read: () => body.root }))],
-  { root: () => null, node: () => null, edge: () => null, parameter: () => null,
+  { root: () => null, node: () => null, edge: () => null, initializer: () => null,
     structure: () => null, list: () => null }).value;
   const callable = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration"
     && node.tsonic.signatures.some(row => row.signature !== rewrite.signature(row.signature)));
@@ -1351,7 +1351,7 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const read = () => admit(1, 0);
     const forest = product.walkSyntaxForest([{ path: "candidate.tree", read: () => source.tree }], {
-      root: read, node: read, edge: read, parameter: () => admit(1, 1), structure: () => admit(1, 1), list: read,
+      root: read, node: read, edge: read, initializer: () => admit(1, 1), structure: () => admit(1, 1), list: read,
     });
     assert.equal(forest.kind, "complete");
     return product.copyCheckedModule(source, forest.value, {
@@ -2043,7 +2043,7 @@ test("one admitted Checked content image retains detached roots and independent 
     { path: "candidate.checked-default", read: () => expression },
     { path: "evidence.tree", read: () => checked.tree },
     { path: "foreign.checked-default", read: () => foreign },
-  ], { root: () => null, node: () => null, edge: () => null, parameter: () => null,
+  ], { root: () => null, node: () => null, edge: () => null, initializer: () => null,
     structure: () => null, list: () => null }).value;
   const seen = [];
   const hold = value => ({ kind: "copied", value });
@@ -2090,7 +2090,7 @@ test("independent checked roots extend one image without changing the settled pr
   const entry = (path, value) => ({ path, read: () => value });
   const hold = value => ({ kind: "copied", value });
   const admitted = [];
-  const walk = { root: () => null, edge: () => null, parameter: () => null, structure: () => null, list: () => null,
+  const walk = { root: () => null, edge: () => null, initializer: () => null, structure: () => null, list: () => null,
     node: value => { admitted.push(value); return null; } };
   const project = { admit: () => null, syntaxNode: () => null, type: hold, signature: hold, bindings: hold,
     parameter: hold, component: hold, core: hold };
@@ -2122,7 +2122,7 @@ test("an authentic syntax forest has exactly one consuming materialization", asy
   const body = () => fixture.checkedModuleOf("export function use(): void { return; }").checked.tree.statements.nodes[0].body;
   const capture = roots => {
     const graph = product.walkSyntaxForest(roots.map(root => ({ path: "body", read: () => root })), {
-      root: () => null, edge: () => null, node: () => null, parameter: () => null,
+      root: () => null, edge: () => null, node: () => null, initializer: () => null,
       structure: () => null, list: () => null,
     });
     assert.equal(graph.kind, "complete");
@@ -2224,7 +2224,7 @@ test("Checked module, callable and formal receipts retain each acquired structur
     const step = () => chargeInstantiationWork(meter);
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const graph = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
-      root: step, edge: step, node: step, parameter: () => admit(1, 1),
+      root: step, edge: step, node: step, initializer: () => admit(1, 1),
       structure: node => admit(node.kind === "Block" ? 9 : 7, 2), list: step,
     });
     if (graph.kind !== "complete") return { graph, stop: meter.failure ?? accountFailure(meter.account) };
@@ -2297,7 +2297,7 @@ test("Checked branch, operand and annotation slots are read once before the comp
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const forest = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
       root: unit, edge: unit, node: unit, list: unit,
-      parameter: () => admit(1, 1), structure: node => admit(node.kind === "Block" ? 9 : 7, 2),
+      initializer: () => admit(1, 1), structure: node => admit(node.kind === "Block" ? 9 : 7, 2),
     });
     if (forest.kind !== "complete") return { result: { kind: "refused", stop: forest }, stop: meter.failure ?? accountFailure(meter.account) };
     sealed = true;
@@ -2404,7 +2404,7 @@ test("Checked control flow seals authored operands, clause lists and exception r
     const unit = () => chargeInstantiationWork(meter);
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const forest = product.walkSyntaxForest([{ path: "control", read: () => checked.tree }, { path: "exceptions", read: () => exceptions.tree }], {
-      root: unit, edge: unit, node: unit, parameter: () => admit(1, 1),
+      root: unit, edge: unit, node: unit, initializer: () => admit(1, 1),
       structure: () => admit(7, 2), list: () => admit(3, 1),
     });
     const stop = () => meter.failure ?? accountFailure(meter.account);
@@ -2499,7 +2499,7 @@ test("Checked declaration and type recipes retain the actual lists, named argume
     const unit = () => chargeInstantiationWork(meter);
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const ready = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
-      root: unit, edge: unit, node: unit, parameter: () => admit(1, 1),
+      root: unit, edge: unit, node: unit, initializer: () => admit(1, 1),
       structure: () => admit(7, 2), list: () => admit(3, 1),
     });
     const stop = () => meter.failure ?? accountFailure(meter.account);
@@ -2578,7 +2578,7 @@ test("Block and Binary materialize only actual paid fields, not post-admission g
       right: { get: () => observe("right", right) },
     });
     const forest = product.walkSyntaxForest([{ path: "actual.body", read: () => block }], {
-      root: edge, node: edge, edge, parameter: () => admit(1, 1),
+      root: edge, node: edge, edge, initializer: () => admit(1, 1),
       structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
       list: edge,
     });
@@ -3661,7 +3661,7 @@ const cursor: Generator<SyntaxNode<P>, void, undefined> = iterate(node);
 const childResult: readonly SyntaxNode<P>[] = children(node); const indexResult: readonly SyntaxNode<P>[] = index(root); const walkResult: readonly SyntaxNode<P>[] = walk(node, stop);
 const forest: WalkSyntaxForest = walkSyntaxForest;
 const forestResult: Iterable<SyntaxNode<P>> = forest<P, never>([{ path: "module", read: () => root }],
-  { root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null }).value.nodes();
+  { root: () => null, edge: () => null, node: () => null, initializer: () => null, structure: () => null, list: () => null }).value.nodes();
 return { childResult, indexResult, walkResult, cursor, forestResult }; }
 export function transparent<P extends Phase>(expression: Expression<P>): Expression<P> {
 const unwrap: UnparenthesizedExpression = unparenthesizedExpression; return unwrap(expression); }

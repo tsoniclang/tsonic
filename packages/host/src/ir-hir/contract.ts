@@ -478,7 +478,7 @@ export interface ModifierList<P extends Phase> extends NodeList<ModifierLike<P>>
 
 export interface Phase {
   readonly Token: object | null;
-  readonly ParameterInitializer: object | null;
+  readonly DefaultInitializer: object | null;
   readonly CallArguments: { readonly loc: TextRange };
   readonly Identifier: object | null;
   readonly PrivateIdentifier: object | null;
@@ -675,7 +675,7 @@ export interface Phase {
 
 export interface SyntaxPhase extends Phase {
   readonly Token: null;
-  readonly ParameterInitializer: Expression<SyntaxPhase> | null;
+  readonly DefaultInitializer: Expression<SyntaxPhase> | null;
   readonly CallArguments: NodeList<Expression<SyntaxPhase>>;
   readonly Identifier: null;
   readonly PrivateIdentifier: null;
@@ -1096,7 +1096,7 @@ export interface ParameterDeclaration<P extends Phase> extends NodeHeader {
   readonly name: BindingName<P>;
   readonly questionToken: QuestionToken<P> | null;
   readonly type: TypeNode<P> | null;
-  readonly initializer: P["ParameterInitializer"];
+  readonly initializer: P["DefaultInitializer"];
   readonly tsonic: P["ParameterDeclaration"];
 }
 
@@ -1105,9 +1105,11 @@ export interface BindingElement<P extends Phase> extends NodeHeader {
   readonly dotDotDotToken: DotDotDotToken<P> | null;
   readonly propertyName: PropertyName<P> | null;
   readonly name: BindingName<P> | null;
-  readonly initializer: Expression<P> | null;
+  readonly initializer: P["DefaultInitializer"];
   readonly tsonic: P["BindingElement"];
 }
+
+export type DefaultInitializerOwner<P extends Phase> = ParameterDeclaration<P> | BindingElement<P>;
 
 export interface MissingDeclaration<P extends Phase> extends NodeHeader {
   readonly kind: "MissingDeclaration";
@@ -4631,7 +4633,7 @@ export interface CheckedTypeParameter extends CheckedDeclaration {
 
 export interface CheckedPhase extends Phase {
   readonly Token: null;
-  readonly ParameterInitializer: Expression<CheckedPhase> | null;
+  readonly DefaultInitializer: Expression<CheckedPhase> | null;
   readonly CallArguments: NodeList<Expression<CheckedPhase>>;
   readonly Identifier: CheckedName;
   readonly PrivateIdentifier: CheckedName;
@@ -4987,7 +4989,7 @@ export interface HirVerificationContext {
 }
 export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
 export type OrdinarySyntaxPhase<P extends Phase> = Phase & {
-  readonly ParameterInitializer: Expression<P> | null;
+  readonly DefaultInitializer: Expression<P> | null;
   readonly CallArguments: NodeList<Expression<P>>;
 };
 
@@ -5037,7 +5039,7 @@ export interface SyntaxChildSlot<P extends Phase> {
 
 export type IterateSyntaxChildSlots = <P extends Phase, Slot>(node: SyntaxNode<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot,
-  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>,
+  initializer: (node: DefaultInitializerOwner<P>, field: "initializer") => Iterable<Slot>,
   argumentsOf: (node: CallExpression<P>, field: "arguments") => Iterable<Slot>) => Iterable<Slot>;
 
 export type IterateSourceFileHeaderSlots = <P extends Phase, Slot>(node: SourceFileHeader<P>,
@@ -5224,7 +5226,6 @@ export interface BindingElementSyntaxFields<P extends Phase> {
   readonly dotDotDotToken: () => DotDotDotToken<P> | null;
   readonly propertyName: () => PropertyName<P> | null;
   readonly name: () => BindingName<P> | null;
-  readonly initializer: () => Expression<P> | null;
 }
 
 export interface BindingElementSyntaxReceipt<P extends Phase> extends BindingElementSyntaxFields<P> {
@@ -5713,8 +5714,8 @@ export interface SyntaxImage<P extends Phase> {
 export type SyntaxExpressionImage<P extends Phase> = (expression: Expression<P>) => Expression<P>;
 
 export type SyntaxInitializerImage<P extends Phase, Image> = (
-  parameter: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image,
-) => P["ParameterInitializer"];
+  owner: DefaultInitializerOwner<P>, expression: SyntaxExpressionImage<P>, image: Image,
+) => P["DefaultInitializer"];
 
 export type SyntaxCallArgumentsImage<P extends Phase> = (
   call: CallExpression<P>, expression: SyntaxExpressionImage<P>,
@@ -5780,7 +5781,7 @@ export interface SyntaxWalkAdmission<P extends Phase, Stop> {
   readonly root: () => Stop | null;
   readonly edge: () => Stop | null;
   readonly node: (node: SyntaxNode<P>) => Stop | null;
-  readonly parameter: (node: ParameterDeclaration<P>) => Stop | null;
+  readonly initializer: (node: DefaultInitializerOwner<P>) => Stop | null;
   readonly structure: (node: RetainedSyntaxNode<P>) => Stop | null;
   readonly list: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null;
 }

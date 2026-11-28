@@ -83,7 +83,7 @@ export async function checkCommaSequence() {
     export function combine(first: boolean, next: boolean): boolean {
       return (first = next, (next = !first, next));
     }
-    export function literal(input: boolean) { return (input = true, 3); }`);
+    export function literal(input: boolean) { return (input = true, 3); }`, ["combine", "literal"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -149,7 +149,7 @@ export async function checkCommaSequence() {
 
   for (const body of ["return ((value), flag);", "(value); return flag;"]) {
     const text = `export function sample(flag: boolean): boolean { let value: boolean; ${body} }`;
-    const missing = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", text));
+    const missing = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", text, ["sample"]));
     assert.equal(missing.kind, "refused");
     assert.equal(missing.diagnostics.length, 1);
     assert.equal(missing.diagnostics[0].code.name, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -157,7 +157,7 @@ export async function checkCommaSequence() {
       module: input.snapshot.entryPoint, start: text.lastIndexOf("value"), length: "value".length, derived: [],
     } });
     const initialized = text.replace("let value: boolean;", "let value: boolean = flag;");
-    const ready = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", initialized));
+    const ready = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", initialized, ["sample"]));
     assert.equal(ready.kind, "ok", JSON.stringify(ready.diagnostics));
   }
 }
@@ -175,7 +175,7 @@ export async function checkCoalescingAssignment() {
         return observed;
       }
       export function result(left: ${optional}, right: ${optional}): ${optional} { return left ??= right; }
-    `);
+    `, ["effect", "result"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index: { types }, modules } = result.value;
@@ -242,7 +242,7 @@ export async function checkOptionalEmbedding() {
     export function absentUndefined(): string | undefined { return undefined; }
     export function absentNumber(): number | null { return null; }
     export function unavailableBits(): number | null { return 1.5; }
-  `);
+  `, ["bool", "literal", "text", "numberValue", "absentNull", "absentBoolUndefined", "absentUndefined", "absentNumber", "unavailableBits"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -337,7 +337,7 @@ export async function checkLabelledTransfers() {
     export function chain(flag: boolean, ignored: boolean, keep: boolean): boolean {
       outer: inner: do { flag = !flag; if (flag) continue outer; break inner; } while (false);
       return flag;
-    }`);
+    }`, ["advance", "leave", "chain"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -442,7 +442,7 @@ export async function checkVoidOperand() {
     export function store(before: boolean, after: boolean): boolean { void (before = after); return before; }
     export function usedStore(before: boolean, after: boolean): undefined { return void (before = after); }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["used", "discarded", "usedEffect", "discardedEffect", "store", "usedStore"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -536,7 +536,7 @@ export async function checkVoidOperand() {
   assert.deepEqual(refused.diagnostics[0].site.origin, { module: input.snapshot.entryPoint,
     start: missing.indexOf("missing"), length: "missing".length, derived: [] });
   const unwritten = "export function fail(flag: boolean): boolean { let unread: boolean; void unread; return flag; }";
-  const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", unwritten));
+  const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", unwritten, ["fail"]));
   assert.equal(uninitialized.kind, "refused");
   assert.equal(uninitialized.diagnostics.length, 1);
   assert.equal(uninitialized.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");

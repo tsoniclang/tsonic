@@ -138,7 +138,7 @@ export async function checkParenthesizedComputedDeclarationNames() {
   const { printTir, parseTir } = await import("../../../packages/host/dist/ir-tir/index.js");
   const source = 'export interface Shape { [( ("packed") )]: boolean; }'
     + 'export function echo(value: boolean): boolean { return ((value)); }';
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["echo"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -207,9 +207,11 @@ export async function checkCallShapedComputedDeclarationName() {
   const source = 'export interface Box { [(pick("field"))]: boolean; }'
     + 'export function identity(value: boolean): boolean { return value; }'
     + 'export function invoke(value: boolean): boolean { return identity(value); }';
+  const prepared = analysisInput(fixture, "sdk-minimal", source, ["invoke"]);
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    externalEntries: prepared.snapshot.contributions.externalEntries,
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent + '\ndeclare function pick(name: string): "picked";' }] });
-  const input = { ...analysisInput(fixture, "sdk-minimal", source), snapshot };
+  const input = { ...prepared, snapshot };
   const { deps, program } = fixture.openAndCapture(snapshot);
   const captured = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(captured.kind, "ok");

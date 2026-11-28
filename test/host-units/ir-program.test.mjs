@@ -775,7 +775,7 @@ test("Program wire distinguishes bodyless callable and noncallable index formals
   const fixture = await loadFrontFixture();
   const input = analysisInput(fixture, "sdk-minimal",
     "export interface Table { lookup(key: string): boolean; [key: number]: boolean; } "
-    + "export function read(key: boolean): boolean { return key; }");
+    + "export function read(key: boolean): boolean { return key; }", ["read"]);
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
@@ -809,7 +809,7 @@ test("Program type publication borrows the real captured location and entry prod
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const fixture = await loadFrontFixture();
-  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }", ["select"]);
   const accepted = analyzeHostProgram(input);
   assert.equal(accepted.kind, "ok", JSON.stringify(accepted.diagnostics));
   const { index, modules } = accepted.value;
@@ -850,7 +850,7 @@ test("paid generic body projection rejects a crossed real placement and never re
   const fixture = await loadFrontFixture();
   const input = analysisInput(fixture, "sdk-minimal", `function echo<T>(value:T):T { return value; }
 export function first(value:boolean):boolean { return echo(value); }
-export function second(value:string):string { return echo<string>(value); }`);
+export function second(value:string):string { return echo<string>(value); }`, ["first", "second"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -866,9 +866,10 @@ export function second(value:string):string { return echo<string>(value); }`);
   const selected = typed.value.placedSignatureOf(instance);
   const crossed = typed.value.placedSignatureOf(instanceOf(choices[1]));
   const resources = product.createProgramVerificationWork(input.limits.instantiation, account);
-  const unusedReplay = () => assert.fail("a substitution-ready body does not request candidate replay");
+  const evidence = { replay: () => assert.fail("a substitution-ready body does not request candidate replay"),
+    checkedDefaultOf: () => assert.fail("a body with no authored defaults does not request a checked root") };
   const specialize = (placement, resources) =>
-    product.specializeTir(template, instance, placement, typed.value.source.types, resources, unusedReplay);
+    product.specializeTir(template, instance, placement, typed.value.source.types, resources, evidence);
   assert.throws(() => product.specializeTir(template, instance, { kind: "endpoint", template: original, selected },
     typed.value.source.types, resources), /actual substitution-ready template and placed signature/u);
   assert.throws(() => specialize({ kind: "endpoint", template: original, selected: crossed }, resources),
@@ -876,15 +877,72 @@ export function second(value:string):string { return echo<string>(value); }`);
   const placement = { kind: "endpoint", template: original, selected };
   const complete = specialize(placement, resources);
   assert.equal(complete.kind, "complete");
+  assert.deepEqual(complete.defaults, []);
   assert.deepEqual(complete.value, choices[0]);
   assert.notStrictEqual(complete.value.root, choices[0].root);
   assert.equal(complete.value.bindings === instance.bindings, true);
   const exhausted = createAccount({ ...input.limits.dataflow, maximumWork: 0 });
   const stopped = product.createProgramVerificationWork(input.limits.instantiation, exhausted);
   const poison = { get body() { assert.fail("a stopped projection reads no source body"); } };
-  const refusal = product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, unusedReplay);
+  const refusal = product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, evidence);
   assert.equal(refusal.kind === "resource-limit" && refusal === accountFailure(exhausted), true);
-  assert.strictEqual(product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, unusedReplay), refusal);
+  assert.strictEqual(product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, evidence), refusal);
+});
+
+test("specialization admits the actual Checked default without pulling the template's ready child", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function pick<T>(value:T, other:T=value):T { return other; }
+    export function run(value:boolean):boolean { return pick(value,value); }
+  `, ["run"]);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const bodies = [...typed.value.bodies.values()];
+  const template = bodies.find(body => body.bindings.kind === "parametric" && body.params.length === 2);
+  const selected = bodies.find(body => body.bindings.kind === "instantiated" && body.body === template.body);
+  const sourceSlot = template.params[1].initializer;
+  const checkedSlot = selected.params[1].initializer;
+  assert.equal(sourceSlot.kind, "ready-default");
+  assert.equal(checkedSlot.kind, "checked-default");
+  Object.defineProperty(sourceSlot, "root", { get() { assert.fail("a specialization cannot pull a template-owned ready child"); } });
+  const instance = { body: selected.body, bindings: selected.bindings };
+  const placement = { kind: "endpoint", template: typed.value.placedSignatureOf({ body: template.body, bindings: template.bindings }),
+    selected: typed.value.placedSignatureOf(instance) };
+  const run = (maximumWork, maximumCreatedRecords, refuse = false) => {
+    const account = createAccount({ ...input.limits.dataflow, maximumWork });
+    const work = product.createProgramVerificationWork({ ...input.limits.instantiation, maximumCreatedRecords }, account);
+    const meter = ProgramWork.state(work);
+    const pulls = [];
+    const evidence = { replay: () => assert.fail("this template already has its actual independent decisions"), checkedDefaultOf: owner => {
+      assert.equal(owner === template.params[1], true);
+      pulls.push({ work: maximumWork - remainingWork(account), created: meter.created });
+      return refuse ? chargeWork(account, maximumWork + 1) : { kind: "complete", value: checkedSlot.root };
+    } };
+    const specialize = () => product.specializeTir(template, instance, placement, source.value.types, work, evidence);
+    const answer = specialize();
+    return { answer, meter, pulls, specialize };
+  };
+  const limit = input.limits.dataflow.maximumWork;
+  const capacity = input.limits.instantiation.maximumCreatedRecords;
+  const ready = run(limit, capacity);
+  assert.equal(ready.answer.kind, "complete");
+  assert.equal(ready.pulls.length, 1);
+  const [owner] = ready.answer.defaults;
+  assert.equal(ready.answer.defaults.length, 1);
+  assert.equal(owner === ready.answer.value.params[1] && owner.initializer.root === checkedSlot.root, true);
+  for (const [work, created] of [[ready.pulls[0].work - 1, capacity], [limit, ready.pulls[0].created - 1]]) {
+    const stopped = run(work, created);
+    assert.equal(stopped.answer.kind, "resource-limit");
+    assert.deepEqual(stopped.pulls, []);
+    assert.equal(stopped.specialize() === stopped.answer, true);
+  }
+  const stopped = run(limit, capacity, true);
+  assert.equal(stopped.answer === accountFailure(stopped.meter.account) && stopped.specialize() === stopped.answer, true);
+  assert.equal(stopped.pulls.length, 1);
 });
 
 test("candidate replay refusal preserves the actual stop without opening another prepared call", async () => {
@@ -893,7 +951,7 @@ test("candidate replay refusal preserves the actual stop without opening another
   const fixture = await loadFrontFixture();
   const input = analysisInput(fixture, "sdk-minimal", `function echo<T>(value:T):T { return value; }
 function take<T>(value:T):T { echo(value); return echo(value); }
-export function run(value:boolean):boolean { return take(value); }`);
+export function run(value:boolean):boolean { return take(value); }`, ["run"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
@@ -914,11 +972,12 @@ export function run(value:boolean):boolean { return take(value); }`);
     assert.equal(result, ready.completion);
     return chargeWork(account, maximumWork + 1);
   };
-  const stopped = product.specializeTir(template, target, placement, source.value.types, resources, replay);
+  const evidence = { replay, checkedDefaultOf: () => assert.fail("a call does not request a default root") };
+  const stopped = product.specializeTir(template, target, placement, source.value.types, resources, evidence);
   assert.equal(stopped.kind === "resource-limit" && stopped === accountFailure(account), true);
   assert.deepEqual(calls, [{ body: template.body, node: template.root.statements.nodes[0].expression.id }]);
   const unread = { get body() { assert.fail("a stopped replay must not reopen its body"); } };
-  assert.equal(product.specializeTir(unread, target, placement, source.value.types, resources, replay) === stopped, true);
+  assert.equal(product.specializeTir(unread, target, placement, source.value.types, resources, evidence) === stopped, true);
   assert.equal(calls.length, 1);
 });
 
@@ -1401,6 +1460,7 @@ test("Typed Source retains the actual placed endpoint through selected empty-sco
   inputs.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts":
     "export function left(flag: boolean): boolean { return flag; } "
     + "export function right(flag: boolean): boolean { return !flag; }" },
+  externalEntries: ["left", "right"].map(name => ({ module: inputs.snapshot.entryPoint, name })),
   libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const source = captureSourceBarrier(inputs);
   assert.equal(source.kind, "ok", JSON.stringify(source.diagnostics));
@@ -3239,7 +3299,7 @@ test("final Summary projection orders the actual qualified retention at two dist
   const { createProjectionInventory } = await import("../../packages/host/dist/ir-program/program-values.js");
   const fixture = await loadFrontFixture();
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function choose(flag:boolean,left:string,right:string):string{if(flag){return left;}throw right;}");
+    "export function choose(flag:boolean,left:string,right:string):string{if(flag){return left;}throw right;}", ["choose"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -3648,7 +3708,7 @@ test("ordinary required expression slots retain their sole paid Typed read acros
   const { publishHostProgram } = await import("../../packages/host/dist/pipeline/publication.js");
   const fixture = await loadFrontFixture();
   const run = maximumWork => {
-    const input = analysisInput(fixture, "sdk-minimal", "export function keep(flag:boolean):boolean { return (flag); }");
+    const input = analysisInput(fixture, "sdk-minimal", "export function keep(flag:boolean):boolean { return (flag); }", ["keep"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok");
     const account = createAccount({ ...input.limits.dataflow, maximumWork: maximumWork ?? input.limits.dataflow.maximumWork });
@@ -3704,7 +3764,7 @@ test("Program seals actual Typed call fields and paid argument rows before indep
   const input = analysisInput(fixture, "sdk-minimal", [
     "function second<Value>(left:Value,right:Value):Value { return right; }",
     "export function keep(left:boolean,right:boolean):boolean { return second<boolean>(left,right); }",
-  ].join("\n"));
+  ].join("\n"), ["keep"]);
   const run = maximumWork => {
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok");
@@ -4087,7 +4147,7 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
         return payload;
       } });
     }
-    const result = inventoryBodySyntax(scan, { root, params: [] }, typedSyntaxPhaseCopy(scan, "Instantiation.root", null));
+    const result = inventoryBodySyntax(scan, { root, params: [] }, typedSyntaxPhaseCopy(scan, "Instantiation.root", null), null);
     return { meter, scan, result, root, earlier, later, reads, authored, scalar, text };
   }
   const full = prepare(beforeBounds, true);

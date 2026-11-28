@@ -16,6 +16,7 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { TirBodyRoot, TirReadyCallable } from "../ir-tir/contract.js";
+import type { ReadSpecializationDefault, TirDefaultOwner } from "./contract.js";
 
 const missingImage: InvariantFailure = { owner: "ir-program", query: null, origin: null,
   message: "The actual chapter operand must occur in its admitted syntax image." };
@@ -31,10 +32,15 @@ export interface PreparedTypedSyntax {
   readonly materialize: (rewrite: TypeReferenceRewrite, checked: CheckedChapterImage) => SyntaxCopyResult<ProjectedChapter, InstantiationStop>;
 }
 
+export interface SpecializationDefaults {
+  readonly checkedRootOf: ReadSpecializationDefault;
+  owners: TirDefaultOwner[] | null;
+}
+
 export function prepareTypedChapter(scan: ProjectionInventory, roots: Iterable<ChapterRootSlot>,
-  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>):
+  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, defaults: SpecializationDefaults | null):
   { readonly kind: "complete"; readonly value: PreparedTypedSyntax } | InstantiationStop {
-  const prepared = prepareTypedNodeCopy(scan, roots, phase, {
+  const prepared = prepareTypedNodeCopy(scan, roots, phase, defaults, {
     prepare: (subject, ordinal) => {
       if (subject.kind === "module-root") return prepareModuleHeader(scan, subject.node, ordinal, phase);
       if (subject.kind === "ready-callable") return prepareCallableHeader(scan, subject.node, ordinal, phase);
@@ -48,6 +54,12 @@ export function prepareTypedChapter(scan: ProjectionInventory, roots: Iterable<C
     const projected = plan.materialize(rewrite, checked.expressionOf);
     if (projected.kind === "refused") return projected;
     const typed = projected.value;
+    const owners = defaults?.owners ?? null;
+    if (owners !== null) for (const [position, source] of owners.entries()) {
+      const selected = typed.nodeOf(source);
+      if (selected?.kind !== "Parameter" && selected?.kind !== "BindingElement") return throwInvariant(missingImage);
+      owners[position] = selected;
+    }
     const operands: HeaderOperands = { typed, checked, references: rewrite, callableOf: (source: TirReadyCallable) => {
       const header = plan.headerOf(source);
       return header?.kind === "callable" ? header.finish(operands) : throwInvariant(missingImage);
@@ -71,7 +83,7 @@ export function prepareTypedChapter(scan: ProjectionInventory, roots: Iterable<C
 }
 
 export function inventoryBodySyntax(scan: ProjectionInventory, body: AdmittedTirSyntax,
-  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>) {
+  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, defaults: SpecializationDefaults | null) {
   function* roots(): Generator<ChapterRootSlot> {
     yield { path: "TirBody.root", read: () => chapterBodyRoot(body.root) };
     for (let position = 0; position < body.params.length; position += 1) {
@@ -79,7 +91,7 @@ export function inventoryBodySyntax(scan: ProjectionInventory, body: AdmittedTir
       yield { path: "TirBody.params[" + index + "]", read: () => ({ kind: "formal", node: requirePresent(body.params[index], missingImage) }) };
     }
   }
-  return prepareTypedChapter(scan, roots(), phase);
+  return prepareTypedChapter(scan, roots(), phase, defaults);
 }
 
 function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>): InstantiationStop | null {
@@ -463,7 +475,7 @@ interface TypedChapterRoles {
 }
 
 export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<ChapterRootSlot>,
-  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, roles: TypedChapterRoles,
+  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, defaults: SpecializationDefaults | null, roles: TypedChapterRoles,
 ): SyntaxCopyResult<PreparedChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>, InstantiationStop> {
   const setup = inventoryRecord(scan, 0) ?? inventoryRecord(scan, 0);
   if (setup !== null) return { kind: "refused", stop: setup };
@@ -481,7 +493,15 @@ export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<
     root: () => null,
     edge: (_path, slot) => slot.kind === "statement" || slot.kind === "layout-operand"
       ? inventoryRecord(scan, 2) : chargeInstantiationWork(scan.meter),
-    formal: () => inventoryRecord(scan, 0),
+    initializer: () => inventoryRecord(scan, 0),
+    defaultOf: defaults === null ? null : { rootOf: owner => {
+      const stop = (defaults.owners === null ? inventoryRecord(scan, 0) : null) ?? inventoryRecord(scan, 0);
+      if (stop !== null) return { kind: "refused", stop };
+      const root = defaults.checkedRootOf(owner);
+      if (root.kind !== "complete") return { kind: "refused", stop: root };
+      (defaults.owners ??= []).push(owner);
+      return root;
+    } },
     layout: () => inventoryRecord(scan, 2) ?? inventoryRecord(scan, 0),
     prepare: (subject, ordinal, copy) => {
       position = ordinal;

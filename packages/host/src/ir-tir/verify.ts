@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeBodyId, encodeKey } from "../ids/index.js";
-import type { CheckedPhase, CheckedSourceObjectFields, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration, ReferenceArgumentRequest } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedSourceObjectFields, DefaultInitializerOwner, Expression, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration, ReferenceArgumentRequest } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
   checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
@@ -14,7 +14,7 @@ import type { CallExpression, ElementAccessExpression, PropertyAccessExpression 
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyNativeArrayAnnotation, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleAssertionProduct, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
-import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
+import { checkedAppliedSignature, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { sameSourceFileHeader } from "./syntax-compare-values.js";
@@ -269,7 +269,9 @@ function* chapterRoots(module: TirModule): Generator<TirChapterSyntax> {
 
 function sameChapterFields(subject: TirTypedSyntax, checked: HirNode): boolean {
   switch (subject.kind) {
-    case "ordinary": return sameSyntaxFields(subject.node, checked);
+    case "ordinary": return sameSyntaxFields(subject.node, checked)
+      && (subject.node.kind !== "BindingElement" || checked.kind === "BindingElement"
+        && (subject.node.initializer.kind === "none") === (checked.initializer === null));
     case "module-root": return checked.kind === "SourceFile"
       && sameVector(subject.node.flags, checked.flags, Object.is)
       && sameSourceFileHeader<TypedPhase, CheckedPhase>(subject.node, checked)
@@ -783,6 +785,37 @@ export const tirOperationsOf: TirOperationsOf = (input, instance) => {
     ({ operation: value, node: { body: body.body, node: node.id }, origin: node.origin }));
 };
 
+function verifyDefaultRoot<Stop extends object>(input: TirVerifierInput, subject: DefaultInitializerOwner<TypedPhase>,
+  authored: Expression<CheckedPhase>, instance: BodyInstance, owner: DefId, storage: TyId,
+  demand: "unopened" | "template" | "required", admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  const slot = subject.initializer;
+  const unopened = slot.kind === "checked-default" && slot.root === authored;
+  let exact = unopened;
+  if (demand !== "unopened") {
+    const identity = admit({ kind: "artifact", instance });
+    if (identity !== null) return identity;
+    const ready = input.bodyOf(instance);
+    if (ready === null) exact = demand === "template" && unopened;
+    else {
+      const actual = { body: ready.body, bindings: ready.bindings };
+      const returned = admit({ kind: "artifact", instance: actual });
+      if (returned !== null) return returned;
+      exact = ready.owner === owner && sameInstance(actual, instance) && ready.completion === storage
+        && slot.kind === "ready-default" && slot.root === ready.root;
+      if (exact && demand === "required") {
+        const asked = admit({ kind: "artifact", instance });
+        if (asked !== null) return asked;
+        const entries = input.requiredEntriesOf(instance);
+        const row = admit({ kind: "row" });
+        if (row !== null) return row;
+        exact = entries?.length === 1 && Object.is(entries[0], 0);
+      }
+    }
+  }
+  if (!exact) emit("nested-template-identity", subject, "a default must retain its actual placed root and independently authorized execution");
+  return null;
+}
+
 function verifyPlacedDefaults<Stop extends object>(input: TirVerifierInput, body: TirBody, boundary: TirSourceBoundary,
   admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   let minimum: number | undefined;
@@ -802,18 +835,9 @@ function verifyPlacedDefaults<Stop extends object>(input: TirVerifierInput, body
         emit("parameter-order", parameter, "an initializer role needs its actual authored expression and placement");
       continue;
     }
-    const instance: BodyInstance = { body: placement, bindings: body.bindings };
-    const identity = admit({ kind: "artifact", instance });
-    if (identity !== null) return identity;
-    const ready = input.bodyOf(instance);
-    let exact = parameter.tsonic.initializer === placement && boundary.bodies.get(placement)?.root === authored.initializer;
-    if (ready === null) exact &&= role.kind === "checked-default" && role.root === authored.initializer;
-    else {
-      const actual = { body: ready.body, bindings: ready.bindings };
-      const returned = admit({ kind: "artifact", instance: actual });
-      if (returned !== null) return returned;
-      exact &&= ready.owner === parameter.tsonic.declaration && sameInstance(actual, instance)
-        && role.kind === "ready-default" && role.root === ready.root;
+    if (parameter.tsonic.initializer !== placement || boundary.bodies.get(placement)?.root !== authored.initializer) {
+      emit("nested-template-identity", parameter, "formal default must match its actual placed initializer");
+      continue;
     }
     if (body.bindings.kind === "instantiated") {
       if (minimum === undefined) {
@@ -825,17 +849,15 @@ function verifyPlacedDefaults<Stop extends object>(input: TirVerifierInput, body
         if (read !== null) return read;
         minimum = entries?.at(-1) ?? -1;
       }
-      if (minimum < 0) exact = false;
-      else if (minimum <= formal) {
-        const asked = admit({ kind: "artifact", instance });
-        if (asked !== null) return asked;
-        const entries = input.requiredEntriesOf(instance);
-        const read = admit({ kind: "row" });
-        if (read !== null) return read;
-        exact &&= ready !== null && entries?.length === 1 && Object.is(entries[0], 0);
+      if (minimum < 0) {
+        emit("nested-template-identity", parameter, "a selected formal needs its independently required entry inventory");
+        continue;
       }
     }
-    if (!exact) emit("nested-template-identity", parameter, "formal default must match its placed body and independently required execution");
+    const stop = verifyDefaultRoot(input, parameter, authored.initializer, { body: placement, bindings: body.bindings },
+      parameter.tsonic.declaration, parameter.tsonic.storage,
+      minimum === undefined ? "template" : minimum <= formal ? "required" : "unopened", admit, emit);
+    if (stop !== null) return stop;
   }
   return null;
 }
@@ -1283,7 +1305,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
           if (comparison !== null) return { kind: "resource-stop", stop: comparison };
           if (sameInstance(activation, actual)) activated = published;
         }
-        verifyPublishedInstance(activated, application.node, emit);
+        if (activated === null && published === null && body.bindings.kind === "parametric" && (activation.bindings.kind === "parametric"
+          || checkedAppliedSignature(decision, actualCandidates?.[decision.candidate]) !== null))
+          activated = undefined;
+        else verifyPublishedInstance(activated, application.node, emit);
       }
     }
     verifyCallEndpoints(decision, application.node, input.types,
@@ -1293,6 +1318,31 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   for (const instance of semantics.initializers) {
     const paid = admit({ kind: "artifact", instance: instance.value });
     if (paid !== null) return { kind: "resource-stop", stop: paid };
+    if (body.bindings.kind === "parametric" && instance.activation !== null) {
+      const row = admit({ kind: "row" });
+      if (row !== null) return { kind: "resource-stop", stop: row };
+      const expected = { body: instance.value.body, bindings: instance.activation.bindings };
+      const identity = admit({ kind: "artifact", instance: expected });
+      if (identity !== null) return { kind: "resource-stop", stop: identity };
+      if (!sameInstance(instance.value, expected)) {
+        emit("omission-valid", instance.node, "a template omission must retain its actual callable binding environment");
+        continue;
+      }
+      const formal = input.types.signatures[instance.signature]?.parameters[instance.parameter];
+      const owner = formal?.declaration;
+      const reached = owner === undefined || owner === null ? null : admit({ kind: "source-declaration", definition: owner });
+      if (reached !== null) return { kind: "resource-stop", stop: reached };
+      const reference = owner === undefined || owner === null ? null : input.declarationSourceOf(owner);
+      if (reference?.kind === "item" && reference.value.owner === owner) {
+        const admitted = admit({ kind: "static-item", declaration: reference.value });
+        if (admitted !== null) return { kind: "resource-stop", stop: admitted };
+        const actual = input.nodeOf(reference);
+        if (actual?.kind === "Parameter" && actual.id === reference.value.node && actual.initializer !== null
+          && actual.tsonic.initializer === instance.value.body && formal?.initializer === instance.value.body) continue;
+      }
+      emit("omission-valid", instance.node, "a template omission must retain its actual checked formal default");
+      continue;
+    }
     verifyPublishedInstance(input.bodyOf(instance.value), instance.node, emit);
   }
   for (const deferred of semantics.deferred) {
@@ -1369,21 +1419,14 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         const target = binding.declaration;
         const local = target.kind === "local" ? body.locals[target.local.local]?.declaration : null;
         const owner = target.kind === "definition" ? target.definition : local?.kind === "item" && local.value.node === element.id ? local.value.owner : null;
-        if (owner === null || binding.initializer !== encodeBodyId({ owner, role: "initializer", ordinal: 0 })) {
+        const authored = original?.kind === "BindingElement" ? original.initializer : null;
+        if (owner === null || authored === null || binding.initializer !== encodeBodyId({ owner, role: "initializer", ordinal: 0 })
+          || boundary.bodies.get(binding.initializer)?.root !== authored) {
           emit("nested-template-identity", element, "a binding initializer needs its actual named declaration");
         } else {
-          const selected = { body: binding.initializer, bindings: body.bindings };
-          const use = admit({ kind: "artifact", instance: selected });
-          if (use !== null) return { kind: "resource-stop", stop: use };
-          const placed = input.bodyOf(selected);
-          const actual = placed === null ? null : { body: placed.body, bindings: placed.bindings };
-          if (actual !== null) {
-            const found = admit({ kind: "artifact", instance: actual });
-            if (found !== null) return { kind: "resource-stop", stop: found };
-          }
-          if (placed === null || actual === null || !sameInstance(selected, actual) || placed.owner !== owner
-            || placed.root !== element.initializer || placed.completion !== binding.storage)
-            emit("nested-template-identity", element, "the binding retains its independently placed initializer and actual root");
+          const stop = verifyDefaultRoot(input, element, authored, { body: binding.initializer, bindings: body.bindings },
+            owner, binding.storage, body.bindings.kind === "parametric" ? "template" : binding.present === null ? "unopened" : "required", admit, emit);
+          if (stop !== null) return { kind: "resource-stop", stop };
         }
       }
     }

@@ -199,7 +199,7 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
     }
   }
   inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
-    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null, layout: () => null,
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, initializer: () => null, layout: () => null,
       close: completed }, chapterSyntaxSlots);
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };

@@ -3,7 +3,7 @@ import type { DefId, DefinitionPath, ItemNodeRef, ModuleId, ModulePath, SigId, T
 import type {
   ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypeInterner, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
-import type { CheckedModuleImage, Expression, HirModule } from "../ir-hir/contract.js";
+import type { CheckedModuleImage, CheckedPhase, DefaultInitializerOwner, Expression, HirModule } from "../ir-hir/contract.js";
 import type { CandidateInput, PlacedSignature } from "../ir-infer/contract.js";
 import type { TirApplication, TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
@@ -123,9 +123,16 @@ export type TirSpecializationPlacement =
   | { readonly kind: "endpoint"; readonly template: PlacedSignature; readonly selected: PlacedSignature }
   | { readonly kind: "execution"; readonly template: PlacedSignature };
 export type ReplayTirCandidate = (input: CandidateInput, result: TyId) => DataflowResult<TirApplication>;
+export type TirDefaultOwner = DefaultInitializerOwner<TypedPhase>;
+export type ReadSpecializationDefault = (owner: TirDefaultOwner) => DataflowResult<Expression<CheckedPhase>>;
+export interface TirSpecializationEvidence {
+  readonly replay: ReplayTirCandidate;
+  readonly checkedDefaultOf: ReadSpecializationDefault;
+}
 export type SpecializeTir = (template: TirBody, instance: BodyInstance, placement: TirSpecializationPlacement,
-  types: TypeInterner, resources: ProgramVerificationWork, replay: ReplayTirCandidate) =>
-  { readonly kind: "complete"; readonly value: TirBody } | Extract<InstantiationResult, { readonly kind: "resource-limit" | "refused" }>;
+  types: TypeInterner, resources: ProgramVerificationWork, evidence: TirSpecializationEvidence) =>
+  { readonly kind: "complete"; readonly value: TirBody; readonly defaults: readonly TirDefaultOwner[] }
+  | Extract<InstantiationResult, { readonly kind: "resource-limit" | "refused" }>;
 export type CreateProgramVerificationWork = (limits: ProgramVerificationLimits, account: DataflowAccount) => ProgramVerificationWork;
 export type AdmitProgramReadyRow = (resources: ProgramVerificationWork, work: number, records: number) => InstantiationAllocationStop | null;
 export type CreateTirReadyReadAdmission = (account: DataflowAccount) => TirReadyReadAdmission<DataflowStop>;

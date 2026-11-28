@@ -32,7 +32,7 @@ export async function checkObjectAliasHolding() {
       if (input.child !== null) return input.child.field;
       return false;
     }
-  `);
+  `, ["invoke", "replace", "guarded"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const { modules, checked, types } = captured.value;

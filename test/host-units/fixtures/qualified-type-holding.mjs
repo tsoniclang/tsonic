@@ -15,10 +15,11 @@ export async function checkQualifiedTypeHolding() {
     export function inlineType(input: import("./base.js").Shape): boolean { const { flag: selected } = input; return !selected; }
     export function query(flag: typeof Names.flag): boolean { return flag; }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", main);
+  const input = analysisInput(fixture, "sdk-minimal", main, ["qualified", "throughAlias", "inlineType", "query"]);
   input.snapshot = fixture.projectSnapshot({
     sourceFiles: { "main.ts": main, "base.ts": "export type Shape = { flag: boolean; other: boolean }; export const flag: boolean = false;" },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: input.snapshot.contributions.externalEntries,
   });
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));

@@ -33,7 +33,7 @@ test("Stage 3 retains exact authored numeric singleton types without executing t
     export type Fraction = -0.1;
     export type ThroughIndex = { readonly chosen: -0x10 }["chosen"];
     export function keep(value: boolean): boolean { return value; }
-  `);
+  `, ["keep"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
@@ -198,7 +198,7 @@ test("Stage 3 retains the exact authored formals and returns of executing signat
     export function nearby(value: 9007199254740992): 9007199254740992 { return value; }
     export function signed(value: Fraction): Fraction { return value; }
     export function forward(value: 9007199254740993): 9007199254740993 { return exact(value); }
-  `);
+  `, ["nearby", "signed", "forward"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
@@ -239,7 +239,7 @@ for (const [operator, definition] of [
     const input = analysisInput(fixture, "sdk-minimal",
       `export type Select<Key extends "done" | "next"> = ${definition};
        export function done(value: Select<"done">): boolean { return value; }
-       export function next(value: Select<"next">): string { return value; }`);
+       export function next(value: Select<"next">): string { return value; }`, ["done", "next"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok");
     assert.deepEqual(result.diagnostics, []);
@@ -634,11 +634,12 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const source = "export type Mutable = boolean[]; export type Immutable = readonly boolean[];"
     + "export function ready(): boolean { return true; }";
+  const inputBase = analysisInput(fixture, "sdk-minimal", source, ["ready"]);
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: [{
     name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent
       + "\ninterface ReadonlyArray<T> { readonly length: number; readonly [index: number]: T; }",
-  }] });
-  const input = { ...analysisInput(fixture, "sdk-minimal", source), snapshot };
+  }], externalEntries: inputBase.snapshot.contributions.externalEntries });
+  const input = { ...inputBase, snapshot };
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
@@ -676,7 +677,7 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
     [[expected[0]], [expected[1]], [expected[1]]]);
   assert.equal(printModuleBodies(index, decoded.value) === text, true);
   const lower = pipelineWiring.front.lowerModule;
-  for (const field of ["type", "referencedDefinitions", "nativeArrayAnnotationOf"]) {
+  for (const field of ["type", "referencedDefinitions", "in-place-declaration", "nativeArrayAnnotationOf"]) {
     let crossed = false;
     try {
       pipelineWiring.front.lowerModule = (...arguments_) => {
@@ -686,6 +687,15 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
         crossed = true;
         if (field === "nativeArrayAnnotationOf")
           return { ...checked, value: { ...checked.value, nativeArrayAnnotationOf: () => null } };
+        if (field === "in-place-declaration") {
+          const proof = checked.value.nativeArrayAnnotationOf(readonly.type.id);
+          assert.ok(proof);
+          const declarations = readonly.type.tsonic.referencedDefinitions;
+          assert.notEqual(declarations === proof.declarations, true);
+          declarations[0] = plain.type.tsonic.referencedDefinitions[0];
+          assert.deepEqual(proof.declarations, [expected[1]]);
+          return checked;
+        }
         assert.notDeepEqual(readonly.type.tsonic[field], plain.type.tsonic[field]);
         readonly.type.tsonic[field] = plain.type.tsonic[field];
         return checked;

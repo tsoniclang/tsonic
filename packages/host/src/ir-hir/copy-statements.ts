@@ -412,19 +412,20 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         };
       });
     }),
-    BindingElement: node => memoSyntaxPlan(BindingElement, node, () => withSyntaxPayload(phase.BindingElement, node.tsonic, () => {
+    BindingElement: node => memoSyntaxPlan(BindingElement, node, () => {
+      const payload = phase.BindingElement(node.tsonic);
+      if (payload.kind === "refused") return payload;
       const header = syntaxHeader(node);
-      return tsonic => {
+      return copied(image => {
         const shape = bindingOf(node);
         const property = shape.propertyName();
         const name = shape.name();
-        const initializer = shape.initializer();
         return { ...header, kind: "BindingElement", dotDotDotToken: shape.dotDotDotToken(),
           propertyName: property === null ? null : ports().PropertyName(property),
           name: name === null ? null : ports().BindingName(name),
-          initializer: initializer === null ? null : ports().Expression(initializer), tsonic };
-      };
-    })),
+          initializer: copyInitializer(node, child => ports().Expression(child), image), tsonic: payload.value(image) };
+      });
+    }),
     MissingDeclaration: node => memoSyntaxPlan(MissingDeclaration, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;

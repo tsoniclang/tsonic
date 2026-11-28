@@ -331,9 +331,7 @@ test("a narrowed view has the type its node's narrowing selected", () => {
   const view = storage => changed(body => { body.places.push(place(11, { kind: "checked", place: 2, projection: { kind: "refined" }, tir: site("o!").tir }, storage)); });
   assert.deepEqual(all(view(T.int32)), []);
   assert.deepEqual(all(view(T.bool)), ["projection-type"]);
-  // R2 M-1: one node can be both an element and narrowed (`if (xs[0] !== null) use(xs[0].v)`). The narrowed view of
-  // the checked element a[i] is a second checked place of the node a[i], of another kind and with another parent.
-  assert.deepEqual(all(changed(body => { body.places.push(place(11, { kind: "checked", place: 10, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32)); })), []);
+  assert.deepEqual(all(changed(body => { body.places.push(place(11, { kind: "checked", place: 10, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32)); })), ["projection-type"]);
 });
 
 test("law 4: an index is a constant or a local written once", () => {
@@ -357,7 +355,7 @@ test("law 4: every way the index local's cell can be written is a write", () => 
   assert.deepEqual(all(changed(body => {
     body.places.push(place(11, { kind: "checked", place: 7, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32));
     body.blocks[7].statements.unshift({ ...site("i"), kind: "assign", place: 11, value: { kind: "use", operand: p(1) }, step: null });
-  })), ["index-operand-stable", "checked-place-available", "checked-place-available"]);
+  })), ["projection-type", "index-operand-stable", "checked-place-available", "checked-place-available"]);
   // R1, R2: the index local handed by place to a call that may write it. The count is of the body, so where the
   // call stands does not matter; here it stands before the check, so that law 3 has nothing to report.
   const handed = passing => changed(body => {

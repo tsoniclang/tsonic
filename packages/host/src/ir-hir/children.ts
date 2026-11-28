@@ -2,9 +2,9 @@ import {
   throwInvariant,
 } from "../diag/index.js";
 import type {
-  CaseClause, ChildrenOfSyntax, DefaultClause, IterateChildrenOfSyntax, IterateSyntaxChildEdges,
+  CaseClause, ChildrenOfSyntax, DefaultClause, DefaultInitializerOwner, IterateChildrenOfSyntax, IterateSyntaxChildEdges,
   IterateSyntaxChildSlots, OrdinarySyntaxPhase, Phase, PrepareSyntaxStructure, RetainedSyntaxNode,
-  SyntaxChild, SyntaxChildListField, SyntaxChildSlot, SyntaxNode, NodeList, Expression, CallExpression, ParameterDeclaration,
+  SyntaxChild, SyntaxChildListField, SyntaxChildSlot, SyntaxNode, NodeList, Expression, CallExpression,
 } from "./contract.js";
 import {
   children, emptyChildren, missingStructure, prependSlots, sameSlot,
@@ -169,11 +169,15 @@ export function iterateNullableSyntaxSlots<P extends OrdinarySyntaxPhase<P>>(nod
 
 export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* <P extends Phase, Slot>(node: SyntaxNode<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot,
-  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>,
+  initializer: (node: DefaultInitializerOwner<P>, field: "initializer") => Iterable<Slot>,
   argumentsOf: (node: CallExpression<P>, field: "arguments") => Iterable<Slot>,
 ) {
   if (node.kind === "Parameter") {
     yield* iterateParameterHeaderSlots(node, ordinary, field => initializer(node, field));
+  } else if (node.kind === "BindingElement") {
+    for (const slot of bindingElementSlots<P>({ dotDotDotToken: () => node.dotDotDotToken, propertyName: () => node.propertyName,
+      name: () => node.name })) yield ordinary(slot);
+    yield* initializer(node, "initializer");
   } else if (node.kind === "CallExpression") {
     yield* applicationSlots<P, Slot>(node, value => value, value => value,
       () => children<P, typeof node>(["typeArguments", "list", () => node.typeArguments]), ordinary, () => argumentsOf(node, "arguments"));
@@ -183,7 +187,7 @@ export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* <P ext
 };
 
 function ordinarySlots<PhaseType extends Phase>(
-  node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" | "CallExpression" }>,
+  node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" | "BindingElement" | "CallExpression" }>,
 ): Iterable<SyntaxChildSlot<PhaseType>> {
   if (isSingleExpressionSyntax<PhaseType>(node)) return singleExpressionSlots<PhaseType>(node, child => child);
   switch (node.kind) {
@@ -236,9 +240,6 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ObjectBindingPattern":
     case "ArrayBindingPattern":
       return bindingPatternSlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
-    case "BindingElement":
-      return bindingElementSlots<PhaseType>({ dotDotDotToken: () => node.dotDotDotToken, propertyName: () => node.propertyName,
-        name: () => node.name, initializer: () => node.initializer });
     case "MissingDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]);
     case "FunctionDeclaration":

@@ -209,7 +209,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedIteration: lazyRecord(() => phase_values.work_TypedIteration),
     work_TypedNamespace: lazyRecord(() => phase_declarations.work_TypedNamespace),
     work_TypedParameter: lazyRecord(() => phase_declarations.work_TypedParameter),
-    work_TirFormalInitializer: lazyRecord(() => body.work_TirFormalInitializer),
+    work_TirDefaultInitializer: lazyRecord(() => body.work_TirDefaultInitializer),
     work_TypedStorageDeclaration: lazyRecord(() => phase_declarations.work_TypedStorageDeclaration),
     work_TypedVariableList: lazyRecord(() => phase_declarations.work_TypedVariableList)
   });

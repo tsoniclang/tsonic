@@ -260,8 +260,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const retained = chargeResultEntries(account, inlineRoots === null ? 2 : 1);
       if (retained !== null) return retained;
       inlineRoots ??= new Map();
-      inlineRoots.set(local.id, kind.absentSlots);
-      hasAbsence ||= kind.absentSlots !== null;
+      const absentSlots = kind === "scalar-product" ? null : kind.absentSlots;
+      inlineRoots.set(local.id, absentSlots);
+      hasAbsence ||= absentSlots !== null;
     }
     if (kind === "primitive-optional" || kind === "reference-optional") {
       if (local.role.kind === "receiver")

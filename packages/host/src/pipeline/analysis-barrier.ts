@@ -100,7 +100,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         const reference = nested === undefined ? null : sources.declarationSourceOf(nested.owner);
         const original = reference === null ? null : sources.nodeOf(reference);
         if (body.root.kind === "SourceFile" && original?.kind === "FunctionDeclaration" && original.tsonic.body === child && original.body === nested?.root
-          || original?.kind === "Parameter" && original.tsonic.initializer === child && original.initializer === nested?.root) return null;
+          || original?.kind === "Parameter" && original.tsonic.initializer === child && original.initializer === nested?.root
+          || original?.kind === "BindingElement" && original.initializer === nested?.root) return null;
       }
       if (selected === undefined) return fail("A required lowered initializer needs its actual verified typed body.");
       const growth = chargeResultEntries(account, 3);
@@ -586,22 +587,19 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   if (errorValued) return refusedAfterConvergence();
   const diagnostics = typed.database.diagnostics();
   const entries: Execution[] = [];
-  for (const body of exposedBodies) {
+  for (const [body, mode] of exposedBodies) {
     const read = chargeWork(account, 1);
     if (read !== null) return analysisStop(read, unit);
-    const actual = operationsByBody.get(body);
-    if (actual !== undefined) {
-      const growth = chargeWork(account, actual.length) ?? chargeResultEntries(account, actual.length);
-      if (growth !== null) return analysisStop(growth, unit);
-      for (const operation of actual) entries.push(operation.execution);
+    if (mode === "parametric") {
+      const template = typed.bodies.get(instanceKey({ body, bindings: { kind: "parametric" } }));
+      if (template === undefined) return fail("An external generic entry requires its actual completed template.");
       continue;
     }
-    const checked = sources.bodies.get(body);
-    const scope = checked === undefined ? undefined : source.descriptions.get(checked.owner)?.generics;
-    const template = typed.bodies.get(instanceKey({ body, bindings: { kind: "parametric" } }));
-    if (template === undefined || scope === undefined || scope.classParameters.length + scope.methodParameters.length
-      + scope.capturedParameters.length + scope.selfOwners.length === 0)
-      return fail("An external callable entry requires its actual completed execution or generic template.");
+    const actual = operationsByBody.get(body);
+    if (actual === undefined) return fail("An external executable entry requires its actual completed execution.");
+    const growth = chargeWork(account, actual.length) ?? chargeResultEntries(account, actual.length);
+    if (growth !== null) return analysisStop(growth, unit);
+    for (const operation of actual) entries.push(operation.execution);
   }
   const plan: Execution[] = [];
   for (let index = 0; index < typed.initializationRoots.length; index += 1) {

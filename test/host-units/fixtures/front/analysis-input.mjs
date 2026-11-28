@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { navigationCapture } from "./checked-module.mjs";
 
-export function analysisInput(fixture, library, source = "export function add(a: number, b: number): number { return a + b; }\n") {
-  const snapshot = fixture.projectSnapshot({
+export function analysisInput(fixture, library, source = "export function add(a: number, b: number): number { return a + b; }\n", entries = []) {
+  const captured = fixture.projectSnapshot({
     sourceFiles: { "main.ts": source },
     libraries: library === "es2024" ? fixture.bundled()
       : library === "es5" ? fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"])
       : [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
+  const snapshot = entries.length === 0 ? captured : { ...captured, contributions: { ...captured.contributions,
+    externalEntries: entries.map(name => ({ module: captured.entryPoint, name })),
+  } };
   const extensions = fixture.front.createCheckerExtensions([]);
   assert.deepEqual(fixture.snapshots.verifySnapshot(snapshot, fixture.front.extensionReferencesOf(extensions)), []);
   const typeExpansion = { maximumDepth: 128, maximumVisits: 100000, maximumUnionMembers: 1024, maximumIntersectionMembers: 1024 };

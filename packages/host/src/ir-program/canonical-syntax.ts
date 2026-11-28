@@ -79,7 +79,7 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
           yield { read: () => ({ kind: "formal", node: parameter }), path: path + ".params[" + index + "]" };
       }
     }
-    const syntax = prepareTypedChapter(scan, slots(), typedSyntaxPhaseCopy(scan, at, null));
+    const syntax = prepareTypedChapter(scan, slots(), typedSyntaxPhaseCopy(scan, at, null), null);
     if (syntax.kind !== "complete") return { kind: "refused", stop: syntax };
     const bodies: PreparedPublishedBody[] = [];
     for (const [position, { source, original, instance, body }] of admittedRows.entries()) {

@@ -1,5 +1,5 @@
 import type { Identifier, CaseBlock, CatchClause, Block, VariableDeclaration, VariableDeclarationList, ParameterDeclaration, BindingElement, HeritageClause, EnumMember, ExportSpecifier, TemplateSpan, ExpressionWithTypeArguments, ImportAttribute, ImportAttributes, TemplateHead, TemplateLiteralTypeSpan, JsxAttributes, JsxOpeningElement, JsxOpeningFragment, JsxClosingFragment, JsxClosingElement, SourceFile, ImportClause, ImportSpecifier, TypeParameterDeclaration, EntityName, Expression, LeftHandSideExpression, Statement, ForInitializer, CaseOrDefaultClause, BindingName, TypeNode, PropertyName, BlockOrExpression, ClassElement, TypeElement, ModuleExportName, MemberName, TemplateMiddleOrTail, TemplateLiteral, ObjectLiteralElementLike, LiteralTypeChild, TypePredicateParameterName, ImportAttributeName, JsxChild, JsxAttributeLike, JsxTagNameExpression, JsxAttributeName, JsxAttributeValue, JSDocComment, JSDocTag, JSDocFullName, NodeBody, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, ModifierLike, BodyRoot, AwaitKeyword, ExclamationToken, DotDotDotToken, QuestionToken, AsteriskToken, BinaryOperatorToken, EqualsGreaterThanToken, ColonToken, QuestionDotToken, EqualsToken, AssertsKeyword, ReadonlyKeyword, PlusToken, MinusToken, EndOfFile, SyntaxNode, NodeHeader, NodeList, SyntaxFlag, TextRange } from "../ir-hir/contract.js";
-import type { TirBodyRoot, TirCallArguments, TirFormal, TirFormalInitializer, TirLayoutOperand, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBodyRoot, TirCallArguments, TirFormal, TirDefaultInitializer, TirLayoutOperand, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
 import type { ArrowFunction, ObjectLiteralExpression } from "../ir-hir/contract.js";
 import type { TextParseResult } from "../diag/contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -244,8 +244,8 @@ export function readCheckedReference<Value, Root>(cursor: Cursor, port: CheckedS
   });
 }
 
-export function readFormalInitializer<Root>(cursor: Cursor, typed: SyntaxReadPorts, chapter: ChapterReadPorts,
-  finish: (value: SyntaxValue<TirFormalInitializer>) => TextStep<Root>): TextStep<Root> {
+export function readDefaultInitializer<Root>(cursor: Cursor, typed: SyntaxReadPorts, chapter: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirDefaultInitializer>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => choice(next, ["none", "checked-default", "ready-default"]), kind =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set() };

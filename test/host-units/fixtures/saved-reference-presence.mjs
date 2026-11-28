@@ -29,7 +29,7 @@ export async function checkSavedReferencePresence() {
       type Holder = { part: Actual | null; sibling: Actual | null };
       function choose(value: Formal): boolean { return value.flag; }
       export function read(input: Holder, other: Holder): boolean { ${statements} }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", label);
     assert.deepEqual(result.diagnostics, [], label);
@@ -80,7 +80,7 @@ export async function checkDeclaredNullableReferenceStorage() {
   ];
   for (const [label, params, statements, paths, role, writesAbsence = false] of cases) {
     const input = analysisInput(source, "sdk-minimal",
-      `type Box = { flag: boolean }; export function read(${params}): boolean { ${statements} }`);
+      `type Box = { flag: boolean }; export function read(${params}): boolean { ${statements} }`, ["read"]);
     const program = analyzeHostProgram(input);
     assert.equal(program.kind, "ok", label);
     assert.deepEqual(program.diagnostics, [], label);
@@ -137,7 +137,7 @@ export async function checkSavedReferenceQualification() {
       if (saved !== null) return saved.flag;
       return false;
     }
-  `);
+  `, ["read"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
@@ -225,7 +225,7 @@ export async function checkDeclaredNullableWriteQualification() {
       if (flag) { first = null; second = null; }
       return flag;
     }
-  `);
+  `, ["write"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));

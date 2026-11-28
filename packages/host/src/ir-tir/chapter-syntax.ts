@@ -5,7 +5,7 @@ import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
 import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { LayoutBindingOf, LayoutObservationOf, RawValueTypeOf } from "./contract.js";
 import type { IsLayoutOperandBody, LayoutArgumentSlots, TirFieldOffsetArguments, TirLayoutArguments, TirLayoutArgumentSlot, TirTypedSyntax } from "./contract.js";
-import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
+import type { AdmitDefaultInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, DefaultInitializerSlot, DefaultInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirDefaultInitializer, TirDefaultInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
   message: "An authored chapter role must retain its actual dense child vector." };
@@ -66,8 +66,8 @@ function* moduleStatements(field: "statements", list: NodeList<TirModuleStatemen
   }
 }
 
-export const formalInitializerSlot: FormalInitializerSlot = node =>
-  ({ kind: "formal-initializer", fields: ["initializer"], read: () => {
+export const defaultInitializerSlot: DefaultInitializerSlot = node =>
+  ({ kind: "default-initializer", fields: ["initializer"], read: () => {
     const actual = node.initializer;
     switch (actual.kind) {
       case "none": return { kind: "none" };
@@ -76,22 +76,27 @@ export const formalInitializerSlot: FormalInitializerSlot = node =>
     }
   } });
 
-function readInitializer(initializer: TirFormalInitializerRead): TirFormalInitializer {
+function readInitializer(initializer: TirDefaultInitializerRead): TirDefaultInitializer {
   if (initializer.kind === "none") return initializer;
   return initializer.kind === "checked-default"
     ? { kind: "checked-default", root: initializer.root() } : { kind: "ready-default", root: initializer.root() };
 }
 
-export const admitFormalInitializer: AdmitFormalInitializer = (slot, field, edge) => {
+export const admitDefaultInitializer: AdmitDefaultInitializer = (slot, field, edge, checked) => {
   const admitted = field();
   if (admitted !== null) return { kind: "refused", stop: admitted };
   const initializer = slot.read();
-  const read = initializer.kind === "none" ? null : edge();
+  if (initializer.kind === "none") return { kind: "complete", value: initializer };
+  const read = edge();
   if (read !== null) return { kind: "refused", stop: read };
+  if (checked !== null) {
+    const root = checked();
+    return root.kind === "refused" ? root : { kind: "complete", value: { kind: "checked-default", root: root.value } };
+  }
   return { kind: "complete", value: readInitializer(initializer) };
 };
 
-export const formalInitializerSyntax: FormalInitializerSyntax = initializer => {
+export const defaultInitializerSyntax: DefaultInitializerSyntax = initializer => {
   switch (initializer.kind) {
     case "none": return null;
     case "checked-default": return { kind: "checked", node: initializer.root };
@@ -126,7 +131,7 @@ export const readChapterSyntaxSlot: ReadChapterSyntaxSlot = slot => {
   switch (slot.kind) {
     case "syntax": return slot.read();
     case "statement": return chapterStatementSyntax(slot.read());
-    case "formal-initializer": return formalInitializerSyntax(readInitializer(slot.read()));
+    case "default-initializer": return defaultInitializerSyntax(readInitializer(slot.read()));
     case "layout-descriptor": return { kind: "checked", node: slot.read() };
     case "field-selector": return { kind: "checked", node: slot.read() };
     case "field-layout": return { kind: "ordinary", node: slot.read() };
@@ -139,7 +144,7 @@ function* syntaxSlots(subject: TirTypedSyntax, layout: LayoutArgumentSlots): Gen
     case "ordinary":
     case "formal":
       yield* iterateSyntaxChildSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot,
-        parameter => [formalInitializerSlot(parameter)], (call, field) => {
+        parameter => [defaultInitializerSlot(parameter)], (call, field) => {
           const arguments_ = call.arguments;
           return "kind" in arguments_ ? layout(arguments_) : listSlots(field, arguments_, node => ({ kind: "ordinary", node }));
         });

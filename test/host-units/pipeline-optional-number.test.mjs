@@ -10,7 +10,7 @@ test("optional native number copies the selected float64 value and keeps supplie
     "export function pass(value?: number): number | undefined { return value; }\n"
     + "export function omit(): number | undefined { return pass(); }\n"
     + "export function absent(): number | undefined { return pass(undefined); }\n"
-    + "export function present(input: number): number | undefined { return pass(input); }");
+    + "export function present(input: number): number | undefined { return pass(input); }", {}, ["omit", "absent", "present"]);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const native = nativeFactsFixture();
@@ -111,7 +111,7 @@ test("optional native number copies the selected float64 value and keeps supplie
 test("plain assignment to optional Float64 storage retains the exact selected literal and its injection", async () => {
   const source = "export function writeLocal(input: number): number | undefined { let cell: number | undefined = input; cell = (1.25); return cell; }\n";
   const expected = { numerator: 5n, denominator: 4n, negativeZero: false };
-  const program = await analyzeOptionalSource(source);
+  const program = await analyzeOptionalSource(source, {}, ["writeLocal"]);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const main = modules.find(module => module.tree.kind === "ready-root" && module.tree.root.statements.nodes.some(slot =>
@@ -161,14 +161,14 @@ test("plain assignment to optional Float64 storage retains the exact selected li
     assert.equal(body.mir.places[stored.place].base.kind, "local");
   }
   assert.equal(printModuleBodies(index, decoded.value) === text, true);
-  await assert.rejects(analyzeOptionalSource(source.replaceAll("1.25", "0.1")), /the embedding of .*\(assignment\)/u);
+  await assert.rejects(analyzeOptionalSource(source.replaceAll("1.25", "0.1"), {}, ["writeLocal"]), /the embedding of .*\(assignment\)/u);
 });
 
 test("bare numeric tokens preserve exact present binary64 inputs through verified Program publication", async () => {
   const values = new Map([["0", [0n, 1n]], ["0x0", [0n, 1n]], ["1.25", [5n, 4n]], ["9_007_199_254_740_994", [9007199254740994n, 1n]]]);
   const source = "\uFEFF// 😀\r\nexport function pass(value?: number): number | undefined { return value; }\r\n"
     + [...values.keys()].map((token, index) => `export function call${index}(): number | undefined { return pass(${token}); }`).join("\r\n");
-  const program = await analyzeOptionalSource(source);
+  const program = await analyzeOptionalSource(source, {}, [...values.keys()].map((_, index) => `call${index}`));
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   assert.equal(index.nativeFactsKey, nativeFactsKey(nativeFactsFixture()));

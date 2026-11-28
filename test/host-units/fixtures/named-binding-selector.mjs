@@ -16,7 +16,7 @@ export async function checkNamedBindingSelectors() {
       const { value: named, "value": quoted, "literal\\u002dfield": selected } = input;
       return (named && quoted) || selected;
     }
-  `);
+  `, ["read"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const { checked, modules, types } = captured.value;

@@ -240,7 +240,7 @@ export function printBindingPattern(node: BindingPattern<TypedPhase>, context: S
   ]);
 }
 
-export function printFormalParameter(node: TirFormal, context: SyntaxTextContext, initializer: () => TextWork): TextWork {
+export function printFormalParameter(node: TirFormal, context: SyntaxTextContext): TextWork {
   return record("TirFormal", [
     ...textSyntaxHeader(node),
     field("modifiers", (node.modifiers === null ? token("null") : textNodeList(node.modifiers, context, "ModifierList"))),
@@ -248,7 +248,7 @@ export function printFormalParameter(node: TirFormal, context: SyntaxTextContext
     field("name", context.reference(node.name)),
     field("questionToken", (node.questionToken === null ? token("null") : context.reference(node.questionToken))),
     field("type", (node.type === null ? token("null") : context.reference(node.type))),
-    field("initializer", initializer()),
+    field("initializer", context.initializer(node.initializer)),
     field("tsonic", textTypedParameter(node.tsonic)),
   ]);
 }
@@ -259,7 +259,7 @@ export function printBindingElement(node: BindingElement<TypedPhase>, context: S
     field("dotDotDotToken", (node.dotDotDotToken === null ? token("null") : context.reference(node.dotDotDotToken))),
     field("propertyName", (node.propertyName === null ? token("null") : context.reference(node.propertyName))),
     field("name", (node.name === null ? token("null") : context.reference(node.name))),
-    field("initializer", (node.initializer === null ? token("null") : context.reference(node.initializer))),
+    field("initializer", context.initializer(node.initializer)),
     field("tsonic", textTypedBindingElement(node.tsonic)),
   ]);
 }

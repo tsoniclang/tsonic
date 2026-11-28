@@ -321,7 +321,7 @@ function checkedContent<Stop>(scan: ProjectionInventory, rewrite: TypeReferenceR
     });
   });
   return projectCheckedContent<InstantiationStop, Stop>(candidate, { root: work, edge: work, node: work,
-    parameter: () => admitCheckedProjection(scan.meter, 1, 1),
+    initializer: () => admitCheckedProjection(scan.meter, 1, 1),
     structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
     list: node => node.kind === "BinaryExpression" ? work() : inventoryRecord(scan, 2) }, {
     admit: (units, records) => admitCheckedProjection(scan.meter, units, records),

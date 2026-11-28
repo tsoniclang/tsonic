@@ -103,16 +103,12 @@ function mergeReferences<Reference extends number>(left: readonly Reference[], r
 
 type Tuple = Extract<TypeTerm, { readonly kind: "tuple" }>;
 
-interface OriginFreeProduct {
-  readonly absentSlots: ReadonlySet<TyId> | null;
-}
+type OriginFreeProduct = "scalar-product" | { readonly absentSlots: ReadonlySet<TyId> };
 
 type ValueKind = "primitive" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | OriginFreeProduct | null;
 
-const scalarProduct: OriginFreeProduct = { absentSlots: null };
-
 export function isOriginFreeProduct(kind: ValueKind): kind is OriginFreeProduct {
-  return kind !== null && typeof kind === "object";
+  return kind === "scalar-product" || kind !== null && typeof kind === "object";
 }
 
 function originFreeTuple(deps: BodyRoundDeps, type: TyId, tuple: Tuple, read: (type: TyId) => TypeTerm | null): OriginFreeProduct | null {
@@ -157,7 +153,7 @@ function originFreeTuple(deps: BodyRoundDeps, type: TyId, tuple: Tuple, read: (t
     seen.set(selected.type, "open");
     stack.push({ type: selected.type, tuple: child, slot: 0 });
   }
-  return absentSlots === null ? scalarProduct : { absentSlots };
+  return absentSlots === null ? "scalar-product" : { absentSlots };
 }
 
 export function valueKind(deps: BodyRoundDeps, type: TyId): ValueKind {

@@ -310,7 +310,7 @@ await suite.test("Program validates the native payload of an evaluated optional 
   const { evaluate } = await import("../../../packages/host/dist/evaluate/index.js");
   const front = await loadFrontFixture();
   const input = analysisInput(front, "sdk-minimal",
-    "export function present(value: number): number | undefined { return value; }");
+    "export function present(value: number): number | undefined { return value; }", ["present"]);
   const checked = analyzeHostProgram(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const table = checked.value.index.types;
@@ -530,7 +530,7 @@ await suite.test("artifact borrowing keeps the qualified body and complete bindi
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
   const front = await loadFrontFixture();
   const input = analysisInput(front, "sdk-minimal", "export function first(value: boolean): boolean { return value; }\n"
-    + "export function second(value: boolean): boolean { return !value; }");
+    + "export function second(value: boolean): boolean { return !value; }", ["first", "second"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -907,7 +907,7 @@ await suite.test("Program inventories only the two actual fields of a resolved n
   const { prepareApplication, prepareCallee } = await import("../../../packages/host/dist/ir-program/instantiate-phase.js");
   const front = await loadFrontFixture();
   const input = analysisInput(front, "sdk-minimal", "export function leaf(value: boolean): boolean { return value; } "
-    + "export function caller(value: boolean): boolean { return leaf(value); }");
+    + "export function caller(value: boolean): boolean { return leaf(value); }", ["caller"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);

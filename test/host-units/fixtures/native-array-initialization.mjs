@@ -10,8 +10,8 @@ const rangedSource = `
   }
 `;
 
-async function selectedArrayInput(fixture, source) {
-  const input = await nativeInt32Input(fixture, source, true);
+async function selectedArrayInput(fixture, source, entries) {
+  const input = await nativeInt32Input(fixture, source, true, entries);
   const original = input.snapshot.nativeFacts;
   const selectedNativeFacts = { ...original, arrayConstruction: { kind: "exact-length", extentFailure: "abort", rangeCopy: "contiguous" },
     arrayExtents: original.arrayExtents.map(row => row.carrier === "array" ? { ...row, result: "int32" } : row) };
@@ -30,7 +30,7 @@ export async function nativeArrayInitialization() {
   const input = await selectedArrayInput(fixture, rangedSource + `
     export function plain(value: Native): Native { const values: Native[] = [later(value)]; return values.length; }
     export function empty(): Native { const values: Native[] = []; return values.length; }
-  `);
+  `, ["ranged", "plain", "empty"]);
   const selectedNativeFacts = input.snapshot.nativeFacts;
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
@@ -66,7 +66,7 @@ export async function nativeArrayInitialization() {
 
 export async function checkNativeArrayFacts() {
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  const input = await selectedArrayInput(await loadFrontFixture(), rangedSource);
+  const input = await selectedArrayInput(await loadFrontFixture(), rangedSource, ["ranged"]);
   const answer = analyzeHostProgram(input);
   assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
   const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -107,7 +107,7 @@ export async function checkWrittenArrayDestinations() {
       xs = [];
       return xs;
     }
-  `);
+  `, ["range", "empty", "replace", "replaceEmpty"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const chapter = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
@@ -142,7 +142,7 @@ export async function checkPlacedArrayReturn() {
       const all = [0, ...xs, p];
       return a + b + p + q + all.length;
     }
-  `);
+  `, ["s1"]);
   const before = input.snapshot.nativeFacts;
   const nativeFacts = { ...before, integerOverflow: [
     { carrier: "int32", operation: "add", result: "int32", law: "wrap" }, ...before.integerOverflow,
@@ -227,7 +227,7 @@ export async function checkNativeArrayAlternatives() {
       const result = make(xs, value, borrow);
       return result.length;
     }
-  `);
+  `, ["mixed"]);
   const answer = analyzeHostProgram(input);
   assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
   const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -303,7 +303,7 @@ export async function checkBorrowedNativeArrayReturn() {
       const returned = borrow(values);
       return returned.length;
     }
-  `);
+  `, ["read"]);
   const answer = analyzeHostProgram(input);
   assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
   const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);

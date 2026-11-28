@@ -23,8 +23,9 @@ for (const [argument, provided] of [["", 0], ["supplied", 1]]) {
     const fixture = await loadFrontFixture();
     const source = `export function choose(flag: boolean = true): boolean { return flag; }
 export function call(): boolean { ${provided === 0 ? "" : "const supplied: boolean = false;"} return choose(${argument}); }`;
+    const entryModule = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: [{ module: entryModule, name: "call" }] });
     const extensions = fixture.front.createCheckerExtensions([]);
     const inputs = { snapshot, extensions, limits };
     const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -55,7 +56,10 @@ export function call(): boolean { ${provided === 0 ? "" : "const supplied: boole
     assert.equal(formal.initializer, header.tsonic.initializer);
     assert.equal(formal.acceptsOmission, true);
     const initializer = lowered.bodies.find(body => body.kind === "selected" && body.instance.body === formal.initializer);
-    assert.equal(initializer.tir.root.kind, "TrueKeyword");
+    assert.equal(header.initializer.kind, provided === 0 ? "ready-default" : "checked-default");
+    assert.equal(header.initializer.root.kind, "TrueKeyword");
+    assert.equal(initializer !== undefined, provided === 0);
+    if (provided === 0) assert.equal(initializer.tir.root === header.initializer.root, true);
     const actual = caller.mir.blocks.find(block => block.terminator.kind === "call" && block.terminator.tir.node === call.id).terminator;
     assert.equal(actual.callee.kind, "direct");
     assert.equal(actual.tir.node, call.id);
@@ -63,7 +67,7 @@ export function call(): boolean { ${provided === 0 ? "" : "const supplied: boole
     assert.equal(invocation.length, 1);
     assert.deepEqual(invocation[0].target, { kind: "body", execution: { instance: callee.instance, provided } });
     assert.equal(edges.some(edge => edge.dependent.instance.body === caller.instance.body
-      && edge.target.kind === "body" && edge.target.execution.instance.body === initializer.instance.body), provided === 0);
+      && edge.target.kind === "body" && edge.target.execution.instance.body === formal.initializer), provided === 0);
     const facts = caller.facts[0];
     const alternative = facts.origins.invocations.find(row => row.node === call.id).alternatives[0];
     const transport = alternative.arguments[0];
@@ -92,16 +96,16 @@ export function call(): boolean { ${provided === 0 ? "" : "const supplied: boole
       assert.deepEqual(application.arguments, [{ kind: "provided", parameter: 0, expression: call.arguments.nodes[0].id }]);
       assert.equal(actual.arguments[0].kind, "value");
     }
-    for (const count of [0, 1]) {
-      const entry = callee.mir.entries.find(row => row.provided === count);
-      const entryFacts = callee.facts.find(row => row.execution.provided === count);
-      assert.equal(entryFacts.arena.contexts[0].arguments[0].kind, count === 0 ? "omitted" : "provided");
-      const terminator = callee.mir.blocks[entry.block].terminator;
-      assert.equal(terminator.kind === "call" && terminator.callee.kind === "body" && terminator.callee.instance.body === initializer.instance.body,
-        count === 0, "only the callee omission entry executes the real initializer");
-      assert.equal(edges.some(edge => edge.dependent.instance.body === callee.instance.body && edge.dependent.provided === count
-        && edge.target.kind === "body" && edge.target.execution.instance.body === initializer.instance.body), count === 0);
-    }
+    assert.deepEqual(callee.mir.entries.map(row => row.provided), [provided]);
+    assert.deepEqual(callee.facts.map(row => row.execution.provided), [provided]);
+    const [entry] = callee.mir.entries;
+    const [entryFacts] = callee.facts;
+    assert.equal(entryFacts.arena.contexts[0].arguments[0].kind, provided === 0 ? "omitted" : "provided");
+    const terminator = callee.mir.blocks[entry.block].terminator;
+    assert.equal(terminator.kind === "call" && terminator.callee.kind === "body" && terminator.callee.instance.body === formal.initializer,
+      provided === 0, "only an actual omitted entry executes the initializer");
+    assert.equal(edges.some(edge => edge.dependent.instance.body === callee.instance.body && edge.dependent.provided === provided
+      && edge.target.kind === "body" && edge.target.execution.instance.body === formal.initializer), provided === 0);
   });
 }
 
@@ -112,10 +116,11 @@ test("the actual call only admits the initializer of its matching omitted formal
   const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
 export function choose(first: boolean = true, second: boolean = false): boolean { return second; }
 export function call(): boolean { const supplied: boolean = true; return choose(supplied); }` },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: [{ module: entry, name: "call" }] });
   const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
   const captured = captureSourceBarrier(inputs);
   assert.equal(captured.kind, "ok");

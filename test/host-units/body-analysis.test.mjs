@@ -51,7 +51,7 @@ test("a joined nested reference preserves both actual input subjects across a pr
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -96,7 +96,7 @@ test("the application kernel remaps a projected return onto the actual caller fi
       child(holder);
       return true;
     }
-  `);
+  `, ["forward"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -506,7 +506,7 @@ test("error taint follows the real edge and cell rather than suppressing an unre
     ["let clean: boolean; if (flag) { clean = true; fail(flag); } return clean;", "clean"],
   ]) {
     const text = `${definitions}export function inspect(flag: boolean): boolean { ${body} }`;
-    const result = await analyzeOptionalSource(text);
+    const result = await analyzeOptionalSource(text, {}, ["inspect"]);
     assert.equal(result.kind, "refused", body);
     assert.deepEqual(result.diagnostics.map(diagnostic => [diagnostic.code.rendered, diagnostic.site.origin.start]),
       [text.lastIndexOf("broken"), ...(local === null ? [] : [text.lastIndexOf(local)])]
@@ -2139,23 +2139,23 @@ test("native indexed places produce the selected element and the actual counted-
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const fixture = await loadFrontFixture();
-  for (const [mode, source] of [["loop", `
+  for (const [mode, entry, source] of [["loop", "read", `
       export function read(values: Native[]): Native {
         let sum: Native = 0;
         for (let i = 0; i < values.length; i++) sum += values[i];
         return sum;
       }
-    `], ["read", `
+    `], ["read", "read", `
       export function read(values: Native[], index: Native, base: Native): Native { return base + values[index]; }
-    `], ["write", `
+    `], ["write", "write", `
       export function write(values: Native[], index: Native, value: Native): Native {
         values[index] = value; values[index] = 1; return values[index];
       }
-    `], ["read-write", `
+    `], ["read-write", "update", `
       export function update(values: Native[], index: Native, value: Native): Native {
         values[index] += value; return values[index];
       }
-    `], ["replace", `
+    `], ["replace", "replace", `
       export function replace(values: Native[], replacement: Native[]): Native {
         let sum: Native = 0;
         for (let i = 0; i < values.length; i++) { values = replacement; sum += values[i]; }
@@ -2164,7 +2164,7 @@ test("native indexed places produce the selected element and the actual counted-
     `]]) {
     const input = await nativeInt32Input({ ...fixture, projectSnapshot: specification => fixture.projectSnapshot({
       ...specification, libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
-    }) }, source, true);
+    }) }, source, true, [entry]);
     const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
       ...input.snapshot.nativeFacts, integerOverflow: [
         { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
@@ -2234,7 +2234,7 @@ test("WT-10: a saved field argument keeps its projected Origins across evaluatio
       }
       return false;
     }
-  `);
+  `, ["read"]);
   const reached = await checkActualBodyRoundCuts(() => {
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -2300,7 +2300,7 @@ test("WT-10 retains the earlier local or formal argument when a later operand re
     export function formalCopy(first: Box, second: Box, enabled: boolean): boolean {
       return choose(first, (first = second, enabled));
     }
-  `);
+  `, ["localCopy", "formalCopy"]);
   const reached = await checkActualBodyRoundCuts(() => {
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -2352,7 +2352,7 @@ test("a placed binding default retains the captured reference at its actual earl
       const { value = choose(first, (first = next, first.flag)) } = input;
       return value;
     }
-  `);
+  `, ["read"]);
   const reached = await checkActualBodyRoundCuts(() => {
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -2452,7 +2452,7 @@ test("the actual optional field write transfers its selected absence at the orig
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
     export type Holder = { child: { flag: boolean } | null };
     export function clear(holder: Holder): void { holder.child = null; }
-  `);
+  `, ["clear"]);
   const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
   let captured;
   try {
@@ -3129,7 +3129,9 @@ test("authored native scalar array effects retain the checked parameter and reac
   const stock = fixture.bundled().filter(library => library.name === "lib.es5.d.ts"
     || library.name === "lib.decorators.d.ts" || library.name === "lib.decorators.legacy.d.ts");
   const defaults = analysisInput(fixture, "sdk-minimal", source);
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: stock });
+  const moduleId = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: stock,
+    externalEntries: ["exchange", "compound", "guarded", "evaluated", "forwarded"].map(name => ({ module: moduleId, name })) });
   for (const arrayIndexFailure of ["unwind", "abort"]) {
     const result = analyzeHostProgram({ ...defaults, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts, arrayIndexFailure } } });
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -3282,7 +3284,7 @@ test("repeated scalar field reads share a projection but retain separate read oc
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `export type Box = { flag: boolean; };
-    export function read(box: Box): boolean { box.flag; return box.flag; }`);
+    export function read(box: Box): boolean { box.flag; return box.flag; }`, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -3538,7 +3540,7 @@ test("module static reads use one actual cell per declaration and preserve the d
   };
   try {
     const actual = await analyzeOptionalSource("export const state: boolean = true; "
-      + "export function read(): boolean { if (state) return state; return state; }");
+      + "export function read(): boolean { if (state) return state; return state; }", {}, ["read"]);
     assert.equal(actual.kind, "ok");
     assert.ok(observed && owner);
     const { deps, member, outside } = observed;
@@ -3585,7 +3587,7 @@ test("module static reads use one actual cell per declaration and preserve the d
     assert.throws(() => invoke(owner, new Map([[read.id, read]])), /actual declaration, storage and placed initializer/);
   } finally { pipelineWiring.summaries.convergeComponent = converge; }
   const absence = await analyzeOptionalSource("export let first: undefined; export let second: undefined; "
-    + "export function read(): undefined { first; return second; }");
+    + "export function read(): undefined { first; return second; }", {}, ["read"]);
   assert.equal(absence.kind, "ok");
   const index = absence.value.index;
   const absenceReader = absence.value.modules.flatMap(module => module.bodies)
@@ -3606,9 +3608,9 @@ test("module static reads use one actual cell per declaration and preserve the d
     assert.equal(accountFailure(account)?.dimension, "result-entries");
   }
   await assert.rejects(() => analyzeOptionalSource("export let state: boolean | undefined; "
-    + "export function read(): boolean | undefined { return state; }"), /actual incoming value contents/);
+    + "export function read(): boolean | undefined { return state; }", {}, ["read"]), /actual incoming value contents/);
   const authored = await analyzeOptionalSource("export let state: boolean; "
-    + "export function replace(next: boolean): boolean { state = next; return state; }");
+    + "export function replace(next: boolean): boolean { state = next; return state; }", {}, ["replace"]);
   assert.equal(authored.kind, "ok");
   const written = authored.value.index.summaries.find(summary => summary.key.kind === "body"
     && summary.arena.cells.some(cell => cell.role.kind === "static") && summary.contentsOnReturn.length !== 0);
@@ -3771,7 +3773,7 @@ test("copied optional entries share the existing account and do not suppress act
   const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
   const program = await analyzeOptionalSource(
     "export function copy(first: boolean | undefined, second: boolean | undefined): boolean | undefined { return first; }\n"
-    + "export function keep(first: boolean | undefined, second: boolean | undefined, text: string): string { return text; }");
+    + "export function keep(first: boolean | undefined, second: boolean | undefined, text: string): string { return text; }", {}, ["copy", "keep"]);
   assert.equal(program.kind, "ok");
   const { index, modules } = program.value;
   const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected" && body.tir.root.kind === "Block");
@@ -4739,7 +4741,7 @@ test("a private mutual round transports an actual prior detector to both stable 
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const source = "export function head(flag:boolean):boolean { if(flag) { let unread:boolean; return unread; } return tail(true); }\n"
     + "export function tail(flag:boolean):boolean { return head(flag); }";
-  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source);
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source, ["head"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -4842,7 +4844,7 @@ test("one execution grounds its result in the distinct direct read and placed de
   const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const source = "export function read(flag:boolean):boolean { if(flag){let own:boolean;return own;} for(let first:boolean,second:boolean=first;;){return second;} }";
-  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source);
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source, ["read"]);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -5159,7 +5161,7 @@ test("one held field joins its independently selected arms at paid cuts without 
       after.flag = value;
       return before.flag;
     }
-  `);
+  `, ["touch"]);
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const selected = program.value.modules.find(module => module.module === input.snapshot.entryPoint)
@@ -5240,7 +5242,7 @@ test("a direct reference throw carries its original value through cleanup unless
     export function override(value: string, replacement: string): string {
       try { throw value; } finally { return replacement; }
     }
-  `);
+  `, {}, ["escape", "override"]);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   for (const [name, overridden] of [["escape", false], ["override", true]]) {
     const body = result.value.modules.flatMap(module => module.bodies).find(row =>
@@ -5286,12 +5288,13 @@ test("S-1: a reference-valued field default copies the actual fallback only on t
   type Holder = { value: string };
   function project(input: Holder): string { const { value } = input; return value; }
   export function forward(input: Holder): string { return project(input); }
-`);
+`, ["property", "binding", "fallback", "present", "forward"]);
   const bounded = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...input, limits: { ...input.limits,
     dataflow: { maximumWork, maximumResultEntries },
   } });
-  const maximumWork = 140753;
-  const maximumRecords = 18815;
+  assert.equal(bounded(140753, 18815).kind, "ok");
+  const maximumWork = 134832;
+  const maximumRecords = 18040;
   const result = bounded(maximumWork, maximumRecords);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -5404,6 +5407,7 @@ test("opaque native reference calls retain ordered referent effects and the actu
       + 'function choose(value:string,flag:boolean):string {if(flag) return resolve(value); return resolve(value);}'
       + 'export function branch(value:string,flag:boolean):string {return choose(value,flag);}' },
     libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
+    externalEntries: ["call", "branch"].map(name => ({ module: fixture.moduleOf(packageOf("/project"), "src/main.ts"), name })),
     providerPackages: [{ root: "/text-provider", name: "text-provider" }], declarationProviders: [reference],
   });
   const opened = openAndCapture(snapshot, [{ reference, value: { kind: "declaration-provider", value: provider } }]);
@@ -6010,7 +6014,7 @@ test("body initialization uses the actual counted-loop condition and paid transp
   const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const program = await analyzeOptionalSource("export function run(flag: boolean): boolean { "
-    + "for (; flag; ) { break; } return (flag = !flag, ((flag))); }");
+    + "for (; flag; ) { break; } return (flag = !flag, ((flag))); }", {}, ["run"]);
   assert.equal(program.kind, "ok");
   const { index, modules } = program.value;
   const body = modules.flatMap(module => module.bodies).find(row => row.kind === "selected" && row.tir.root.kind === "Block");
@@ -6129,7 +6133,7 @@ test("the module proof discharges a constructed static need only from an earlier
   const { verifyInitializationEffects } = await import("../../packages/host/dist/ir-program/verify-initialization.js");
   const { summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
   const source = "import './first.js'; export const ready: boolean = true; export function read(value: boolean): boolean { return value; }";
-  const program = await analyzeOptionalSource(source, { "first.ts": "export const earlier: boolean = true;" });
+  const program = await analyzeOptionalSource(source, { "first.ts": "export const earlier: boolean = true;" }, ["read"]);
   assert.equal(program.kind, "ok");
   const [first, writer] = program.value.index.initialization.modules;
   const lookup = programLookup(program.value.index);
@@ -6307,7 +6311,7 @@ for (const first of ["boolean", "null"]) test(`inline tuple views with ${first} 
   const { inlineTupleSlots } = await import("../../packages/host/dist/analyses/body/places.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
-    `export function start(pair: [${first}, boolean]): boolean { const [first, second] = pair; return second; }`);
+    `export function start(pair: [${first}, boolean]): boolean { const [first, second] = pair; return second; }`, ["start"]);
   const native = input.snapshot.nativeFacts;
   const completed = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -6506,7 +6510,7 @@ test("actual nested callable source roots never traverse a separately owned body
 
 test("a module owns neither its nested callable headers nor their separately executing defaults", async () => {
   const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
-  const program = await analyzeOptionalSource("export function child(flag: boolean = true): boolean { return flag; }");
+  const program = await analyzeOptionalSource("export function child(flag: boolean = true): boolean { return flag; }", {}, ["child"]);
   assert.equal(program.kind, "ok");
   const [execution] = program.value.index.initialization.modules;
   const outer = program.value.modules.flatMap(module => module.bodies)

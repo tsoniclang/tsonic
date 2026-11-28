@@ -48,15 +48,17 @@ function conversion(body, expression, formal, parameter, role, kind) {
   return statement;
 }
 
-export async function analyzeOptionalSource(source, dependencies = {}) {
+export async function analyzeOptionalSource(source, dependencies = {}, entries = []) {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, ...dependencies },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: entries.map(name => ({ module: entry, name })) });
   return analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
 }
 
 export async function checkOptionalDefault(mode) {
-  const program = await analyzeOptionalSource(mode === "null" ? explicitNull : choose + "\n" + calls[mode]);
+  const program = await analyzeOptionalSource(mode === "null" ? explicitNull : choose + "\n" + calls[mode], {}, ["call", "choose"]);
   assert.equal(program.kind, "ok", program.kind === "ok" ? undefined : JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   assert.ok(index.dependencyInventory);

@@ -127,7 +127,7 @@ test("two real calls to the same outside execution retain and charge only one de
     return converge(deps, input);
   };
   try {
-    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source));
+    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source, ["caller"]));
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   } finally {
     pipelineWiring.summaries.convergeComponent = converge;

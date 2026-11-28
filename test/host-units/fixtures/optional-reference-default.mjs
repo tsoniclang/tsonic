@@ -16,7 +16,8 @@ export async function checkOptionalReferenceDefault() {
     "export function select(fallback: string, value: string | undefined = fallback): string | undefined { return value; }\n"
     + "export function omit(fallback: string, supplied: string): string | undefined { return select(fallback); }\n"
     + "export function present(fallback: string, supplied: string): string | undefined { return select(fallback, supplied); }\n"
-    + "export function absent(fallback: string, supplied: string): string | undefined { return select(fallback, undefined); }");
+    + "export function absent(fallback: string, supplied: string): string | undefined { return select(fallback, undefined); }",
+  {}, ["omit", "present", "absent"]);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected");

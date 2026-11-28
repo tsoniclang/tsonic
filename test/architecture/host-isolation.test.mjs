@@ -271,15 +271,17 @@ test("HIR admits only the exact named phase copy slot with typed refusal", async
     });
 });
 
-test("HIR admits only its own exact Parameter initializer field and ready-expression port", async () => {
-  const phase = 'export interface Phase { readonly ParameterInitializer: object | null; readonly Other: null; }';
-  const carrier = 'export interface ParameterDeclaration<P extends Phase> { readonly kind: "Parameter"; readonly initializer: P["ParameterInitializer"]; }';
+test("HIR admits only its exact shared default initializer fields and ready-expression port", async () => {
+  const phase = 'export interface Phase { readonly DefaultInitializer: object | null; readonly Other: null; }';
+  const carrier = 'export interface ParameterDeclaration<P extends Phase> { readonly kind: "Parameter"; readonly initializer: P["DefaultInitializer"]; }';
   const expression = 'export interface Expression<P extends Phase> { readonly kind: "Expression"; readonly phase: P; }';
   const reader = 'export type SyntaxExpressionImage<P extends Phase> = (expression: Expression<P>) => Expression<P>;';
-  const image = 'export type SyntaxInitializerImage<P extends Phase, Image> = (parameter: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image) => P["ParameterInitializer"];';
+  const image = 'export type SyntaxInitializerImage<P extends Phase, Image> = (owner: DefaultInitializerOwner<P>, expression: SyntaxExpressionImage<P>, image: Image) => P["DefaultInitializer"];';
+  const binding = 'export interface BindingElement<P extends Phase> { readonly kind: "BindingElement"; readonly initializer: P["DefaultInitializer"]; }';
+  const owners = 'export type DefaultInitializerOwner<P extends Phase> = ParameterDeclaration<P> | BindingElement<P>;';
   const contract = path("ir-hir");
   const entry = path("ir-hir", "index.ts");
-  await fixture([[contract, [phase, carrier, expression, reader, image,
+  await fixture([[contract, [phase, carrier, expression, reader, image, binding, owners,
     'export type Copy = <P extends Phase, Image>(value: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image, translate: SyntaxInitializerImage<P, Image>) => ParameterDeclaration<P>;'].join("\n")],
     [entry, 'import type { Copy } from "./contract.js"; export const copy: Copy = (value, expression, image, translate) => ({ kind: "Parameter", initializer: translate(value, expression, image) });']],
     async ({ root, deps }) => {
@@ -289,17 +291,17 @@ test("HIR admits only its own exact Parameter initializer field and ready-expres
   for (const [description, owner, selected, projected, line] of [
     ["foreign field", "ir-hir", carrier.replace("readonly initializer", "readonly unrelated"), null, 2],
     ["foreign owner", "ir-types", carrier, null, 2],
-    ["wrong key", "ir-hir", carrier.replace('P["ParameterInitializer"]', 'P["Other"]'), null, 2],
+    ["wrong key", "ir-hir", carrier.replace('P["DefaultInitializer"]', 'P["Other"]'), null, 2],
     ["mutable", "ir-hir", carrier.replace("readonly initializer", "initializer"), null, 2],
-    ["runtime key", "ir-hir", carrier.replace("P extends Phase>", "P extends Phase, Key extends keyof Phase>").replace('P["ParameterInitializer"]', "P[Key]"), null, 2],
+    ["runtime key", "ir-hir", carrier.replace("P extends Phase>", "P extends Phase, Key extends keyof Phase>").replace('P["DefaultInitializer"]', "P[Key]"), null, 2],
     ["crossed phase", "ir-hir", carrier, image.replace("Image>", "Image extends Phase>").replace('=> P[', '=> Image['), 5],
     ["foreign expression", "ir-hir", carrier, image.replace("expression: SyntaxExpressionImage<P>", "expression: ParameterDeclaration<P>"), 5],
-    ["wrong result", "ir-hir", carrier, image.replace('P["ParameterInitializer"]', 'P["Other"]'), 5],
+    ["wrong result", "ir-hir", carrier, image.replace('P["DefaultInitializer"]', 'P["Other"]'), 5],
     ["optional input", "ir-hir", carrier, image.replace("image: Image", "image?: Image"), 5],
     ["rest input", "ir-hir", carrier, image.replace("image: Image", "...image: Image[]"), 5],
   ]) {
     const invalid = path(owner);
-    await fixture([[invalid, [phase, selected, expression, reader, projected ?? ""].join("\n")]], async ({ root, deps }) => {
+    await fixture([[invalid, [phase, selected, expression, reader, projected ?? "", binding, owners].join("\n")]], async ({ root, deps }) => {
       const report = await compileIsolated(deps, module(owner),
         { root, sourceFiles: [invalid], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
       assert.equal(report.status, "failed", description);

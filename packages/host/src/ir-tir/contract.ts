@@ -1,7 +1,7 @@
 import type { BodyId, DefId, ItemNodeRef, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
+import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, DefaultInitializerOwner, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, IndexDecision, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { InferenceNativeFacts } from "../ir-infer/contract.js";
 import type { ArrowFunction, CheckedLayoutAlias, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
@@ -472,7 +472,7 @@ export interface TypedSourceFile {
 export interface TypedPhase extends Phase {
   readonly CallArguments: TirCallArguments;
   readonly Token: null;
-  readonly ParameterInitializer: TirFormalInitializer;
+  readonly DefaultInitializer: TirDefaultInitializer;
   readonly Identifier: TypedName;
   readonly PrivateIdentifier: TypedName;
   readonly QualifiedName: TypedName;
@@ -686,7 +686,7 @@ export interface TirReadyCallable extends FunctionDeclarationHeader<TypedPhase> 
   readonly body: Block<TypedPhase>;
 }
 
-export type TirFormalInitializer =
+export type TirDefaultInitializer =
   | { readonly kind: "none" }
   | { readonly kind: "checked-default"; readonly root: Expression<CheckedPhase> }
   | { readonly kind: "ready-default"; readonly root: Expression<TypedPhase> };
@@ -705,15 +705,15 @@ export type TirTypedSyntax =
 
 export type TirChapterSyntax = TirTypedSyntax | { readonly kind: "checked"; readonly node: HirNode };
 
-export type TirFormalInitializerRead =
+export type TirDefaultInitializerRead =
   | { readonly kind: "none" }
   | { readonly kind: "checked-default"; readonly root: () => Expression<CheckedPhase> }
   | { readonly kind: "ready-default"; readonly root: () => Expression<TypedPhase> };
 
-export interface TirFormalInitializerSlot {
-  readonly kind: "formal-initializer";
+export interface TirDefaultInitializerSlot {
+  readonly kind: "default-initializer";
   readonly fields: readonly (string | number)[];
-  readonly read: () => TirFormalInitializerRead;
+  readonly read: () => TirDefaultInitializerRead;
 }
 
 export type TirLayoutArgumentSlot =
@@ -728,18 +728,19 @@ export type TirLayoutArgumentSlot =
 export type TirChapterSyntaxSlot =
   | { readonly kind: "syntax"; readonly fields: readonly (string | number)[]; readonly read: () => TirChapterSyntax | null }
   | { readonly kind: "statement"; readonly fields: readonly (string | number)[]; readonly read: () => TirModuleStatement }
-  | TirFormalInitializerSlot | TirLayoutArgumentSlot;
+  | TirDefaultInitializerSlot | TirLayoutArgumentSlot;
 
 export type LayoutArgumentSlots = (arguments_: TirLayoutArguments | TirFieldOffsetArguments) => Iterable<TirLayoutArgumentSlot>;
 export type ChapterSyntaxSlots = (subject: TirTypedSyntax) => Iterable<TirChapterSyntaxSlot>;
 export type IsLayoutOperandBody = (body: BodyId) => boolean;
 export type ReadChapterSyntaxSlot = (slot: TirChapterSyntaxSlot) => TirChapterSyntax | null;
 export type ChapterStatementSyntax = (statement: TirModuleStatement) => TirChapterSyntax;
-export type FormalInitializerSyntax = (initializer: TirFormalInitializer) => TirChapterSyntax | null;
-export type FormalInitializerSlot = (formal: TirFormal) => TirFormalInitializerSlot;
-export type AdmitFormalInitializer = <Stop>(
-  slot: TirFormalInitializerSlot, field: () => Stop | null, edge: () => Stop | null,
-) => { readonly kind: "complete"; readonly value: TirFormalInitializer } | { readonly kind: "refused"; readonly stop: Stop };
+export type DefaultInitializerSyntax = (initializer: TirDefaultInitializer) => TirChapterSyntax | null;
+export type DefaultInitializerSlot = (owner: DefaultInitializerOwner<TypedPhase>) => TirDefaultInitializerSlot;
+export type AdmitDefaultInitializer = <Stop>(
+  slot: TirDefaultInitializerSlot, field: () => Stop | null, edge: () => Stop | null,
+  checked: (() => { readonly kind: "complete"; readonly value: Expression<CheckedPhase> } | { readonly kind: "refused"; readonly stop: Stop }) | null,
+) => { readonly kind: "complete"; readonly value: TirDefaultInitializer } | { readonly kind: "refused"; readonly stop: Stop };
 export type TirBodySyntaxOf = (root: TirBodyRoot) => TirTypedSyntax;
 export type IndexChapterSyntax = (roots: Iterable<TirChapterSyntax>, slots: ChapterSyntaxSlots,
   admitEdge: () => boolean) => Iterable<TirChapterSyntax>;

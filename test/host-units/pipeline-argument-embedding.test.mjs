@@ -27,8 +27,9 @@ const limits = {
 
 async function inputs(source) {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: [{ module: entry, name: "call" }] });
   return { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
 }
 

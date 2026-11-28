@@ -1,10 +1,10 @@
-import type { ChapterSyntaxSlots, TirBodyRoot, TirCallArguments, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirLayoutOperand, TirModuleRoot,
+import type { ChapterSyntaxSlots, TirBodyRoot, TirCallArguments, TirChapterSyntax, TirChapterSyntaxSlot, TirDefaultInitializer, TirLayoutOperand, TirModuleRoot,
   TirReadyCallable, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
-import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, formalInitializerSlot, formalInitializerSyntax,
+import { admitDefaultInitializer, chapterStatementSyntax, chapterSyntaxSlots, defaultInitializerSlot, defaultInitializerSyntax,
   layoutArgumentSlots, readChapterSyntaxSlot } from "../ir-tir/index.js";
-import type { ModuleBodies } from "./contract.js";
+import type { ModuleBodies, TirDefaultOwner } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import type { ApplicationSyntaxReceipt, ArrowFunction, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, ObjectLiteralExpression,
+import type { ApplicationSyntaxReceipt, ArrowFunction, BindingElementSyntaxReceipt, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, ObjectLiteralExpression,
   ParameterSyntaxReceipt, RetainedSyntaxNode, SourceFile, SyntaxChildSlot, SyntaxCopyResult, SyntaxExpressionImage,
   SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import { prepareSyntaxArgumentList, prepareSyntaxCopy } from "../ir-hir/index.js";
@@ -25,7 +25,8 @@ interface ChapterSyntaxAdmission<Stop> {
   readonly root: (path: ChapterPath) => Stop | null;
   readonly node: (path: ChapterPath, subject: TirChapterSyntax, ordinal: number) => SyntaxCopyResult<ChapterNodeShape | null, Stop>;
   readonly edge: (path: ChapterPath, slot: TirChapterSyntaxSlot) => Stop | null;
-  readonly formal: (path: ChapterPath) => Stop | null;
+  readonly initializer: (path: ChapterPath) => Stop | null;
+  readonly defaultOf: ReadProjectedDefault<Stop> | null;
   readonly layout: (path: ChapterPath) => Stop | null;
   readonly close: (subject: TirTypedSyntax) => void;
 }
@@ -50,11 +51,11 @@ export type PreparedChapterHeader =
   ({ readonly kind: "module"; readonly finish: (operands: HeaderOperands) => TirModuleRoot } |
    { readonly kind: "callable"; readonly finish: (operands: HeaderOperands) => TirReadyCallable });
 
-interface ChapterFormalReceipt {
-  readonly kind: "formal";
+interface ChapterDefaultReceipt {
+  readonly kind: "default";
   readonly ordinal: number;
-  readonly initializer: TirFormalInitializer;
-  readonly header: ParameterSyntaxReceipt<TypedPhase>;
+  readonly initializer: TirDefaultInitializer;
+  readonly header: ParameterSyntaxReceipt<TypedPhase> | BindingElementSyntaxReceipt<TypedPhase>;
 }
 
 interface ChapterCallReceipt {
@@ -72,8 +73,12 @@ export interface ChapterSyntaxInventory {
 }
 
 type ReadCheckedDefault = (root: Expression<CheckedPhase>) => Expression<CheckedPhase>;
+interface ReadProjectedDefault<Stop> {
+  readonly rootOf: (owner: TirDefaultOwner) => { readonly kind: "complete"; readonly value: Expression<CheckedPhase> }
+    | { readonly kind: "refused"; readonly stop: Stop };
+}
 
-type ChapterWire = number | ChapterNodeShape | ChapterFormalReceipt | ChapterCallReceipt;
+type ChapterWire = number | ChapterNodeShape | ChapterDefaultReceipt | ChapterCallReceipt;
 type ChapterWires = ReadonlyMap<TirTypedSyntax["node"], ChapterWire>;
 
 const missingParameter: InvariantFailure = { owner: "ir-program", query: null, origin: null,
@@ -116,7 +121,9 @@ function* preparedSlots(slots: Iterable<SyntaxChildSlot<TypedPhase>>, subject: T
     const node = slot.read();
     return node.kind === "Parameter" ? { kind: "formal", node } : { kind: "ordinary", node };
   } };
-  if (subject.kind === "formal") yield formalInitializerSlot(subject.node);
+  if (subject.kind === "formal") yield defaultInitializerSlot(subject.node);
+  else if (subject.kind === "ordinary" && subject.node.kind === "BindingElement")
+    yield defaultInitializerSlot(subject.node);
 }
 
 function retainCallArguments(header: ApplicationSyntaxReceipt<TypedPhase>, argumentList: TirCallArguments,
@@ -167,7 +174,7 @@ function retainCallArguments(header: ApplicationSyntaxReceipt<TypedPhase>, argum
 
 function walkChapterSyntax<Stop, Value>(
   roots: Iterable<ChapterRootSlot>, admission: ChapterSyntaxAdmission<Stop>,
-  rawSlots: ChapterSyntaxSlots, retainFormals: boolean, finish: (inventory: ChapterSyntaxInventory, wires: ChapterWires) => Value,
+  rawSlots: ChapterSyntaxSlots, retainDefaults: boolean, finish: (inventory: ChapterSyntaxInventory, wires: ChapterWires) => Value,
 ): { readonly kind: "complete"; readonly value: Value } | Stop {
   const checkedRoots: HirNode[] = [];
   const checkedSeen = new Set<HirNode>();
@@ -192,18 +199,22 @@ function walkChapterSyntax<Stop, Value>(
         const path = { parent: frame.path, fields: child.value.fields };
         const slot = child.value;
         let next: TirChapterSyntax | null;
-        if (slot.kind === "formal-initializer") {
-          const formal = frame.subject.node;
-          if (formal.kind !== "Parameter") return throwInvariant({ owner: "ir-program", query: null, origin: formal.origin,
-            message: "Only the actual formal can retain its initializer slot." });
-          const initializer = admitFormalInitializer(slot, () => admission.formal(path), () => admission.edge(path, slot));
+        if (slot.kind === "default-initializer") {
+          const owner = frame.subject.node;
+          if (owner.kind !== "Parameter" && owner.kind !== "BindingElement")
+            return throwInvariant({ owner: "ir-program", query: null, origin: owner.origin,
+              message: "Only the actual default owner can retain its initializer slot." });
+          const project = admission.defaultOf;
+          const initializer = admitDefaultInitializer(slot, () => admission.initializer(path), () => admission.edge(path, slot),
+            project === null ? null : () => project.rootOf(owner));
           if (initializer.kind === "refused") return initializer.stop;
-          if (retainFormals) {
-            const header = wires.get(formal);
-            if (typeof header !== "object" || header.kind !== "formal-header") return throwInvariant(missingParameter);
-            wires.set(formal, { kind: "formal", ordinal: header.ordinal, initializer: initializer.value, header });
+          if (retainDefaults) {
+            const header = wires.get(owner);
+            if (typeof header !== "object" || header.kind !== "formal-header" && header.kind !== "binding-element")
+              return throwInvariant(missingParameter);
+            wires.set(owner, { kind: "default", ordinal: header.ordinal, initializer: initializer.value, header });
           }
-          next = formalInitializerSyntax(initializer.value);
+          next = defaultInitializerSyntax(initializer.value);
         } else {
           const edge = admission.edge(path, slot);
           if (edge !== null) return edge;
@@ -271,15 +282,16 @@ function walkChapterSyntax<Stop, Value>(
 }
 
 export function inventoryChapterSyntax<Stop>(
-  roots: Iterable<ChapterRootSlot>, admission: ChapterSyntaxAdmission<Stop>, rawSlots: ChapterSyntaxSlots,
+  roots: Iterable<ChapterRootSlot>, admission: Omit<ChapterSyntaxAdmission<Stop>, "defaultOf">, rawSlots: ChapterSyntaxSlots,
 ): { readonly kind: "complete"; readonly value: ChapterSyntaxInventory } | Stop {
-  return walkChapterSyntax(roots, admission, rawSlots, false, inventory => inventory);
+  return walkChapterSyntax(roots, { ...admission, defaultOf: null }, rawSlots, false, inventory => inventory);
 }
 
 interface ChapterNodeCopyAdmission<Stop> {
   readonly root: (path: ChapterPath) => Stop | null;
   readonly edge: (path: ChapterPath, slot: TirChapterSyntaxSlot) => Stop | null;
-  readonly formal: (path: ChapterPath) => Stop | null;
+  readonly initializer: (path: ChapterPath) => Stop | null;
+  readonly defaultOf: ReadProjectedDefault<Stop> | null;
   readonly layout: (path: ChapterPath) => Stop | null;
   readonly prepare: (subject: TirChapterSyntax, ordinal: number, copy: (node: SyntaxNode<TypedPhase>) => Stop | null) =>
     SyntaxCopyResult<ChapterNodeShape | null, Stop>;
@@ -302,7 +314,7 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
   const prepared = prepareSyntaxCopy<TypedPhase, Stop, Image>(phase, beforeNode, copy => {
     const postorder: SyntaxNode<TypedPhase>[] = [];
     const discovered = walkChapterSyntax(roots, {
-      root: admission.root, edge: admission.edge, formal: admission.formal, layout: admission.layout,
+      root: admission.root, edge: admission.edge, initializer: admission.initializer, defaultOf: admission.defaultOf, layout: admission.layout,
       node: (_path, subject, ordinal) => admission.prepare(subject, ordinal, node => copy(node, ordinal)),
       close: subject => {
         if (subject.kind === "ordinary" || subject.kind === "formal") postorder.push(subject.node);
@@ -315,7 +327,7 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
         structure: node => structureReceipt(wires, node),
         copyInitializer: (node, expression) => {
           const entry = wires.get(node);
-          if (entry === undefined || typeof entry === "number" || entry.kind !== "formal") return throwInvariant(missingParameter);
+          if (entry === undefined || typeof entry === "number" || entry.kind !== "default") return throwInvariant(missingParameter);
           const initializer = entry.initializer;
           if (initializer.kind === "checked-default")
             return { kind: "checked-default", root: requirePresent(checked, missingParameter)(initializer.root) };
@@ -353,6 +365,6 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
 function structureReceipt(wires: ChapterWires, node: RetainedSyntaxNode<TypedPhase>): SyntaxStructureReceipt<TypedPhase> {
   const entry = wires.get(node);
   if (entry !== undefined && typeof entry !== "number" && entry.kind !== "module" && entry.kind !== "callable")
-    return entry.kind === "formal" || entry.kind === "call" ? entry.header : entry;
+    return entry.kind === "default" || entry.kind === "call" ? entry.header : entry;
   return throwInvariant({ owner: "ir-program", query: null, origin: node.origin, message: "Syntax needs its actual paid chapter receipt." });
 }

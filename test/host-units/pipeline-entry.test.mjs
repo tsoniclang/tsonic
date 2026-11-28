@@ -36,7 +36,7 @@ test("an explicitly selected inline tuple initializes the authored binding desti
       const [first, second] = produce(pair);
       return first;
     }
-  `);
+  `, ["start"]);
   const native = input.snapshot.nativeFacts;
   const withHolding = (holding, source = input) => ({ ...source, snapshot: { ...source.snapshot,
     nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding }] } } });
@@ -67,7 +67,7 @@ test("an explicitly selected inline tuple initializes the authored binding desti
   assert.throws(() => analyzeHostProgram(input), /actual Origins reference\/cell producer/);
   assert.throws(() => analyzeHostProgram(withHolding("by-reference")), /actual Origins reference\/cell producer/);
   const containsReference = analysisInput(fixture, "sdk-minimal",
-    "export function start(pair: [boolean, string]): boolean { const [first, second] = pair; return first; }");
+    "export function start(pair: [boolean, string]): boolean { const [first, second] = pair; return first; }", ["start"]);
   assert.throws(() => analyzeHostProgram(withHolding("in-place", containsReference)), /actual Origins reference\/cell producer/);
 });
 
@@ -95,7 +95,7 @@ test("nested tuple bindings retain exact slots without reading the hole or skipp
     export function fromGrouped(first: boolean, ignored: boolean, last: boolean): boolean {
       return fromParameter((([([before(first)]), skipped(ignored), [after(last)]])));
     }
-  `);
+  `, ["start", "fromLiteral", "fromGrouped"]);
   const native = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -164,7 +164,7 @@ test("fixed and empty call spreads keep their authored component and later-value
       function produce(pair: ${tuple}): ${tuple} { return pair; }
       function later(): boolean { return true; }
       export function start(pair: ${tuple}): boolean { return consume(...produce(pair), later()); }
-    `);
+    `, ["start"]);
     const native = input.snapshot.nativeFacts;
     const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
       nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -235,6 +235,7 @@ test("S-1 keeps the actual receiver through paid parentheses in a binding and it
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { parseModuleBodies, printModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
   const original = analysisInput(fixture, "sdk-minimal", `
     function pair(value: boolean): [boolean, boolean] { return [value, true]; }
     function later(): boolean { return false; }
@@ -249,7 +250,8 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
     }
   `);
   const facts = original.snapshot.nativeFacts;
-  const input = { ...original, snapshot: { ...original.snapshot, nativeFacts: { ...facts,
+  const externalEntries = ["maybe", "present"].map(name => ({ module: original.snapshot.entryPoint, name }));
+  const input = { ...original, snapshot: { ...original.snapshot, contributions: { ...original.snapshot.contributions, externalEntries }, nativeFacts: { ...facts,
     carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
   } } };
   const run = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...input, limits: { ...input.limits,
@@ -260,6 +262,10 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
   const result = run(work, records);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const encoded = printModuleBodies(result.value.index, chapter);
+  const decoded = parseModuleBodies(result.value.index, encoded);
+  assert.equal(decoded.kind, "parsed");
+  assert.equal(printModuleBodies(result.value.index, decoded.value), encoded);
   const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
   for (const name of ["maybe", "present"]) {
     const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
@@ -273,6 +279,10 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
     assert.equal(slot.tsonic.role, "field-binding");
     assert.notEqual(slot.tsonic.initializer, null, "both cases retain the authored default");
     if (name === "maybe") {
+      const selectedDefault = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === slot.tsonic.initializer);
+      assert.equal(slot.initializer.kind, "ready-default");
+      assert.equal(slot.initializer.root === selectedDefault?.tir.root, true);
+      assert.deepEqual(selectedDefault.facts.map(row => row.execution.provided), [0]);
       assert.ok(split);
       const [absence] = split.terminator.targets;
       assert.deepEqual(body.mir.constants[absence.constant].value, { kind: "literal", value: { kind: "absence" } });
@@ -284,6 +294,8 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
       assert.equal(present.terminator.target, body.mir.blocks[initializer.next].terminator.target);
       assert.equal(calls.filter(call => call.tir.node === slot.id).length, 1);
     } else {
+      assert.equal(slot.initializer.kind, "checked-default");
+      assert.equal(chapter.bodies.some(row => row.kind === "selected" && row.instance.body === slot.tsonic.initializer), false);
       assert.equal(split, undefined);
       assert.equal(calls.some(call => call.tir.node === slot.id), false);
     }
@@ -298,9 +310,13 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
     assert.deepEqual(transport.map(row => row.projection === null ? null : executionFacts.arena.projections[row.projection].projection),
       [{ kind: "index", constant: 0n }, { kind: "index", constant: 1n }, null]);
   }
+  const exactWork = 122730 + result.value.index.initialization.external.reduce((work, entry) =>
+    work + 1 + entry.definitions[0].length, 0);
+  const exactRecords = 16567;
+  assert.equal(run(exactWork, exactRecords).kind, "ok");
   for (const [limit, maximumWork, maximumResultEntries, maximum] of [
-    ["work", work - 1, records, work - 1],
-    ["result-entries", work, records - 1, records - 1],
+    ["work", exactWork - 1, exactRecords, exactWork - 1],
+    ["result-entries", exactWork, exactRecords - 1, exactRecords - 1],
   ]) {
     const refused = run(maximumWork, maximumResultEntries);
     assert.equal(refused.kind, "refused");
@@ -310,6 +326,63 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
         [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
     ]);
   }
+});
+
+test("a selected generic direct field binding does not inherit its template default execution", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function target<T>(source: { seed: boolean; value: boolean }): boolean {
+      const { seed, value = !seed } = source;
+      return value;
+    }
+    export function run(source: { seed: boolean; value: boolean }): boolean { return target<boolean>(source); }
+  `, ["run"]);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const fieldOf = row => row.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[1];
+  const template = chapter.bodies.find(row => row.kind === "template" && row.tir.lexicalBindings.methodBindings.length === 1
+    && row.tir.root.kind === "Block" && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(template);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === template.instance.body);
+  assert.ok(selected);
+  const dormant = fieldOf(selected);
+  const generic = fieldOf(template);
+  assert.equal(generic.initializer.kind, "ready-default");
+  assert.equal(dormant.initializer.kind, "checked-default");
+  assert.equal(dormant.initializer.root.id, generic.initializer.root.id);
+  assert.equal(dormant.tsonic.initializer, generic.tsonic.initializer);
+  assert.equal(chapter.bodies.some(row => row.kind === "selected" && row.instance.body === dormant.tsonic.initializer), false);
+  assert.equal(selected.mir.blocks.some(row => row.terminator.tir.node === dormant.id && row.terminator.kind === "call"), false);
+});
+
+test("a selected generic conditional field binding owns the exact initializer under its own bindings", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { sameInstance } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Box = { seed: boolean; value?: boolean };
+    function target<T>(source: Box): boolean { const { seed, value = !seed } = source; return value; }
+    export function run(source: Box): boolean { return target<boolean>(source); }
+  `, ["run"]);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.lexicalBindings.methodBindings.length === 1
+    && row.tir.root.kind === "Block" && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(selected);
+  const slot = selected.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[1];
+  assert.equal(slot.initializer.kind, "ready-default");
+  const expected = { body: slot.tsonic.initializer, bindings: selected.instance.bindings };
+  const child = chapter.bodies.find(row => row.kind === "selected" && sameInstance(row.instance, expected));
+  assert.equal(child?.tir.root === slot.initializer.root, true);
+  assert.deepEqual(child.facts.map(row => row.execution.provided), [0]);
+  const split = selected.mir.blocks.find(row => row.terminator.kind === "switch" && row.terminator.tir.node === slot.id);
+  const call = selected.mir.blocks[split.terminator.targets[0].target].terminator;
+  assert.equal(call.kind, "call");
+  assert.equal(sameInstance(call.callee.instance, expected), true);
+  assert.equal(selected.mir.blocks[split.terminator.otherwise].terminator.kind, "goto");
 });
 
 test("a finite spread of a checked tuple literal constructs its one product before the next argument", async () => {
@@ -331,7 +404,8 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     export function converted(flag: boolean): boolean { return consume(...(([keep(flag), true]) as const), later()); }
     export function lifted(flag: boolean): boolean { return consumeOptional(...(([keep(flag), true]) as const), later()); }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source,
+    ["bare", "grouped", "asserted", "bracketed", "constant", "constantPrefix", "converted", "lifted"]);
   const nativeFacts = input.snapshot.nativeFacts;
   const configured = { ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -446,7 +520,7 @@ test("native tuple absence belongs to its actual projected value, not the produc
       const [[absent, flag], other] = pair; return absent;
     }
     export function whole(flag: boolean): readonly [null, boolean] { return [null, flag] as const; }
-  `);
+  `, ["mixed", "identity", "supplied", "leaf", "whole"]);
   const native = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -493,7 +567,7 @@ test("inferred nested binding constructs the native read tuple rather than the s
     export function asserted(flag: boolean): null { const [[absent, other]] = ([[null, flag] as const] as const); return absent; }
     export function hole(flag: boolean): null { const [, [absent, other]] = <const>([flag, <const>[null, flag]]); return absent; }
     export function annotated(flag: boolean): null { const [[absent, other]]: readonly [readonly [null, boolean]] = [[null, flag]]; return absent; }
-  `);
+  `, ["plain", "asserted", "hole", "annotated"]);
   const nativeFacts = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -542,7 +616,7 @@ test("a named tuple-valued slot keeps the selected value and its actual binding 
       const [whole] = applied(flag);
       return whole;
     }
-  `);
+  `, ["literal", "declared", "selectedGeneric"]);
   const nativeFacts = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -581,7 +655,7 @@ for (const [form, initializer, operand] of [
       const slots: readonly [boolean, true] = ${initializer};
       return take(...${operand}, later());
     }
-  `);
+  `, ["start"]);
   const facts = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...facts, carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -623,7 +697,7 @@ test("a bound const tuple return forwards its selected type under the actual gen
   const input = analysisInput(fixture, "sdk-minimal", `
     function make<T>(value: T): readonly [T, true] { return [value, true] as const; }
     export function start(flag: boolean): readonly [boolean, true] { return make<boolean>(flag); }
-  `);
+  `, ["start"]);
   const facts = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...facts, carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -658,7 +732,7 @@ test("a nested tuple product keeps the actual held operand and the selected call
       readonly [readonly [boolean, true], readonly [true, boolean]] {
       return [(left), ((produce(right)))];
     }
-  `);
+  `, ["start"]);
   const native = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -688,7 +762,7 @@ test("nested const tuple assertions keep the declared slot context across actual
         readonly [readonly [boolean, true], readonly [true, boolean]] {
         return [(left), (${syntax})];
       }
-    `);
+    `, ["start"]);
     const native = input.snapshot.nativeFacts;
     const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
       nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -720,7 +794,7 @@ test("a placed grouped initializer captures the same saved tuple storage as its 
         const second: readonly [boolean, true] = ${value};
         return second;
       }
-    `);
+    `, ["start"]);
     const native = input.snapshot.nativeFacts;
     const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
       nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -762,7 +836,7 @@ test("a conditional finite spread evaluates only its selected tuple before the f
     function consume(left: boolean, right: boolean, tail: boolean): boolean { return right; }
     export function start(flag: boolean): boolean { return consume(...(flag ? first(flag) : second(flag)), later()); }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["start"]);
   const nativeFacts = input.snapshot.nativeFacts;
   const program = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -814,7 +888,7 @@ test("a finite tuple spread uses the actual instantiated slots of a generic lite
     function take<T>(value: T, flag: boolean): boolean { return flag; }
     export function start<T>(value: T): boolean { return take(...[value, true]); }
     export function caller(flag: boolean): boolean { return start(flag); }
-  `);
+  `, ["caller"]);
   const native = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
     ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
@@ -846,8 +920,8 @@ test("authored tuple construction consumes ordered operands and emits one select
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
   const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
-  const withInlineTuple = source => {
-    const input = analysisInput(fixture, "sdk-minimal", source);
+  const withInlineTuple = (source, entry) => {
+    const input = analysisInput(fixture, "sdk-minimal", source, [entry]);
     const facts = input.snapshot.nativeFacts;
     return { ...input, snapshot: { ...input.snapshot,
       nativeFacts: { ...facts, carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } };
@@ -858,7 +932,7 @@ test("authored tuple construction consumes ordered operands and emits one select
     function pair(flag: boolean): readonly [boolean, boolean] { return [keep(flag), flip(flag)]; }
     export function start(flag: boolean): boolean { const [left, right] = pair(flag); return left; }
   `;
-  const input = withInlineTuple(source);
+  const input = withInlineTuple(source, "start");
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const findTuple = body => body.root.kind === "Block" && body.root.statements.nodes[0]?.expression?.kind === "ArrayLiteralExpression";
@@ -893,7 +967,7 @@ test("authored tuple construction consumes ordered operands and emits one select
   assert.equal(rejected.violations.some(finding => finding.rule === "operation-type" && finding.detail.some(detail =>
     detail.kind === "text" && detail.value.startsWith("a fixed tuple slot retains"))), true);
   for (const [annotation, expression, size] of [["[number, number]", "[1, 2]", 2], ["[]", "[]", 0]]) {
-    const opposite = withInlineTuple(`export function pair(): ${annotation} { return ${expression}; }`);
+    const opposite = withInlineTuple(`export function pair(): ${annotation} { return ${expression}; }`, "pair");
     const completed = analyzeHostProgram(opposite);
     assert.equal(completed.kind, "ok", JSON.stringify(completed.diagnostics));
     const body = completed.value.modules.find(row => row.module === opposite.snapshot.entryPoint).bodies
@@ -918,7 +992,7 @@ test("an optional reference store retains the qualified field and the single nat
       export function clear(record: { field: { value: boolean } | ${absence} }): void {
         record.field = ${absence};
       }
-    `);
+    `, ["clear"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok");
     const selected = typeSourceBarrier(input, captured.value, createTypedAccount(input));
@@ -976,7 +1050,7 @@ test("a nested held field reaches Typed IR through both independently selected s
     export function read(first: { child: { flag: boolean } }, other: { child: { flag: boolean } }): boolean {
       return (first.child).flag;
     }
-  `);
+  `, ["read"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
@@ -1020,7 +1094,7 @@ test("a qualified optional reference comparison and its guarded nested read reta
         if (${comparison}) return holder.child.flag;
         return false;
       }
-    `);
+    `, ["read"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok");
     const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
@@ -1075,7 +1149,7 @@ test("projected reference reads retain their root and checked presence removes o
     ["{ flag: boolean } | null", "return holder.child !== null;", true, false, false],
   ]) {
     const input = analysisInput(fixture, "sdk-minimal",
-      `export function read(holder: { child: ${carrier} }): boolean { ${body} }`);
+      `export function read(holder: { child: ${carrier} }): boolean { ${body} }`, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1124,7 +1198,7 @@ test("projected formal Origins survive summary publication without caller-local 
       if (guard) return holder.child.flag;
       return false;
     }
-  `);
+  `, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1158,7 +1232,7 @@ test("a pure call or a descendant write preserves the actual parent presence gua
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1192,7 +1266,7 @@ test("a selected by-value reference view keeps the original operand, formal and 
       if (caller.child !== null) { pure(caller); return caller.child.flag; }
       return false;
     }
-  `);
+  `, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1253,7 +1327,7 @@ test("deferred selection acquires the same actual reference view after native bi
     export function start(caller: { child: null | { flag: boolean }; sibling: boolean }, value: boolean): boolean {
       return take(caller, value);
     }
-  `);
+  `, ["start"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -1293,7 +1367,7 @@ test("selected reference-call writes distinguish the guarded cell from siblings 
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", write);
     const { index, modules } = result.value;
@@ -1343,7 +1417,7 @@ test("selected reference-call writes invalidate nested guards and guards on poss
         return false;
       }`, 2, [[0, "unproven"]]],
   ]) {
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1376,7 +1450,7 @@ test("generic reference effects retain the caller field scope, not the selected 
         return false;
       }
       ${generic ? `export function entry(holder: ${holding}, token: boolean): boolean { return read(holder, token); }` : ""}
-    `);
+    `, [generic ? "entry" : "read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1417,7 +1491,7 @@ test("the same generic field declaration invalidates the caller under a differen
         return false;
       }
       export function entry(record: ${shape}, token: string): boolean { return consume(record, token, true); }
-    `);
+    `, ["entry"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1454,7 +1528,7 @@ test("a write-only optional reference field records absence on the actual receiv
       export function clear(record: { field: { value: boolean } | ${absence} }): void {
         record.field = ${absence};
       }
-    `);
+    `, ["clear"]);
     const published = analyzeHostProgram(input);
     assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
     const chapter = published.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1508,7 +1582,7 @@ test("verified Typed object bindings retain a native absence split and their sep
       const { first: left, second = !left } = source;
       return second;
     }
-  `);
+  `, ["bind"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const result = typeSourceBarrier(input, captured.value, createTypedAccount(input));
@@ -1528,7 +1602,8 @@ test("verified Typed object bindings retain a native absence split and their sep
   assert.equal(right.tsonic.present, right.tsonic.storage);
   assert.notEqual(right.tsonic.field.decision.read, right.tsonic.present);
   const child = bodies.find(body => body.body === right.tsonic.initializer && body.bindings.kind === "instantiated");
-  assert.equal(child.root === right.initializer, true);
+  assert.equal(right.initializer.kind, "ready-default");
+  assert.equal(child.root === right.initializer.root, true);
   assert.equal(child.completion, right.tsonic.storage);
   assert.deepEqual(child.captures.map(row => row.local), [left.tsonic.declaration.local]);
   const text = printTir(enclosing);
@@ -1600,7 +1675,7 @@ test("an always-present destructured field has no placed default execution edge"
         const { flag = fallback() } = box;
         return flag;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
@@ -1637,7 +1712,7 @@ test("installed ES2024 publishes a qualified scalar indexed write and read withi
   const { publishHostProgram } = await import("../../packages/host/dist/pipeline/publication.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const source = "export function exchange(values: boolean[], flag: boolean): boolean { values[0] = flag; return values[1]; }";
-  const input = analysisInput(fixture, "es2024", source);
+  const input = analysisInput(fixture, "es2024", source, ["exchange"]);
   const publish = maximumWork => {
     const bounded = { ...input, limits: { ...input.limits, dataflow: { ...input.limits.dataflow, maximumWork } } };
     const checked = captureSourceBarrier(bounded);
@@ -1652,7 +1727,7 @@ test("installed ES2024 publishes a qualified scalar indexed write and read withi
   };
   const installed = publish(input.limits.dataflow.maximumWork);
   const smaller = { ...input, snapshot: fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) }) };
+    libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]), externalEntries: input.snapshot.contributions.externalEntries }) };
   const modulesOf = run => run.snapshot.source.input.packages.modules.map(row => row.id).sort();
   const evidence = (result, run) => {
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -1682,7 +1757,7 @@ test("installed ES2024 publishes a qualified scalar indexed write and read withi
   };
   const actual = evidence(installed.result, input);
   assert.deepEqual(actual, evidence(analyzeHostProgram(smaller), smaller));
-  const minimal = analysisInput(fixture, "sdk-minimal", source);
+  const minimal = analysisInput(fixture, "sdk-minimal", source, ["exchange"]);
   assert.deepEqual(actual, evidence(analyzeHostProgram(minimal), minimal));
   assert.deepEqual(actual.decisions.map(({ node, ...decision }) => decision), [
     { text: "0", carrier: "array", holding: "by-reference", key: "int64", read: null, write: "bool", failure: "unwind", writeCheck: "before-value" },
@@ -1803,6 +1878,7 @@ test("two concrete uses of an executable foreign generic retain their own select
     input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
       extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+      externalEntries: ["first", "second"].map(name => ({ module: input.snapshot.entryPoint, name })),
       otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
         "export function echo<T>(value:T):T { const copy:T = value; return copy; }", false] } }] });
     const result = analyzeHostProgram(input);
@@ -1867,6 +1943,7 @@ test("only the omitted generic binding owns its ready default and required entry
   input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
     extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+    externalEntries: ["omitted", "supplied", "inferred"].map(name => ({ module: input.snapshot.entryPoint, name })),
     otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
       "export function choose<T>(value:T, other:T=value):T { return other; }", false] } }] });
   const result = analyzeHostProgram(input);
@@ -1912,6 +1989,7 @@ test(`binding-dependent calls in a generic template acquire only their concretel
     const input = analysisInput(fixture, "sdk-minimal", source);
     input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      externalEntries: ["first", "second"].map(name => ({ module: input.snapshot.entryPoint, name })),
       extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
       otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source", library, false] } }] });
     const result = analyzeHostProgram(input);
@@ -1952,7 +2030,7 @@ test(`an independently closed call stays decided inside a generic template (${om
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `function echo(value:boolean${omitted ? "=true" : ""}):boolean { return value; }
 function take<T>(value:T):boolean { return echo(${omitted ? "" : "true"}); }
-export function run(value:string):boolean { return take(value); }`);
+export function run(value:string):boolean { return take(value); }`, ["run"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -2804,7 +2882,7 @@ test("the source barrier keeps a checked struct marker distinct from an unmarked
 test("real public Host analysis retains an omitted initializer's actual captured boolean mutation", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function choose(a:boolean,b:boolean=(a=true)):boolean{return a;}");
+  const input = analysisInput(fixture, "sdk-minimal", "export function choose(a:boolean,b:boolean=(a=true)):boolean{return a;}", ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -2838,7 +2916,7 @@ test("real public Host analysis transports a captured string replacement through
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function choose(a:string,replacement:string,b:string=(a=replacement)):string{return a;}");
+    "export function choose(a:string,replacement:string,b:string=(a=replacement)):string{return a;}", ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
@@ -2880,7 +2958,8 @@ test("real public Host analysis preserves an imported generic declaration's actu
   input.snapshot = fixture.projectSnapshot({ sourceFiles: {
     "main.ts": "import type { Box } from './foreign.js';export type Applied=Box;export function value(input:boolean):boolean{return input;}",
     "foreign.ts": "export interface Box<T extends boolean=boolean>{(value:T):T;}",
-  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  externalEntries: [{ module: input.snapshot.entryPoint, name: "value" }] });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
@@ -2906,7 +2985,7 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal");
+  const input = analysisInput(fixture, "sdk-minimal", undefined, ["add"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
@@ -2939,7 +3018,7 @@ test("real public Host analysis preserves a declared structural alias without in
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export type Fields = { value: boolean; }; export function identity(input: boolean): boolean { return input; }\n";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["identity"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
@@ -2968,7 +3047,7 @@ test("real public Host analysis preserves generic nested structural members and 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export type Fields<T> = { value: T; readonly nested: { flag: boolean; }; method(input: boolean): boolean; get enabled(): boolean; set enabled(input: boolean | string); }; "
     + "export function identity(input: boolean): boolean { return input; }\n";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["identity"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3175,7 +3254,7 @@ test("a public interface method retains its own authored self return type", asyn
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `export interface Fluent { advance(): this; }
-export function keep(value: boolean): boolean { return !value; }`);
+export function keep(value: boolean): boolean { return !value; }`, ["keep"]);
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const { index, modules } = program.value;
@@ -3194,7 +3273,7 @@ test("real public Host analysis reads a declared structural field through its ac
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export type Box = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }\n");
+    "export type Box = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }\n", ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3239,7 +3318,7 @@ test("a written ordinary field updates the referent and carries its exact parame
       return box.flag;
     }
     export function forward(other: Box, box: Box, value: boolean): boolean { return write(other, box, value); }
-  `);
+  `, ["forward"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -3285,7 +3364,7 @@ test("a conditional field assignment retains the same qualified read and write p
   const input = analysisInput(fixture, "sdk-minimal", `
     export type Box = { flag: boolean };
     export function update(box: Box, value: boolean): boolean { return box.flag ||= value; }
-  `);
+  `, ["update"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -3315,7 +3394,7 @@ test("an immutable ordinary object alias reads the field of the original referen
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export type Box = { flag: boolean };"
     + "export function read(other: Box, value: Box): boolean { const alias = value; return alias.flag; }";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const bodies = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies;
@@ -3384,7 +3463,7 @@ test("a copied reference captured by a detached initializer preserves its value 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export type Box = { flag: boolean }; "
     + "export function read(box: Box): boolean { const alias = box; const second = alias; return second.flag; }";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const bodies = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies;
@@ -3413,7 +3492,7 @@ for (const annotation of [": Box", ""]) test(`a mutable reference slot${annotati
   const source = "export type Box = { flag: boolean }; "
     + "export function swap(before: Box, after: Box, value: boolean): boolean { "
     + `let alias${annotation} = before; alias = after; alias.flag = (alias = before, value); return alias.flag; }`;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["swap"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -3452,7 +3531,7 @@ test("one actual invocation retains both capture modes without assigning a cell 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export function run(left: boolean): boolean { let current: boolean = left; "
     + "const saved = left; const output = saved === current; return output; }";
-  const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source));
+  const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source, ["run"]));
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const selected = result.value.modules.flatMap(module => module.bodies).filter(row => row.kind === "selected");
   const nested = selected.find(row => row.tir.root.kind === "BinaryExpression");
@@ -3485,7 +3564,7 @@ test("applied field reads follow the actual forwarded object rather than the cal
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `export type Box = { flag: boolean };
     function peek(box: Box): boolean { return box.flag; }
     function forward(unused: Box, selected: Box): boolean { return peek(selected); }
-    export function top(selected: Box, unused: Box): boolean { selected.flag; return forward(unused, selected); }`);
+    export function top(selected: Box, unused: Box): boolean { selected.flag; return forward(unused, selected); }`, ["top"]);
   const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
   let witness = null;
   let result;
@@ -3554,7 +3633,7 @@ test("a verified object parameter field cannot be changed to in-place storage", 
   const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
   const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
-    "export type Box = { flag: boolean; }; export type Decoy = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }");
+    "export type Box = { flag: boolean; }; export type Decoy = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }", ["read"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
@@ -3606,7 +3685,7 @@ for (const [form, value, unaryCount] of [["single", "!flag", 1], ["nested", "!(!
 test(`real public Host analysis retains ${form} boolean negation as its selected native unary operations`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function negate(flag: boolean): boolean { return ${value}; }\n`);
+  const input = analysisInput(fixture, "sdk-minimal", `export function negate(flag: boolean): boolean { return ${value}; }\n`, ["negate"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3628,7 +3707,7 @@ test("real public Host analysis selects the native Boolean carrier for actual li
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   for (const literal of [true, false]) {
-    const input = analysisInput(fixture, "sdk-minimal", `export function negate(): boolean { return !${literal}; }`);
+    const input = analysisInput(fixture, "sdk-minimal", `export function negate(): boolean { return !${literal}; }`, ["negate"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok");
     assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3651,7 +3730,7 @@ test("real public Host analysis publishes a recursive declared alias without unf
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export type Link = { next: Link }; export function identity(value: boolean): boolean { return value; }\n");
+    "export type Link = { next: Link }; export function identity(value: boolean): boolean { return value; }\n", ["identity"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3675,7 +3754,7 @@ test("real public Host analysis preserves exact native string equality and inequ
   for (const [token, operator] of [["EqualsEqualsToken", "=="], ["EqualsEqualsEqualsToken", "==="],
     ["ExclamationEqualsToken", "!="], ["ExclamationEqualsEqualsToken", "!=="]]) {
     const input = analysisInput(fixture, "sdk-minimal",
-      `export function compare(left: ${domain}, right: ${domain}): boolean { return left ${operator} right; }`);
+      `export function compare(left: ${domain}, right: ${domain}): boolean { return left ${operator} right; }`, ["compare"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok");
     const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
@@ -3710,7 +3789,7 @@ test("real public Host analysis preserves exact native string equality and inequ
 test("real public Host analysis returns a string parameter with its actual entry origins", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function echo(value: string): string { return value; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function echo(value: string): string { return value; }\n", ["echo"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3753,7 +3832,7 @@ test("real public Host analysis returns a string parameter with its actual entry
 test("real public Host analysis retains an authored thrown string and its actual unwind outcome", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function escape(value:string):never{throw value;}");
+  const input = analysisInput(fixture, "sdk-minimal", "export function escape(value:string):never{throw value;}", ["escape"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
@@ -3788,7 +3867,7 @@ test("real public Host analysis separates actual returned and thrown string form
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function choose(flag:boolean,left:string,right:string):string{if(flag){return left;}throw right;}");
+    "export function choose(flag:boolean,left:string,right:string):string{if(flag){return left;}throw right;}", ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
@@ -3824,7 +3903,7 @@ test("real public Host analysis retains an authored callee throw at its actual c
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function fail(value:string):string{throw value;}export function call(value:string):string{return fail(value);}");
+    "export function fail(value:string):string{throw value;}export function call(value:string):string{return fail(value);}", ["call"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
@@ -3862,7 +3941,7 @@ test("real public Host analysis transports a string argument and return through 
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function pass(value: string): string { return value; } export function call(value: string): string { return pass(value); }\n");
+    "export function pass(value: string): string { return value; } export function call(value: string): string { return pass(value); }\n", ["call"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3899,7 +3978,7 @@ test("real public Host analysis returns the second actual string-call argument r
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function second(left: string, right: string): string { return right; } export function call(left: string, right: string): string { return second(left, right); }\n");
+    "export function second(left: string, right: string): string { return right; } export function call(left: string, right: string): string { return second(left, right); }\n", ["call"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3927,7 +4006,7 @@ test("real public Host analysis uses a selected native boolean negation as its b
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function choose(flag: boolean, a: number, b: number): number { if (!flag) return a; else return b; }\n");
+    "export function choose(flag: boolean, a: number, b: number): number { if (!flag) return a; else return b; }\n", ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -3948,7 +4027,7 @@ test("real public Host analysis uses a selected native boolean negation as its b
 test("real public AnalyzeHostProgram closes supplied and omitted boolean-default entries with their genuine initializer execution", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument: boolean = true): boolean { return argument; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument: boolean = true): boolean { return argument; }\n", ["value"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -3977,7 +4056,7 @@ test("real public AnalyzeHostProgram closes supplied and omitted boolean-default
 test("real public Host analysis retains the qualified outer parameter of a capture-bearing default initializer", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n", ["select"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4020,7 +4099,7 @@ test("real public Host analysis retains the qualified outer parameter of a captu
 test("real public Host analysis transports a captured string default through its actual value and location relations", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }\n", ["select"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4055,7 +4134,7 @@ test("real public Host analysis discharges chained captured defaults against the
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function chain(a: boolean, b = a, c = b): boolean { return c; }\n");
+    "export function chain(a: boolean, b = a, c = b): boolean { return c; }\n", ["chain"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4103,7 +4182,7 @@ test("an omitted optional parameter runs its actual Boolean call and converts on
     export function suppliedNull(fail: boolean): boolean | null { return choose(fail, null); }
     export function suppliedUndefined(fail: boolean): boolean | null { return choose(fail, undefined); }
     export function suppliedFalse(fail: boolean): boolean | null { return choose(fail, false); }
-  `);
+  `, ["omitted", "suppliedNull", "suppliedUndefined", "suppliedFalse"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -4161,7 +4240,7 @@ test("a default before a required formal does not turn a supplied absence into o
     export function suppliedNull(required: string): boolean | null { return select(null, required, false); }
     export function suppliedValue(required: string, flag: boolean): boolean | null { return select(flag, required); }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", text);
+  const input = analysisInput(fixture, "sdk-minimal", text, ["suppliedUndefined", "suppliedNull", "suppliedValue"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index, modules } = output.value;
@@ -4176,9 +4255,9 @@ test("a default before a required formal does not turn a supplied absence into o
   const edgesOf = body => index.dependencyInventory.dependencies.filter(row => row.dependent.instance.body === body);
   assert.deepEqual(edgesOf(select.instance.body).filter(row => row.reason === "initializer")
     .map(row => [row.dependent.provided, row.target.execution.instance.body]), [[2, after.tsonic.initializer]]);
-  const first = index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === before.tsonic.initializer);
-  assert.equal(first.returns, false);
-  assert.equal(first.unwinds, true);
+  assert.equal(before.initializer.kind, "checked-default");
+  assert.equal(index.summaries.some(row => row.key.kind === "body" && row.key.execution.instance.body === before.tsonic.initializer), false);
+  assert.equal(module.bodies.some(row => row.kind === "selected" && row.instance.body === before.tsonic.initializer), false);
   const trailing = module.bodies.find(row => row.kind === "selected" && row.instance.body === after.tsonic.initializer);
   const { types } = index;
   const evaluateWith = { types, typeOf: type => types.terms[type], signatureOf: signature => types.signatures[signature],
@@ -4237,7 +4316,7 @@ test("a later default reads the current optional value in an earlier parameter, 
       export function chooseOnBranch(input: ${carrier}, flag: boolean, first: ${storage} = input,
         changed: ${storage} = !flag ? (first = null) : first): ${storage} { return first; }
       export function maybeAbsent(input: ${carrier}, flag: boolean): ${storage} { return chooseOnBranch(input, flag, input); }
-    `);
+    `, ["defaulted", "suppliedNull", "suppliedUndefined", "suppliedValue", "storedAbsence", "bypassedWrite", "maybeAbsent"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
@@ -4323,7 +4402,7 @@ test("actual placed-body capture verification rejects wrong modes, qualified loc
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { verifyTir: verifyTirOperation } = await import("../../packages/host/dist/ir-tir/index.js");
   const verifyTir = await tirFixtureBodyVerifier(verifyTirOperation);
-  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n", ["select"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const typed = typeSourceBarrier(input, source.value, createTypedAccount(input));
@@ -4350,7 +4429,7 @@ test(`real public Host publication orders all ${count + 1} default entries numer
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const parameters = Array.from({ length: count }, (_, index) => `argument${index}: boolean = true`).join(", ");
-  const input = analysisInput(fixture, "sdk-minimal", `export function value(${parameters}): boolean { return argument0; }\n`);
+  const input = analysisInput(fixture, "sdk-minimal", `export function value(${parameters}): boolean { return argument0; }\n`, ["value"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4375,7 +4454,7 @@ for (const [form, statements] of [
 test(`real public Host analysis closes a scalar boolean ${form} branch with both actual return paths`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function choose(flag: boolean, a: number, b: number): number { ${statements} }\n`);
+  const input = analysisInput(fixture, "sdk-minimal", `export function choose(flag: boolean, a: number, b: number): number { ${statements} }\n`, ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4392,7 +4471,7 @@ test(`real public Host analysis closes a scalar boolean ${form} branch with both
 test("real public Host analysis closes an inferred null default with the single native absence type", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument = null) { return argument; }\n");
+  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument = null) { return argument; }\n", ["value"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -4409,7 +4488,7 @@ for (const annotation of [": boolean", ""])
 test(`real public Host analysis executes an ${annotation === "" ? "inferred" : "annotated"} local boolean initializer as its own selected body`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function local(): boolean { const value${annotation} = true; return value; }\n`);
+  const input = analysisInput(fixture, "sdk-minimal", `export function local(): boolean { const value${annotation} = true; return value; }\n`, ["local"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -4450,7 +4529,7 @@ test("real public Host analysis discharges a body-local captured initializer thr
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; return b; }\n");
+    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; return b; }\n", ["local"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4487,7 +4566,7 @@ test("real public Host analysis retains one current local cell across two distin
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; const c: boolean = a; return c; }\n");
+    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; const c: boolean = a; return c; }\n", ["local"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4530,7 +4609,7 @@ test("real public Host analysis rejects an uninitialized body-local captured rea
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function local(): boolean { let a: boolean; const b: boolean = a; return b; }\n");
+    "export function local(): boolean { let a: boolean; const b: boolean = a; return b; }\n", ["local"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "refused");
   assert.equal("value" in result, false);
@@ -4557,7 +4636,7 @@ test("own-storage initialization witnesses report the authored read, not its enc
   ]) {
     const declaration = `unready: ${storage}`;
     const source = `// λ🌱\n${helper} export function inspect(flag: boolean, message: string): boolean { let ${declaration}; ${body} }`;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["inspect"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "refused", body);
     assert.equal(Object.hasOwn(result, "value"), false, body);
@@ -4571,7 +4650,7 @@ test("own-storage initialization witnesses report the authored read, not its enc
       module, start: source.indexOf(declaration), length: declaration.length, derived: [],
     } }], body);
     const repaired = source.replace(`let ${declaration};`, `let ${declaration} = ${initial};`);
-    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired)).kind, "ok", body);
+    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired, ["inspect"])).kind, "ok", body);
   }
 });
 
@@ -4588,9 +4667,10 @@ test("independent analysis roots retain their own errors and a dependent transpo
   const last = "export function last(): boolean { let ending: boolean; return ending; }";
   const dependent = "export function dependent(): boolean { return first(); }";
   const healthy = "export function healthy(): boolean { return true; }";
+  const externalRoots = ["first", "last", "dependent", "healthy"];
   for (const declarations of [[first, dependent, healthy, last], [last, healthy, dependent, first]]) {
     const text = declarations.join("\n");
-    const input = analysisInput(fixture, "sdk-minimal", text);
+    const input = analysisInput(fixture, "sdk-minimal", text, externalRoots);
     const checked = captureSourceBarrier(input);
     assert.equal(checked.kind, "ok");
     const account = createAccount(input.limits.dataflow);
@@ -4658,7 +4738,7 @@ test("independent analysis roots retain their own errors and a dependent transpo
         && diagnostic.site.origin.start === text.lastIndexOf("beginning")), true, dimension);
     }
     const repaired = text.replace("beginning: boolean;", "beginning: boolean = true;").replace("ending: boolean;", "ending: boolean = false;");
-    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired)).kind, "ok");
+    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired, externalRoots)).kind, "ok");
   }
 });
 
@@ -4670,7 +4750,7 @@ test("converged execution errors at one source site retain distinct provided-cou
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { executionKey } = await import("../../packages/host/dist/ir-types/index.js");
   const text = "export function check(flag: boolean = true): boolean { let local: boolean; return local; }";
-  const input = analysisInput(fixture, "sdk-minimal", text);
+  const input = analysisInput(fixture, "sdk-minimal", text, ["check"]);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -4720,7 +4800,7 @@ test("one execution retains each independent own-storage read at its actual answ
     "while (flag) { if (first) return true; } return second;",
   ]) {
     const text = `export function inspect(flag: boolean): boolean { let first: boolean; let second: boolean; ${body} }`;
-    const input = analysisInput(fixture, "sdk-minimal", text);
+    const input = analysisInput(fixture, "sdk-minimal", text, ["inspect"]);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok", body);
     const account = createAccount(input.limits.dataflow);
@@ -4760,10 +4840,10 @@ test("one execution retains each independent own-storage read at its actual answ
     assert.equal(published.kind, "refused", body);
     assert.deepEqual(published.diagnostics, result.diagnostics, body);
     const one = text.replace("let first: boolean;", "let first: boolean = true;");
-    const remaining = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", one));
+    const remaining = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", one, ["inspect"]));
     assert.deepEqual(remaining.diagnostics.map(row => row.site.origin.start), [one.lastIndexOf("second")], body);
     const repaired = one.replace("let second: boolean;", "let second: boolean = false;");
-    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired)).kind, "ok", body);
+    assert.equal(analyzeHostProgram(analysisInput(fixture, "sdk-minimal", repaired, ["inspect"])).kind, "ok", body);
   }
 });
 
@@ -4781,7 +4861,7 @@ test("an errored callee cannot hide an independent initialization read in its ca
   ];
   for (const [label, body, reportCaller] of cases) {
     const text = `${callee}\nexport function caller(flag: boolean): boolean { ${body} }`;
-    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", text));
+    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", text, ["caller"]));
     assert.equal(result.kind, "refused", label);
     assert.equal(Object.hasOwn(result, "value"), false, label);
     assert.deepEqual(result.diagnostics.map(diagnostic => [diagnostic.code.rendered, diagnostic.site.origin.start]),
@@ -4795,7 +4875,7 @@ test("real public Host analysis closes a direct zero-argument scalar call throug
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { sameInstance } = await import("../../packages/host/dist/ir-types/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
+    "export function value(): boolean { return true; } export function read(): boolean { return value(); }\n", ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4836,10 +4916,10 @@ test("recursive executions publish one stable qualified component and no partial
   const left = "export function left(flag:boolean,message:string):string { if(flag) return message; return right(true,message); }";
   const right = "export function right(flag:boolean,message:string):string { if(flag) throw message; return left(true,message); }";
   const both = "export function both(flag:boolean,next:boolean=true):boolean { if(flag) return both(false); if(next) return both(true,true); return flag; }";
-  const program = source => analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source));
-  for (const [text, expected] of [[finite, [[1, true, false]]], [never, [[0, false, false]]], [unwind, [[2, false, true]]],
-    [[left, right].join("\n"), [[2, true, true], [2, true, true]]], [[right, left].join("\n"), [[2, true, true], [2, true, true]]]]) {
-    const result = program(text);
+  for (const [text, entry, expected] of [[finite, "fill", [[1, true, false]]], [never, "stay", [[0, false, false]]],
+    [unwind, "own", [[2, false, true]]], [[left, right].join("\n"), "left", [[2, true, true], [2, true, true]]],
+    [[right, left].join("\n"), "left", [[2, true, true], [2, true, true]]]]) {
+    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", text, [entry]));
     assert.equal(result.kind, "ok");
     const inventory = result.value.index.dependencyInventory;
     const recursive = inventory.components.find(component => component.members.some(member => component.rows.some(index =>
@@ -4849,7 +4929,7 @@ test("recursive executions publish one stable qualified component and no partial
     const stable = result.value.index.summaries.filter(row => row.key.kind === "body" && keys.includes(executionKey(row.key.execution)));
     assert.deepEqual(stable.map(row => [row.key.execution.provided, row.returns, row.unwinds]), expected);
   }
-  const baseline = analysisInput(fixture, "sdk-minimal", both);
+  const baseline = analysisInput(fixture, "sdk-minimal", both, ["both"]);
   const converge = pipelineWiring.summaries.convergeComponent;
   const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
   let component = null;
@@ -4911,7 +4991,7 @@ test("recursive executions publish one stable qualified component and no partial
       repeatedGround ||= matches.length === 2;
       return result;
     };
-    const refused = run(analysisInput(fixture, "sdk-minimal", source));
+    const refused = run(analysisInput(fixture, "sdk-minimal", source, ["self"]));
     assert.equal(refused.result.kind, "refused");
     assert.deepEqual(refused.result.diagnostics.map(row => [row.code.rendered, row.site.origin.start]),
       [["TSONIC_READ_BEFORE_INITIALIZATION", source.lastIndexOf("missing")]]);
@@ -4932,7 +5012,7 @@ for (const [count, source] of [
 test(`real public Host analysis closes ${count} fixed by-value scalar call arguments through the selected mapping`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4956,7 +5036,7 @@ test(`real public Host analysis composes native boolean negation with a scalar c
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    `export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return ${expression}; }\n`);
+    `export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return ${expression}; }\n`, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -4989,7 +5069,7 @@ test("real public Host analysis closes a twelve-call dependency chain with every
   const declarations = ["export function value0(input: boolean): boolean { return input; }"];
   for (let index = 1; index <= links; index += 1)
     declarations.push(`export function value${index}(input: boolean): boolean { return value${index - 1}(input); }`);
-  const input = analysisInput(fixture, "sdk-minimal", declarations.join("\n"));
+  const input = analysisInput(fixture, "sdk-minimal", declarations.join("\n"), ["value12"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -5017,7 +5097,7 @@ test("real public Host analysis preserves every repeated callee occurrence acros
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
     "export function value(input: boolean): boolean { return input; }\n"
-    + "export function choose(input: boolean): boolean { if (value(!input)) { return !value(input); } return value(value(input)); }\n");
+    + "export function choose(input: boolean): boolean { if (value(!input)) { return !value(input); } return value(value(input)); }\n", ["choose"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
@@ -5061,7 +5141,8 @@ test("authored native faults take their selected abort, handler and call-unwind 
     export function remainder(left = 5, right = 2) { return left % right; }
     export function direct(left = 5, right = 2) { try { return left % right; } catch { return left; } }
     export function called(left = 5, right = 2) { try { return remainder(left, right); } catch { return left; } }
-    export function bound(left = 5, right = 2) { try { return left % right; } catch (error) { return left; } }`);
+    export function bound(left = 5, right = 2) { try { return left % right; } catch (error) { return left; } }`,
+    ["remainder", "direct", "called", "bound"]);
   for (const law of ["abort", "unwind"]) {
     const nativeFacts = { ...input.snapshot.nativeFacts, remainderSign: [{ carrier: "int64", sign: "dividend" }],
       remainderByZero: [{ carrier: "int64", law }] };
@@ -5135,7 +5216,7 @@ test("authored finally uses one cleanup graph while preserving the exact pending
     ["let result: boolean; result = false; outer: while (flag) { try { if (result) break outer; continue outer; } finally { result = !result; } } return result;",
       [false, false], 2],
   ]) {
-    const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean { ${statements} }`);
+    const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean { ${statements} }`, ["run"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", statements);
     const body = result.value.modules.flatMap(module => module.bodies)
@@ -5175,7 +5256,7 @@ test("authored finally uses one cleanup graph while preserving the exact pending
     }
   }
   const reading = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-    "export function run(flag: boolean): boolean { let result: boolean; try { if (flag) return true; result = flag; } finally { flag = result; } return result; }"));
+    "export function run(flag: boolean): boolean { let result: boolean; try { if (flag) return true; result = flag; } finally { flag = result; } return result; }", ["run"]));
   assert.equal(reading.kind, "refused");
   assert.deepEqual(reading.diagnostics.map(row => row.code.name), ["TSONIC_READ_BEFORE_INITIALIZATION"]);
 });
@@ -5191,7 +5272,7 @@ test("authored finally does not lend the normal continuation's live stores to a 
         if (flag) { observed = !flag; return flag; }
       } finally { flag = !flag; }
       return observed;
-    }`);
+    }`, ["run"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const selected = result.value.modules.flatMap(row => row.bodies)
@@ -5219,7 +5300,7 @@ test("authored finally preserves call-thrown origins but does not publish an ove
     }
     export function overrides(value: string, replacement: string): string {
       try { return fail(value); } finally { return replacement; }
-    }`);
+    }`, ["escapes", "overrides"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const selected = result.value.modules.flatMap(module => module.bodies).filter(row => row.kind === "selected");
@@ -5276,7 +5357,7 @@ test("an authored unbound handler catches the actual call and ends only the exit
     }
     export function propagate(value: string): string {
       try { throw value; } catch (error) { throw error; }
-    }`));
+    }`, ["recover", "nested", "propagate"]));
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const selected = name => modules.flatMap(chapter => chapter.bodies).find(row => row.kind === "selected"
@@ -5317,7 +5398,7 @@ test("an authored unbound handler catches the actual call and ends only the exit
   assert.equal(summary.unwinds, true);
   assert.equal(summary.thrown, summary.arena.contexts[0].arguments[0].origins);
   const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-    "export function recover(): boolean { try { let value: boolean; throw value; } catch { return true; } }"));
+    "export function recover(): boolean { try { let value: boolean; throw value; } catch { return true; } }", ["recover"]));
   assert.equal(uninitialized.kind, "refused");
   assert.deepEqual(uninitialized.diagnostics.map(row => row.code.name), ["TSONIC_READ_BEFORE_INITIALIZATION"]);
 });
@@ -5333,7 +5414,7 @@ test("public argument calls execute left to right and never enter later operands
     export function run(leftFails: boolean, rightFails: boolean, first: string, second: string): string {
       return take(left(leftFails, first), right(rightFails, second));
     }
-  `);
+  `, ["run"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -5382,6 +5463,7 @@ test("real public Host analysis joins a named import to its actual selected call
       "leaf.ts": "export function value(input: boolean): boolean { return input; }\n",
     },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }],
   });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
@@ -5426,6 +5508,7 @@ test(`real public Host analysis preserves the actual ${reexport ? "three-module 
     "leaf.ts": "export function value(input: boolean): boolean { return input; }\n",
   };
   input.snapshot = fixture.projectSnapshot({ sourceFiles,
+    externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }],
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
@@ -5511,6 +5594,7 @@ export function readDefault(input: boolean): boolean { return onlyDefault(!input
 export function value(input: boolean): boolean { return input; }`,
   };
   input.snapshot = fixture.projectSnapshot({ sourceFiles,
+    externalEntries: ["read", "readDefault"].map(name => ({ module: input.snapshot.entryPoint, name })),
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
@@ -5544,7 +5628,8 @@ test("real public Host analysis calls a quoted export through its actual binding
 export function read(input: boolean): boolean { return selected(!input); }`,
     "leaf.ts": `function value(input: boolean): boolean { return input; }
 export { value as "native-value" };`,
-  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }] });
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const indexed = program.value.index.modules;
@@ -5575,21 +5660,24 @@ test("real public Host analysis re-exports an imported type without inventing a 
 export type { ImportedFlag as PublicFlag };
 export function read(value: ImportedFlag): ImportedFlag { return value; }`,
     "leaf.ts": "export type Flag = boolean;",
-  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }] });
   const program = analyzeHostProgram(input);
   assert.equal(program.kind, "ok");
   const { index, modules } = program.value;
   const main = index.modules.find(module => module.module === input.snapshot.entryPoint);
   const leafId = fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts");
   const leaf = modules.find(module => module.module === leafId);
-  const root = leaf.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
+  const root = leaf.bodies.find(body => body.kind === "template" && body.tir.root.kind === "SourceFile");
+  assert.ok(root);
   const alias = readyModuleStatements(root.tir.root).find(node => node.kind === "TypeAliasDeclaration");
   const exported = main.exports.find(entry => entry.name === "PublicFlag");
   const resolved = resolveModuleExport(createModuleBindingViews(index.modules.map(module => module.bindings)), exported);
   assert.deepEqual(resolved.target, { kind: "available", value: { kind: "declarations", definitions: [alias.tsonic.definition] } });
   assert.equal(resolved.aliases.length, 2);
   assert.deepEqual(index.types.terms[alias.tsonic.type], { kind: "primitive", primitive: "bool" });
-  assert.equal(leaf.bodies.filter(body => body.kind === "selected").length, 1);
+  assert.equal(leaf.bodies.some(body => body.kind === "selected"), false);
+  assert.equal(index.initialization.modules.some(execution => execution.instance.body === root.instance.body), false);
   assert.equal(index.dependencyInventory.dependencies.some(edge => edge.reason === "call"), false);
 });
 
@@ -5697,7 +5785,7 @@ test("analysis cannot publish empty observations over an unavailable checked ide
   const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
   const input = analysisInput(fixture, "sdk-minimal", `
 export function read(value: boolean): boolean { return value; }
-export function readLater(value: boolean): boolean { return value; }`);
+export function readLater(value: boolean): boolean { return value; }`, ["read", "readLater"]);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
   const account = createAccount(input.limits.dataflow);
@@ -5729,7 +5817,8 @@ test("a cross-module omitted reference formal runs its actual placed default", a
   input.snapshot = fixture.projectSnapshot({ sourceFiles: {
     "main.ts": "import {select} from './provider.js'; export function run(value: string): string | undefined { return select(value); }",
     "provider.ts": "export function select(fallback: string, value: string | undefined = fallback): string | undefined { return value; }",
-  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  externalEntries: [{ module: input.snapshot.entryPoint, name: "run" }] });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   const caller = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies
@@ -6000,7 +6089,7 @@ test("switch clauses share lexical storage without initializing on bypass", asyn
       let result: boolean = seed;
       switch (gate) { case true: const held: boolean = !seed; result = held; }
       return result;
-    }`);
+    }`, ["capture", "bypass"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -6048,7 +6137,7 @@ test("switch clauses share lexical storage without initializing on bypass", asyn
   }
 
   const read = "export function take(gate:boolean, seed:boolean):boolean { let result:boolean=seed; switch(gate){case true: const held:boolean=!seed; case false: result=held; break;} return result;}";
-  const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", read));
+  const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", read, ["take"]));
   assert.equal(refused.kind, "refused");
   assert.equal(refused.diagnostics.length, 1);
   assert.equal(refused.diagnostics[0].code.name, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -6090,7 +6179,7 @@ test("lexical for initializers run in order and retain only their own scope acro
       for (const bound: boolean = !fallback; gate; ) { return bound; }
       return fallback;
     }
-  `);
+  `, ["count", "early"]);
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: ["add", "increment"]
     .map(operation => ({ carrier: "int64", operation, result: "int64", law: "wrap" })) };
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
@@ -6176,11 +6265,11 @@ test("lexical for initializers run in order and retain only their own scope acro
     .filter(statement => statement.kind === "storage-dead" && statement.local === slot.id).length, 1);
 
   const placedRead = "export function read(): boolean { for (let first: boolean, second: boolean = first; ; ) { return second; } }";
-  const placedRefusal = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", placedRead));
+  const placedRefusal = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", placedRead, ["read"]));
   assert.equal(placedRefusal.kind, "refused");
   assert.deepEqual(placedRefusal.diagnostics.map(row => row.code.name), ["TSONIC_READ_BEFORE_INITIALIZATION"]);
   const directRead = "export function read(): boolean { for (let first: true; first; ) { break; } return true; }";
-  const directRefusal = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", directRead));
+  const directRefusal = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", directRead, ["read"]));
   assert.equal(directRefusal.kind, "refused");
   const diagnostic = directRefusal.diagnostics.find(row => row.code.name === "TSONIC_READ_BEFORE_INITIALIZATION");
   assert.equal(diagnostic?.site.kind, "source");
@@ -6202,7 +6291,7 @@ test("selecting a known Boolean edge still proves the authored condition read", 
     [true, "return known ? flag : flag;"],
   ]) {
     const source = `export function read(flag: boolean): boolean { let known: ${value}; ${control} }`;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
     const refused = analyzeHostProgram(input);
     assert.equal(refused.kind, "refused", control);
     assert.equal(refused.diagnostics.length, 1);
@@ -6211,7 +6300,7 @@ test("selecting a known Boolean edge still proves the authored condition read", 
       module: input.snapshot.entryPoint, start: source.lastIndexOf("known"), length: "known".length, derived: [],
     } });
     const safe = source.replace(`known: ${value};`, `known: ${value} = ${value};`);
-    const ready = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", safe));
+    const ready = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", safe, ["read"]));
     assert.equal(ready.kind, "ok", JSON.stringify(ready.diagnostics));
     const selected = ready.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies
       .find(body => body.kind === "selected" && body.tir.root.kind === "Block");
@@ -6304,7 +6393,7 @@ test("authored parenthesized storage targets retain their actual leaf and native
   ];
   const source = cases.map(([name, params, returns, expression]) =>
     `export function ${name}(${params})${returns} { return ${expression}; }`).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, cases.map(([name]) => name));
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: ["add", "increment"].map(operation =>
     ({ carrier: "int64", operation, result: "int64", law: "wrap" })) };
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
@@ -6359,7 +6448,7 @@ test("wrapped static targets use the qualified definition and reject crossed MIR
     export function set(next = 1) { return ((state)) = next; }
     export function combine(next = 1) { return ((state)) ^= (state = next); }
     export function increment() { return ((state))++; }
-  `);
+  `, ["set", "combine", "increment"]);
   const nativeFacts = { ...input.snapshot.nativeFacts,
     integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "abort" }] };
   const selected = { ...input, snapshot: { ...input.snapshot, nativeFacts } };
@@ -6525,7 +6614,7 @@ test("a fresh inferred Boolean static accepts the opposite value without widenin
     }
   }
   const local = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-    "export function read(): boolean { let state = true; state = false; return state; }"));
+    "export function read(): boolean { let state = true; state = false; return state; }", ["read"]));
   assert.equal(local.kind, "ok", JSON.stringify(local.diagnostics));
   const selected = local.value.modules.flatMap(module => module.bodies)
     .find(body => body.kind === "selected" && body.tir.root.kind === "Block");
@@ -6543,7 +6632,7 @@ test("unannotated integral initializers select native int64 before materializing
   const input = analysisInput(fixture, "sdk-minimal",
     "export const wide = 9_007_199_254_740_993; export const hexadecimal = (0x20_0000_0000_0001); "
       + "export const maximum = 9_223_372_036_854_775_807; "
-      + "export function initialized(): boolean { const local = 0b1; return true; }");
+      + "export function initialized(): boolean { const local = 0b1; return true; }", ["initialized"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -6615,7 +6704,7 @@ test("WT-10 follows actual native && and || edges without removing explicit fiel
       for (; box.flag !== undefined && choice;) { return box.flag; }
       return false;
     }
-  `);
+  `, ["branch", "exclusion", "mutation", "conditional", "whileLoop", "forLoop"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const chapter = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -6657,7 +6746,7 @@ test("direct native Boolean branches keep selected effects and do-loop continuat
       } while (left && (right && result));
       return result;
     }
-  `);
+  `, ["branch", "repeat"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -6687,6 +6776,7 @@ test("the actual selected compound writes infer one exact native storage carrier
     const input = await nativeInt32Input(fixture, source, true);
     const native = input.snapshot.nativeFacts;
     return { entry: input.snapshot.entryPoint, result: analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+      contributions: { ...input.snapshot.contributions, externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }] },
       nativeFacts: { ...native, integerOverflow: [
         { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
         { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
@@ -6767,7 +6857,7 @@ test("numeric assignment fits the authored literal into finalized native static 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", "export let state = 9_007_199_254_740_993; "
     + "state = ((9_007_199_254_740_995)); export const observed = state; "
-    + "export function mutate(): boolean { let local = 0b1; local = 0x20_0000_0000_0001; return true; }");
+    + "export function mutate(): boolean { let local = 0b1; local = 0x20_0000_0000_0001; return true; }", ["mutate"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -6810,7 +6900,7 @@ test("a callable with an inferred return publishes its actual placed int64 signa
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "const wide = 9_007_199_254_740_993; export function read() { return wide; }");
+    "const wide = 9_007_199_254_740_993; export function read() { return wide; }", ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -6998,7 +7088,7 @@ test("authored native int64 addition publishes an exact wrapping operation and e
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function add(left = 9_223_372_036_854_775_807, right = 1) { return left + right; } export const sum = add();");
+    "export function add(left = 9_223_372_036_854_775_807, right = 1) { return left + right; } export const sum = add();", ["add"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -7028,13 +7118,13 @@ test("process-ending native addition initializes its result only on the normal e
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
-  const analyze = source => {
-    const input = analysisInput(fixture, "sdk-minimal", source);
+  const analyze = (source, entries = []) => {
+    const input = analysisInput(fixture, "sdk-minimal", source, entries);
     const snapshot = { ...input.snapshot, nativeFacts: { ...input.snapshot.nativeFacts,
       integerOverflow: [{ carrier: "int64", operation: "add", result: "int64", law: "abort" }] } };
     return { result: analyzeHostProgram({ ...input, snapshot }), input: { ...input, snapshot } };
   };
-  const { result, input } = analyze("export function add(left = 1, right = 2) { return left + right; } export const sum = add();");
+  const { result, input } = analyze("export function add(left = 1, right = 2) { return left + right; } export const sum = add();", ["add"]);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
@@ -7152,7 +7242,7 @@ test(`authored native ${name} uses its own selected overflow law end to end`, as
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const original = analysisInput(fixture, "sdk-minimal",
-    `export function compute(left = 5, right = 2) { return left ${operator} right; } export const observed = compute();`);
+    `export function compute(left = 5, right = 2) { return left ${operator} right; } export const observed = compute();`, ["compute"]);
   const withLaw = law => ({ ...original, snapshot: { ...original.snapshot,
     nativeFacts: { ...original.snapshot.nativeFacts, integerOverflow: [{ carrier: "int64", operation: family, result: "int64", law }] } } });
   assert.throws(() => analyzeHostProgram(original), new RegExp(`actual selected native ${name} law for int64 and int64`, "u"));
@@ -7248,7 +7338,7 @@ test(`authored integer ${name} uses the actual unary native semantics`, async ()
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    `export function compute(value = 1) { return ${operator}value; } export const observed = compute();`);
+    `export function compute(value = 1) { return ${operator}value; } export const observed = compute();`, ["compute"]);
   const analyze = integerOverflow => analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...input.snapshot.nativeFacts, integerOverflow } } });
   if (operator === "-")
@@ -7292,7 +7382,7 @@ test(`authored floating unary ${operation} preserves the selected encoding witho
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function accept(value: number): number { return ${operator}value; }`);
+  const input = analysisInput(fixture, "sdk-minimal", `export function accept(value: number): number { return ${operator}value; }`, ["accept"]);
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [], conversions: [] };
   const analyze = facts => analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: facts } });
   const result = analyze(nativeFacts);
@@ -7338,7 +7428,7 @@ test("authored floating comparisons use the selected IEEE ordering and unordered
   ];
   const source = operators.map(([operator], index) =>
     `export function compare${index}(left: number, right: number): boolean { return left ${operator} right; }`).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, operators.map((_, index) => `compare${index}`));
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [], conversions: [] };
   const analyze = facts => analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: facts } });
   const program = analyze(nativeFacts);
@@ -7383,7 +7473,7 @@ test("authored bitwise operations preserve native integer widths without selecti
   const cases = [["&", "AmpersandToken", 4n], ["|", "BarToken", 9223372036854775807n], ["^", "CaretToken", 9223372036854775803n]];
   const source = cases.map(([operator], ordinal) =>
     `export function bits${ordinal}(left = 5, right = 6) { return left ${operator} right; }`).join(" ");
-  const original = analysisInput(fixture, "sdk-minimal", source);
+  const original = analysisInput(fixture, "sdk-minimal", source, cases.map((_, ordinal) => `bits${ordinal}`));
   const nativeFacts = { ...original.snapshot.nativeFacts, integerOverflow: [], invalidShiftCount: [] };
   const snapshot = { ...original.snapshot, nativeFacts };
   const result = analyzeHostProgram({ ...original, snapshot });
@@ -7421,7 +7511,7 @@ test(`authored integer ${label} preserves width and its independent count behavi
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `export function shift(left = 1, count = 1) { return left ${operator} count; } `
-    + `export const observed = 9_007_199_254_740_993 ${operator} 53;`);
+    + `export const observed = 9_007_199_254_740_993 ${operator} 53;`, ["shift"]);
   const analyze = invalidShiftCount => {
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [], invalidShiftCount };
     const snapshot = { ...input.snapshot, nativeFacts };
@@ -7482,7 +7572,7 @@ test("authored native local updates return the correct snapshot and store only o
     export function postUp(value = 1) { return value++ + value; }
     export function preDown(value = 1) { return --value; }
     export function postDown(value = 1) { return value-- + value; }
-  `);
+  `, ["preUp", "postUp", "preDown", "postDown"]);
   const add = { carrier: "int64", operation: "add", result: "int64", law: "wrap" };
   const analyze = integerOverflow => {
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow };
@@ -7565,7 +7655,7 @@ for (const [syntax, statement, minimum, detail = ""] of [
     const { evaluate, resumeEvaluate } = await import("../../packages/host/dist/evaluate/index.js");
     const { instanceKey } = await import("../../packages/host/dist/ir-types/index.js");
     const input = analysisInput(fixture, "sdk-minimal",
-      `export function count(remaining = 1, threshold = 0) { let visits = 0; ${statement} return visits; }`);
+      `export function count(remaining = 1, threshold = 0) { let visits = 0; ${statement} return visits; }`, ["count"]);
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: ["decrement", "increment"]
       .map(operation => ({ carrier: "int64", operation, result: "int64", law: "wrap" })) };
     const program = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
@@ -7606,7 +7696,7 @@ for (const [syntax, statement, minimum, detail = ""] of [
       const condition = syntax === "WhileStatement" ? "while (value) { return false; }"
         : syntax === "DoStatement" ? "do { value; } while (value);" : "for (; value;) { return false; }";
       assert.throws(() => analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-        `export function notBoolean(value: number): boolean { ${condition} return false; }`)),
+        `export function notBoolean(value: number): boolean { ${condition} return false; }`, ["notBoolean"])),
       /condition without a selected boolean conversion/u);
     }
   });
@@ -7625,7 +7715,7 @@ test("loop-condition writes initialize storage only on the actual evaluation pat
       "for (; flag; stored = input) { break; } return stored;"],
   ]) {
     const prefix = "export function run(flag: boolean, input: boolean): boolean { let stored: boolean; ";
-    const input = analysisInput(fixture, "sdk-minimal", prefix + accepted + " }");
+    const input = analysisInput(fixture, "sdk-minimal", prefix + accepted + " }", ["run"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", syntax);
     const { index: { types }, modules } = result.value;
@@ -7653,7 +7743,7 @@ test("loop-condition writes initialize storage only on the actual evaluation pat
         positions: [{ position: { kind: "result" }, error: null }], value: { kind: "value", value: boolean(value) } }, syntax);
     }
     const unsafe = prefix + rejected + " }";
-    const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", unsafe));
+    const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", unsafe, ["run"]));
     assert.equal(refused.kind, "refused", syntax);
     assert.equal(Object.hasOwn(refused, "value"), false, syntax);
     assert.deepEqual(refused.diagnostics.map(diagnostic => [diagnostic.code.rendered,
@@ -7679,7 +7769,7 @@ test("unlabelled break and continue retain their own loop and native successor",
         ++visits;
       }
       return visits;
-    }`);
+    }`, ["count"]);
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: ["decrement", "increment"]
     .map(operation => ({ carrier: "int64", operation, result: "int64", law: "wrap" })) };
   input.snapshot = { ...input.snapshot, nativeFacts };
@@ -7745,7 +7835,7 @@ test("a for-var initializer uses one function-owned slot still visible after the
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate, resumeEvaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const authored = "export function count(limit = 1, start = 0) { for (var index = start; index < limit; ++index) { start = index; } return index; }";
-  const input = analysisInput(fixture, "sdk-minimal", authored);
+  const input = analysisInput(fixture, "sdk-minimal", authored, ["count"]);
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [
     { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
   ] };
@@ -7815,7 +7905,7 @@ test(`native local compound ${name} reads before its right-hand write and stores
   const input = analysisInput(fixture, "sdk-minimal", `
     export function nested(left = 1, right = 1) { return left ${token} (left = right); }
     export function literal(left = 1) { return left ${token} ${literal}; }
-  `);
+  `, ["nested", "literal"]);
   if (nativeOperation !== "add") {
     const wrongLaw = { ...input.snapshot.nativeFacts, integerOverflow: [
       { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
@@ -7904,7 +7994,7 @@ test("native local Boolean conditional assignment skips the RHS and target write
     }
     export function ${kind}Value(left: boolean, right: boolean): boolean { return left ${token} right; }
   `).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, cases.flatMap(([kind]) => [`${kind}Effect`, `${kind}Value`]));
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -7977,7 +8067,7 @@ test(`ordinary native ${family} selection skips unselected RHS effects without a
         return observed;
       }
       export function result(left: ${annotation}, right: ${annotation}): ${annotation} { return left ${operator} right; }
-    `);
+    `, ["effect", "result"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -8046,7 +8136,7 @@ test("discarded short-circuit results need no slot but keep the actual guard rea
         return normal;
       }
     `;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["discard"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -8084,7 +8174,7 @@ test("discarded short-circuit results need no slot but keep the actual guard rea
       }
     }
     const missing = `export function fail(right: ${annotation}): ${annotation} { let gate: ${annotation}; gate ${operator} right; return right; }`;
-    const rejected = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing));
+    const rejected = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing, ["fail"]));
     assert.equal(rejected.kind, "refused");
     assert.equal(rejected.diagnostics.length, 1);
     assert.equal(rejected.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -8109,7 +8199,7 @@ test("discarded ternaries preserve the selected call without materializing eithe
       return flag;
     }
   `;
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["choose", "reads"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -8151,7 +8241,7 @@ test("discarded ternaries preserve the selected call without materializing eithe
   }
   for (const expression of ["flag ? first : second", "first ? flag : second"]) {
     const missing = `export function fail(flag: boolean, second: boolean): boolean { let first: boolean; ${expression}; return flag; }`;
-    const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing));
+    const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing, ["fail"]));
     assert.equal(refused.kind, "refused");
     assert.equal(refused.diagnostics.length, 1);
     assert.equal(refused.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -8168,7 +8258,7 @@ test("dynamic short-circuit reads its guard once after earlier operands and befo
     const source = `export function compare(first: boolean, gate: boolean, next: boolean): boolean {
       return first === (gate ${operator} (first = next));
     }`;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["compare"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -8194,7 +8284,7 @@ test("dynamic short-circuit reads its guard once after earlier operands and befo
       assert.deepEqual(run.value.value, { kind: "value", value: value(first === (gate === take ? next : gate)) });
     }
     const missing = `export function fail(next: boolean): boolean { let gate: boolean; return gate ${operator} next; }`;
-    const failed = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing));
+    const failed = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing, ["fail"]));
     assert.equal(failed.kind, "refused");
     assert.equal(failed.diagnostics.length, 1);
     assert.equal(failed.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -8225,7 +8315,7 @@ test("known Boolean selectors keep only the reachable result and still read the 
       export function keepGuard(guard: ${takesRight}, replacement: boolean): boolean {
         return guard ${operator} replacement;
       }
-    `);
+    `, ["ignore", "select", "retain", "keepGuard"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -8253,7 +8343,7 @@ test("known Boolean selectors keep only the reachable result and still read the 
       assert.deepEqual(run.value.value, { kind: "value", value: { kind: "boolean", type: body.tir.completion, value: expected } });
     }
     const missing = `export function fail(replacement: boolean): boolean { let guard: ${takesRight}; return guard ${operator} replacement; }`;
-    const rejected = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing));
+    const rejected = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", missing, ["fail"]));
     assert.equal(rejected.kind, "refused");
     assert.equal(rejected.diagnostics.length, 1);
     assert.equal(rejected.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -8274,7 +8364,7 @@ test("selected Boolean arms retain their actual static reads and stores without 
   ];
   const source = initial + "export let alternate: boolean = true;" + cases.map(({ name, expression }) =>
     `export function ${name}(flag: boolean): boolean { return ${expression}; }`).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, cases.map(({ name }) => name));
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -8336,7 +8426,7 @@ test("native ternary selection preserves its authored arms and same-carrier resu
         return false ? (observed = yes) : no;
       }
     `;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["effects", "result", "known"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -8449,7 +8539,7 @@ test("native literal Boolean switch dispatches once and preserves authored claus
         return second;
       }
       return first;
-    }`);
+    }`, ["fallthrough", "firstMatch", "asserted", "unmatched", "shared", "known", "empty", "middle", "transfers"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -8523,11 +8613,11 @@ test("native literal Boolean switch dispatches once and preserves authored claus
     }
   }
   const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-    "export function read(flag: boolean): boolean { var scratch: boolean; switch (scratch) {} return flag; }"));
+    "export function read(flag: boolean): boolean { var scratch: boolean; switch (scratch) {} return flag; }", ["read"]));
   assert.equal(uninitialized.kind, "refused");
   assert.equal(uninitialized.diagnostics.some(diagnostic => diagnostic.code.rendered === "TSONIC_READ_BEFORE_INITIALIZATION"), true);
   const effectful = analysisInput(fixture, "sdk-minimal",
-    "export function read(flag: boolean, other: boolean): boolean { switch (flag) { case (other = true): return other; default: return false; } }");
+    "export function read(flag: boolean, other: boolean): boolean { switch (flag) { case (other = true): return other; default: return false; } }", ["read"]);
   const dynamic = analyzeHostProgram(effectful);
   assert.equal(dynamic.kind, "ok", JSON.stringify(dynamic.diagnostics));
   const selected = dynamic.value.modules.find(row => row.module === effectful.snapshot.entryPoint).bodies
@@ -8563,7 +8653,7 @@ test("native string and Float64 coalescing branches only on their selected absen
         left ??= (observed = right);
         return observed;
       }
-    `);
+    `, ["select", "assign", "effect"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index: { types }, modules } = result.value;
@@ -8622,7 +8712,7 @@ test("Evaluate materializes a selected exact Float64 literal without rounding", 
     ["wide", "9_007_199_254_740_994", 0x4340000000000001n],
   ];
   const input = analysisInput(fixture, "sdk-minimal", authored.map(([name, token]) =>
-    `export function ${name}(): number { return ${token}; }`).join("\n"));
+    `export function ${name}(): number { return ${token}; }`).join("\n"), authored.map(([name]) => name));
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -8667,7 +8757,7 @@ test("a contextual Float64 assignment produces native bits before the stored val
     export let published: number;
     published = ((1.25));
     export const observed: number = published;
-  `);
+  `, ["read", "compare"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -8747,7 +8837,7 @@ test("fixed Float64 formals receive their authored exact literal values before t
   const inputFor = second => analysisInput(fixture, "sdk-minimal", `
     export function take(first: number, second: number): number { return second; }
     export function run(): number { return take(1.25, ${second}); }
-  `);
+  `, ["run"]);
   const input = inputFor("1.5");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -8815,7 +8905,7 @@ test("case-free switches evaluate the authored subject once without selecting a 
       switch (value) {}
       return value;
     }
-  `);
+  `, ["empty", "justDefault", "reference", "boolean"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -8848,11 +8938,11 @@ test("case-free switches evaluate the authored subject once without selecting a 
     assert.deepEqual(run.value.value, { kind: "value", value: operands.at(-1) });
   }
   const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
-    "export function read(): void { var scratch: number; switch (scratch) { default: return; } }"));
+    "export function read(): void { var scratch: number; switch (scratch) { default: return; } }", ["read"]));
   assert.equal(uninitialized.kind, "refused");
   assert.equal(uninitialized.diagnostics.some(diagnostic => diagnostic.code.rendered === "TSONIC_READ_BEFORE_INITIALIZATION"), true);
   const needsComparison = analysisInput(fixture, "sdk-minimal",
-    "export function read(value: number): boolean { switch (value) { case 0: return true; default: return false; } }");
+    "export function read(value: number): boolean { switch (value) { case 0: return true; default: return false; } }", ["read"]);
   const numeric = analyzeHostProgram(needsComparison);
   assert.equal(numeric.kind, "ok", JSON.stringify(numeric.diagnostics));
   const selected = numeric.value.modules.find(row => row.module === needsComparison.snapshot.entryPoint).bodies
@@ -8877,7 +8967,7 @@ test("authored empty loop bodies preserve each form's actual control and effects
     export function emptyFor(flag: boolean): boolean { ; for (; flag; flag = false) ; return flag; }
     export function emptyWhile(flag: boolean): boolean { ; while (flag = !flag) ; return flag; }
     export function emptyDo(flag: boolean): boolean { ; do ; while (flag = false); return flag; }
-  `);
+  `, ["emptyFor", "emptyWhile", "emptyDo"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -8974,7 +9064,7 @@ test("lexical type-only declarations survive publication without runtime work", 
     }
   }`;
   const run = text => {
-    const input = analysisInput(fixture, "sdk-minimal", text);
+    const input = analysisInput(fixture, "sdk-minimal", text, ["read"]);
     return { input, result: analyzeHostProgram(input) };
   };
   const { input, result } = run(source);
@@ -9056,7 +9146,8 @@ test("authored same-carrier assertions preserve the operand and written type exa
       return ${wrap(domain.expression, domain.annotation)};
     }`,
   })));
-  const input = analysisInput(fixture, "sdk-minimal", authored.map(row => row.source).join("\n"));
+  const input = analysisInput(fixture, "sdk-minimal", authored.map(row => row.source).join("\n"),
+    authored.map(row => `select${row.annotation}${row.kind}`));
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9118,7 +9209,7 @@ test("non-null assertions over already-present native values preserve the operan
     export function store(flag: boolean): boolean { return (flag = !flag)!; }
     export function bits(value: number): number { return value!; }
     export function text(value: string): string { return value!; }
-  `);
+  `, ["call", "store", "bits", "text"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9182,7 +9273,7 @@ test("authored bare return preserves selected void completion and skips the unta
   const input = analysisInput(fixture, "sdk-minimal", `
     export function fallthrough(flag: boolean): void { if (flag) return; }
     export function early(flag: boolean, value: string): void { if (flag) return; throw value; }
-  `);
+  `, ["fallthrough", "early"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -9234,7 +9325,7 @@ test("inferred no-value signatures preserve each actual normal and unwind exit",
     export function early(flag: boolean, message: string) { if (flag) return; throw message; }
     export function escape(message: string) { throw message; }
     export function value(flag: boolean) { return flag; }
-  `);
+  `, ["empty", "early", "escape", "value"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types, summaries }, modules } = output.value;
@@ -9332,7 +9423,7 @@ test("necessary snapshots keep earlier operand reads in authored order when late
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const source = "export function read(first: boolean, second: boolean, next: boolean, gate: boolean): boolean {"
     + " return first === (second === (gate && ((second = next), (first = next)))); }";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9363,7 +9454,7 @@ test("necessary snapshots keep earlier operand reads in authored order when late
     }
   const uninitialized = "export function read(next: boolean, gate: boolean): boolean { let first: boolean; let second: boolean;"
     + source.slice(source.indexOf(" return"));
-  const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", uninitialized));
+  const refused = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", uninitialized, ["read"]));
   assert.equal(refused.kind, "refused");
   const failures = refused.diagnostics.filter(row => row.code.name === "TSONIC_READ_BEFORE_INITIALIZATION")
     .map(row => row.site.origin.start);
@@ -9389,7 +9480,7 @@ test("discarding a selected call result keeps its effects and both continuations
       export function forward(normal: boolean, result: ${carrier}, failure: string): ${carrier} {
         return value(normal, result, failure);
       }
-    `);
+    `, ["discard", "forward"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
@@ -9430,7 +9521,7 @@ test("discarding a selected call result keeps its effects and both continuations
     let cell: boolean = false;
     function set(value: boolean): boolean { cell = value; return value; }
     export function through(value: boolean): boolean { (set(value), value); return cell; }
-  `);
+  `, ["through"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -9450,7 +9541,7 @@ test("a destination-free never call unwinds without observing the later read", a
   for (const [completion, action] of [["never", "throw message;"], ["void", ""], ["boolean", "return false;"]]) {
     const source = `function stop(message: string): ${completion} { ${action} }
       export function run(message: string): boolean { let unready: boolean; stop(message); return unready; }`;
-    const input = analysisInput(fixture, "sdk-minimal", source);
+    const input = analysisInput(fixture, "sdk-minimal", source, ["run"]);
     const result = analyzeHostProgram(input);
     if (completion !== "never") {
       assert.equal(result.kind, "refused");
@@ -9494,7 +9585,7 @@ test("destination-free void calls execute before continuation without a dummy ab
     export function forward(flag: boolean, message: string): void {
       return (act(flag, message));
     }
-  `);
+  `, ["discard", "forward"]);
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
@@ -9537,7 +9628,7 @@ test("destination-free void calls execute before continuation without a dummy ab
     let selected: boolean = false;
     function set(flag: boolean): void { selected = flag; }
     export function through(flag: boolean): boolean { set(flag); return selected; }
-  `);
+  `, ["through"]);
   const effects = analyzeHostProgram(effectsInput);
   assert.equal(effects.kind, "ok", JSON.stringify(effects.diagnostics));
   const effectModule = effects.value.modules.find(row => row.module === effectsInput.snapshot.entryPoint);
@@ -9560,7 +9651,7 @@ test("parenthesized type annotations retain authored wrappers without changing n
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
-    "export function hold(value: ((boolean | null))): ((boolean | null)) { return value; }");
+    "export function hold(value: ((boolean | null))): ((boolean | null)) { return value; }", ["hold"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9600,7 +9691,7 @@ test("authored singleton type annotations keep exact Boolean and quoted string p
     export type Disabled = false;
     export type Label = "a\u0000λ";
     export function echo(value: true): true { return value; }
-  `);
+  `, ["echo"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9653,7 +9744,7 @@ test("a no-substitution template type retains its authored token and shares exac
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = 'export type Quoted = "a\\u0000λ"; export type Template = `a\\u0000λ`;'
     + 'export function forward(value: `a\\u0000λ`): "a\\u0000λ" { return value; }';
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["forward"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9697,7 +9788,7 @@ test("authored backtick strings without substitutions retain cooked values throu
   ];
   const text = cases.map(([name, token, value]) =>
     `export function ${name}(): string { return ${token}; }\nexport function ${name}Quoted(): string { return ${JSON.stringify(value)}; }`).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", text);
+  const input = analysisInput(fixture, "sdk-minimal", text, cases.flatMap(([name]) => [name, `${name}Quoted`]));
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok");
   const checkedModule = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
@@ -9771,7 +9862,7 @@ test("discarded string literals preserve authored syntax without materializing u
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const source = 'export function discard(flag: boolean): boolean { "quoted"; (`raw\\nλ`); return flag; }';
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["discard"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -9849,7 +9940,7 @@ test("closed keyof and indexed access annotations publish the actual checker res
     export type Key = keyof Shape;
     export type Marker = Shape["marker"];
     export function pass(value: Shape["flag"]): Shape["flag"] { return value; }
-  `);
+  `, ["pass"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -10008,7 +10099,7 @@ test("identifier type queries retain each selected type and declaration without 
     const flag: boolean = true;
     export type Read = typeof flag;
     export function hold(value: typeof flag): typeof flag { return value; }
-  `);
+  `, ["hold"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -10048,7 +10139,7 @@ test("closed conditional type annotations preserve both authored branches and bo
     export function hold(value: false extends true ? string : boolean): false extends true ? string : boolean {
       return value;
     }
-  `);
+  `, ["hold"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
@@ -10246,7 +10337,7 @@ test("native local bitwise compound assignment keeps the pre-RHS value at its se
   ];
   const source = cases.map(([operator], ordinal) =>
     `export function bits${ordinal}(left = 1, right = 1) { return left ${operator}= (left = right); }`).join("\n");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, cases.map((_, ordinal) => `bits${ordinal}`));
   const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [], invalidShiftCount: [] };
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -10302,7 +10393,7 @@ test(`native local compound ${family} preserves its own faults and stores only o
   const carrier = "int64";
   const zero = [{ carrier, law: "abort" }];
   for (const [operator, token, outcomes] of cases) {
-    const input = analysisInput(fixture, "sdk-minimal", `export function compute(left = 1, right = 1) { return left ${operator}= (left = right); }`);
+    const input = analysisInput(fixture, "sdk-minimal", `export function compute(left = 1, right = 1) { return left ${operator}= (left = right); }`, ["compute"]);
     const nativeFacts = { ...input.snapshot.nativeFacts,
       invalidShiftCount: family === "shift" ? [{ carrier, law: { kind: "fail", failure: "abort" } }] : [],
       integerOverflow: operator === "<<" ? [{ carrier, operation: "left-shift", result: carrier, law: "abort" }] : [],
@@ -10359,7 +10450,7 @@ test("authored integer left shift keeps count and result overflow as separate se
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", "export function shift(left = 1, count = 1) { return left << count; }");
+  const input = analysisInput(fixture, "sdk-minimal", "export function shift(left = 1, count = 1) { return left << count; }", ["shift"]);
   const mask = { kind: "mask", mask: 63n };
   const abort = { kind: "fail", failure: "abort" };
   const overflowRow = { carrier: "int64", operation: "left-shift", result: "int64" };
@@ -10416,7 +10507,7 @@ test("authored integer division uses independently selected rounding, zero and q
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const input = analysisInput(fixture, "sdk-minimal", "export function divide(left = 1, right = 1) { return left / right; } "
-    + "export const observed = 19 / 4;");
+    + "export const observed = 19 / 4;", ["divide"]);
   const base = { ...input.snapshot.nativeFacts, integerOverflow: [], remainderSign: [], remainderByZero: [],
     divisionByZero: [{ carrier: "int64", law: "abort" }] };
   const analyze = nativeFacts => analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
@@ -10463,7 +10554,7 @@ test("authored integer remainder preserves its independent sign and zero-divisor
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const original = analysisInput(fixture, "sdk-minimal",
-    "export function remainder(left = 5, right = 2) { return left % right; } export const observed = remainder();");
+    "export function remainder(left = 5, right = 2) { return left % right; } export const observed = remainder();", ["remainder"]);
   const native = { ...original.snapshot.nativeFacts, integerOverflow: [], divisionRounding: [],
     divisionByZero: [{ carrier: "int64", law: "unwind" }], signedQuotientOverflow: [{ carrier: "int64", law: "unwind" }] };
   const run = (remainderSign, remainderByZero) => {
@@ -10527,7 +10618,7 @@ test(`native integer ${name} compares adjacent exact integers without double rou
   const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   const source = rows.map(([operator], ordinal) =>
     `export function compare${ordinal}(left = 1, right = 2) { return left ${operator} right; }`).join(" ");
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, rows.map((_, ordinal) => `compare${ordinal}`));
   const snapshot = { ...input.snapshot, nativeFacts: { ...input.snapshot.nativeFacts, integerOverflow: [] } };
   const result = analyzeHostProgram({ ...input, snapshot });
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -10830,6 +10921,7 @@ test("checked dependency diagnostics follow exact required executions, not packa
     input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
       extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+      externalEntries: [{ module: input.snapshot.entryPoint, name: "run" }],
       otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
     const result = analyzeHostProgram(input);
     if (use === "call" && broken) {
@@ -10863,8 +10955,9 @@ test("one dependency body publishes both selected generic binding vectors and co
   const dependency = "export function take<T>(value:T):T {return value;} export function dormant():boolean{return missing;}";
   const source = 'import {take} from "dependency"; export function run(flag:boolean):boolean { '
     + "const first = take<boolean>(flag); const second = take<number>(1); return first; }";
-  const input = analysisInput(fixture, "sdk-minimal", source);
+  const input = analysisInput(fixture, "sdk-minimal", source, ["run"]);
   input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    externalEntries: input.snapshot.contributions.externalEntries,
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
     extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
     otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
@@ -10962,6 +11055,7 @@ test("dependency defaults are opened only by the selected provided counts", asyn
     input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
       extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+      externalEntries: [{ module: input.snapshot.entryPoint, name: "run" }],
       otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
     const result = analyzeHostProgram(input);
     if (broken && expected.includes(0)) {
@@ -10982,6 +11076,50 @@ test("dependency defaults are opened only by the selected provided counts", asyn
       if (initializer !== undefined) assert.equal(initializer.tir.root === formal.initializer.root, true);
     }
   }
+});
+
+test("a dormant project template verifies its checked call and default without earning execution", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const text = 'import {take} from "dependency"; export function dormant(): boolean { return take(); }';
+  const input = analysisInput(fixture, "sdk-minimal", text);
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": text },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+    otherPackages: [{ root, name: "dependency", modules: {
+      "index.ts": ["source", "export function take(value:boolean=missingDefault):boolean {return value;}", false],
+    } }],
+  });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const bodies = result.value.modules.flatMap(module => module.bodies);
+  assert.equal(bodies.some(row => row.kind !== "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.expression?.kind === "CallExpression"), true);
+  assert.deepEqual(bodies.filter(row => row.kind === "selected" && row.tir.root.kind !== "SourceFile"), []);
+  assert.deepEqual(result.value.index.initialization.entries, []);
+});
+
+test("a dormant template verifies its checked applied generic signature and omission without selecting a target", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function pick<T>(value: T, other: T = value): T { return other; }
+    export function dormant(value: boolean): boolean { return pick(value); }
+  `);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const caller = chapter.bodies.find(row => row.kind === "template" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.expression?.kind === "CallExpression");
+  assert.ok(caller);
+  const call = caller.tir.root.statements.nodes[0].expression.tsonic.application.decision;
+  assert.equal(call.callee.activation.bindings.kind, "instantiated");
+  assert.notEqual(call.callee.decision.completion.signature, call.callee.decision.api.signature);
+  assert.equal(call.arguments[1].value.kind, "initializer");
+  assert.equal(chapter.bodies.some(row => row.kind === "selected" && row.tir.root.kind !== "SourceFile"), false);
+  assert.equal(program.value.index.dependencyInventory.dependencies.some(edge => edge.target.kind === "body"
+    && edge.target.execution.instance.body === call.callee.activation.body), false);
 });
 
 test("initialization follows the runtime dependency graph, not the compilation roots", async () => {
@@ -11123,7 +11261,9 @@ test("typed modules retain only their own ready templates and selected bodies in
       + "const local: boolean = !second; return local; }";
   }
   const libraries = [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }];
-  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot: fixture.projectSnapshot({ sourceFiles, libraries }) };
+  const externalEntries = Object.keys(sourceFiles).filter(path => path !== "main.ts").map(path =>
+    ({ module: fixture.moduleOf(fixture.packageOf("/project"), `src/${path}`), name: "value" }));
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot: fixture.projectSnapshot({ sourceFiles, libraries, externalEntries }) };
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
@@ -11313,10 +11453,11 @@ test("two imported overloads select their own bodyless endpoints in either decla
       export function readBoolean(value: boolean): boolean { return ${invocation}(value); }
       export function readText(value: string): boolean { return ${invocation}(value); }`;
     const declarations = order.map(type => `export declare function pick(value: ${type}): boolean;`).join("\n");
+    const prepared = analysisInput(fixture, "sdk-minimal", source, ["readBoolean", "readText"]);
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, "native.d.ts": declarations },
-      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: prepared.snapshot.contributions.externalEntries });
     snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
-    const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+    const input = { ...prepared, snapshot };
     const checked = captureSourceBarrier(input);
     assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
     const supplier = fixture.moduleOf(fixture.packageOf("/project"), "src/native.d.ts");
@@ -11358,13 +11499,15 @@ test("two imported overloads select their own bodyless endpoints in either decla
 test("bodyless generic overloads retain each original binder and each selected nonempty application", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const externalEntries = ["first", "second", "third"].map(name => ({ module: entry, name }));
   const snapshot = fixture.projectSnapshot({ sourceFiles: {
     "main.ts": `import { choose } from "./native.js";
       export function first(value: boolean): boolean { return choose(value); }
       export function second(value: string): string { return choose<string>(value, true); }
       export function third(value: string): string { return choose(value); }`,
     "native.d.ts": "export declare function choose<T>(value: T): T; export declare function choose<T>(value: T, other: boolean): T;",
-  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries });
   snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
   const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
   const result = analyzeHostProgram(input);
@@ -11409,7 +11552,7 @@ test("parenthesizing a selected ordinary callable preserves the direct call and 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const analyze = invocation => {
     const input = analysisInput(fixture, "sdk-minimal", `function pass(value: boolean): boolean { return value; }
-      export function use(value: boolean): boolean { return ${invocation}(value); }`);
+      export function use(value: boolean): boolean { return ${invocation}(value); }`, ["use"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -11735,7 +11878,7 @@ test("typed dependencies retain the exact call entry and default even when the n
   for (const taken of [false, true]) for (const omitted of [false, true]) {
     const text = "function leaf(input: boolean = true): boolean { return input; } "
       + `export function run(input: boolean): boolean { if (${taken}) return leaf(${omitted ? "" : "input"}); return input; }`;
-    const input = analysisInput(fixture, "sdk-minimal", text);
+    const input = analysisInput(fixture, "sdk-minimal", text, ["run"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
@@ -11759,6 +11902,30 @@ test("typed dependencies retain the exact call entry and default even when the n
     const [facts] = run.facts;
     assert.equal(calls.length, taken ? 1 : 0);
     assert.equal(facts.origins.invocations.filter(row => row.node === call.id).length, taken ? 1 : 0);
+  }
+});
+
+test("an exposed generic stays a template even when an independent entry selects a bound execution", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const selectCaller of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function pick<T>(value: T): T { return value; }
+      export function run(value: boolean): boolean { return pick(value); }
+    `, selectCaller ? ["pick", "run"] : ["pick"]);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const description = index.initialization.external.find(row => row.name === "pick");
+    assert.ok(description);
+    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+    const template = chapter.bodies.find(row => row.kind === "template" && row.tir.owner === description.definitions[0]);
+    assert.ok(template);
+    const selected = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === template.instance.body);
+    assert.equal(selected.length, selectCaller ? 1 : 0);
+    assert.equal(index.initialization.entries.length, selectCaller ? 1 : 0);
+    assert.equal(index.initialization.entries.some(row => row.instance.body === template.instance.body), false);
+    if (selectCaller) assert.equal(selected[0].instance.bindings.bindings.methodBindings.length, 1);
   }
 });
 
@@ -11793,7 +11960,10 @@ test("external entries use the selected qualified declaration without activating
       assert.deepEqual(offered, index.initialization.entries);
       assert.deepEqual(offered.toSorted((left, right) => left.provided - right.provided),
         [1, 2, 3].map(provided => ({ instance: selected.instance, provided })));
-    } else assert.deepEqual(offered, [], name);
+    } else {
+      assert.deepEqual(offered, [], name);
+      assert.equal(module.bodies.some(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition), false, name);
+    }
   }
   const shadow = modules.find(row => row.module === fixture.moduleOf(fixture.packageOf("/project"), "src/shadow.ts"));
   const shadowDeclaration = readyModuleStatements(readyModuleRoot(shadow.tree)).find(row => row.kind === "FunctionDeclaration");

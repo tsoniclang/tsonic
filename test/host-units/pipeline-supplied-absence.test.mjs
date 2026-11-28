@@ -19,15 +19,16 @@ const limits = {
   lowering: { maximumRecords: 10000 }, mirVerification: { maximumWork: 100000 },
 };
 
-async function inputs(source) {
+async function inputs(source, entries = []) {
   const fixture = await loadFrontFixture();
+  const entry = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], externalEntries: entries.map(name => ({ module: entry, name })) });
   return { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
 }
 
-async function analyze(source) {
-  const input = await inputs(source);
+async function analyze(source, entries) {
+  const input = await inputs(source, entries);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", result.kind === "ok" ? undefined : JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
@@ -73,7 +74,7 @@ for (const annotated of [false, true]) test(`public choose(null) supplies native
   const { index, module, callee, callers } = await analyze(`
 export function choose(flag${annotation} = null)${annotation} { return flag; }
 export function callWithNull() { return choose(null); }
-export function callWithoutArgument() { return choose(); }`);
+export function callWithoutArgument() { return choose(); }`, ["callWithNull", "callWithoutArgument"]);
   assert.equal(callers.length, 2);
   const printed = printModuleBodies(index, module);
   const decoded = parseModuleBodies(index, printed);
@@ -128,7 +129,7 @@ export function callWithoutArgument() { return choose(); }`);
 test("a shadowing local named undefined remains the provided Boolean and does not enter the default", async () => {
   const { index, module, callee, callers } = await analyze(`
 export function choose(flag: boolean = true): boolean { return flag; }
-export function call(): boolean { const undefined: boolean = false; return choose(undefined); }`);
+export function call(): boolean { const undefined: boolean = false; return choose(undefined); }`, ["call"]);
   assert.equal(callers.length, 1);
   const caller = callers[0];
   const { call, mir, facts, transport, slots, edges } = observe(index, caller, callee, 1);

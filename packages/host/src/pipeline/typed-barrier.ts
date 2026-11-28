@@ -284,9 +284,10 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (inProject && bindings.kind === "parametric") return null;
     const checked = bodyOf(child);
     const item = items.get(checked.owner);
-    if (!inProject && item?.kind === "Parameter" && item.initializer === checked.root && item.tsonic.initializer === child) return checked;
+    if (item?.kind === "Parameter" && item.initializer === checked.root && item.tsonic.initializer === child
+      || item?.kind === "BindingElement" && item.initializer === checked.root) return checked;
     return parent.root.kind === "SourceFile" && item?.kind === "FunctionDeclaration"
-      && item.body === checked.root && item.tsonic.body === child && (!inProject || scoped(scopeOf(checked.owner))) ? checked : null;
+      && item.body === checked.root && item.tsonic.body === child ? checked : null;
   };
   const checkedChildOf = (child: HirBody, instance: BodyInstance, key: string): Extract<ElaborationChild, { kind: "checked" }> =>
     ({ kind: "checked", body: child, instance, onRequired: complete => {
@@ -329,7 +330,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           const template = prior;
           const initializers = checked.params.flatMap(parameter => parameter.initializer === null ? [] : [parameter.initializer]);
           pending.push({ kind: "elaborate", body: checked, instance, key, scope, publication, template, initializers });
-          const eagerDefaults = project.has(checked.root.origin.module) ? initializers : [];
+          const eagerDefaults = mode === "parametric" && project.has(checked.root.origin.module) ? initializers : [];
           for (const children of [eagerDefaults, checked.nestedBodies]) {
             for (let index = children.length - 1; index >= 0; index -= 1) {
               const child = children[index];
@@ -344,14 +345,14 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           const child = { body, bindings };
           const checkedChild = unopenedChild(checked, body, bindings);
           const childKey = instanceKey(child);
-          if (checkedChild !== null && !bodies.has(childKey) && !refusedInstances.has(childKey))
+          if (checkedChild !== null && (bindings.kind === "instantiated" || !bodies.has(childKey) && !refusedInstances.has(childKey)))
             return checkedChildOf(checkedChild, child, childKey);
           return instanceResult(childKey, "A required nested occurrence needs its actual same-binding body.");
         });
         const initializers = next.initializers.map((body): ElaborationChild => {
           const child = { body, bindings };
           const childKey = instanceKey(child);
-          return bodies.has(childKey) || refusedInstances.has(childKey)
+          return bindings.kind === "parametric" && (bodies.has(childKey) || refusedInstances.has(childKey))
             ? instanceResult(childKey, "A required default needs its actual same-binding body.")
             : checkedChildOf(bodyOf(body), child, childKey);
         });
@@ -407,7 +408,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   for (const module of roots) {
     if (!project.has(module.module.module)) continue;
     const seeds = module.module.bodies.map(body => body.body);
-    const stop = produce(seeds, parametric) ?? (module.role === "source" ? produce(seeds, empty) : null);
+    const stop = produce(seeds, parametric);
     if (stop !== null) return stop;
   }
   const diagnostics = [...new Set([...database.diagnostics(), ...elaborationDiagnostics])];
@@ -451,8 +452,40 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           placement = { kind: "endpoint", template: source.placed, selected: { request: selectedRequest, signature: selected.value } };
         }
         replayResources ??= createProgramVerificationWork(inputs.limits.instantiation, account);
-        const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources,
-          candidateReplayOf(elaboration, account, checked, instance, declaredSignature, unit, body => sources.bodies.get(body) ?? null));
+        const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources, {
+          replay: candidateReplayOf(elaboration, account, checked, instance, declaredSignature, unit, body => sources.bodies.get(body) ?? null),
+          checkedDefaultOf: owner => {
+            const field = chargeWork(account, 1);
+            if (field !== null) return field;
+            const role = owner.tsonic;
+            if (!("initializer" in role) || role.initializer === null)
+              return fail("A selected generic default needs its actual placed initializer.");
+            const ready = chargeWork(account, 1 + role.initializer.length);
+            if (ready !== null) return ready;
+            const initializer = bodyOf(role.initializer);
+            const itemRead = admit({ kind: "source-declaration", definition: initializer.owner });
+            if (itemRead !== null) return itemRead;
+            const item = sources.declarationSourceOf(initializer.owner);
+            if (item?.kind !== "item" || item.value.owner !== initializer.owner)
+              return fail("A selected generic default needs its actual declaration occurrence.");
+            const nodeRead = admit({ kind: "static-item", declaration: item.value });
+            if (nodeRead !== null) return nodeRead;
+            const authored = sources.nodeOf(item);
+            const declaration = role.declaration;
+            const local = typeof declaration === "string" || declaration.kind !== "local" ? null : declaration.local;
+            const localRead = local === null ? null : chargeWork(account, 1);
+            if (localRead !== null) return localRead;
+            const location = local === null ? null : checked.locals[local.local]?.declaration;
+            if ((typeof declaration === "string" ? initializer.owner !== declaration
+              : declaration.kind === "definition" ? initializer.owner !== declaration.definition
+              : local === null || local.body !== checked.body || location?.kind !== "item"
+                || location.value.owner !== initializer.owner || location.value.node !== owner.id)
+              || authored?.kind !== owner.kind || authored.id !== owner.id || authored.origin.module !== owner.origin.module
+              || authored.initializer === null || authored.initializer !== initializer.root)
+              return fail("A selected generic default must retain its actual qualified checked owner and root.");
+            return { kind: "complete", value: authored.initializer };
+          },
+        });
         if (specialized.kind === "refused") return refusal(specialized);
         if (specialized.kind === "resource-limit") return refusal({ kind: "refused", diagnostics: [resourceLimitDiagnostic({
           owner: "ir-program", limit: specialized.dimension, maximum: specialized.maximum,
@@ -460,23 +493,22 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         })] });
         const placed = placement.kind === "endpoint" ? placement.selected
           : { request: null, signature: readSignature(elaboration.types, specialized.value.signature) };
-        for (let position = 0; position < specialized.value.params.length; position += 1) {
+        for (let position = 0; position < specialized.defaults.length; position += 1) {
           const step = chargeWork(account, 1);
           if (step !== null) return analysisStop(step, unit);
-          const formal = specialized.value.params[position];
-          if (formal === undefined) return fail("A selected generic body retains its complete actual formals.");
-          const unopened = formal.initializer;
-          if (unopened.kind !== "checked-default") continue;
-          const initializer = formal.tsonic.initializer;
-          if (initializer === null) return fail("A selected generic default must have its actual initializer body.");
-          const declared = bodyOf(initializer);
-          if (declared.owner !== formal.tsonic.declaration || declared.root !== unopened.root)
-            return fail("A selected generic default must retain its actual checked declaration and root.");
+          const owner = specialized.defaults[position];
+          if (owner === undefined) return fail("A selected generic body retains its complete actual default owners.");
+          const unopened = owner.initializer;
+          if (unopened.kind !== "checked-default") return fail("A selected generic default must be independently authorized before attachment.");
+          const role = owner.tsonic;
+          if (owner.kind === "BindingElement" && (!("present" in role) || role.present === null)) continue;
+          const initializer = "initializer" in role ? role.initializer : null;
+          if (initializer === null) return fail("A selected generic default needs its actual initializer body.");
           const requested = { body: initializer, bindings: instance.bindings };
           const reserve = admit({ kind: "artifact", instance: requested }) ?? chargeResultEntries(account, 2);
           if (reserve !== null) return analysisStop(reserve, unit);
           const key = instanceKey(requested);
-          attachments.push({ key, complete: ready => pipelineWiring.elaborate.attachFormalDefault(elaboration, formal, unopened, ready) });
+          attachments.push({ key, complete: ready => pipelineWiring.elaborate.attachDefault(elaboration, owner, unopened, ready) });
         }
         bodies.set(key, { placed, body: specialized.value, scopes: null });
         return { kind: "ok", diagnostics: [], value: specialized.value };
@@ -490,26 +522,32 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     return { kind: "ok", diagnostics: [], value: ready.body };
   };
   const explicit: TirBody[] = [];
-  for (const root of initialization.value) if (!project.has(root.origin.module)) {
+  for (const root of initialization.value) {
     const result = requireBody({ body: root.tsonic.body, bindings: empty });
     if (result.kind === "refused") return result;
     explicit.push(result.value);
   }
-  for (const body of exposure.value.bodies) if (!project.has(bodyOf(body).root.origin.module)) {
-    const result = requireBody({ body, bindings: empty });
+  for (const [body, mode] of exposure.value.bodies) {
+    const result = requireBody({ body, bindings: mode === "parametric" ? parametric : empty });
     if (result.kind === "refused") return result;
-    explicit.push(result.value);
+    if (mode === "instantiated") explicit.push(result.value);
   }
   const readDeclared = (request: SignatureRequest): Signature | null => {
     const answer = database.readCompleted(queries.declaredSignatureOf, request);
     return answer?.kind === "completed" ? answer.value : null;
   };
+  const required = prepareRequiredExecutions(source, sources, explicit, requireBody, readDeclared, account, unit);
+  if (required.kind === "refused") return required;
   let constantEntries: Map<TirBody, readonly number[]> | null = null;
   if (source.enumInitializers.size !== 0) for (const body of source.enumInitializers) {
     const admission = chargeWork(account, 1 + body.length);
     if (admission !== null) return analysisStop(admission, unit);
-    const selected = bodies.get(instanceKey({ body, bindings: empty }));
-    if (selected === undefined) continue;
+    if (!required.value.moduleExecutions.has(bodyOf(body).root.origin.module)) continue;
+    const initializer = { body, bindings: empty };
+    const demanded = requireBody(initializer);
+    if (demanded.kind === "refused") return demanded;
+    const selected = bodies.get(instanceKey(initializer));
+    if (selected === undefined) return fail("A demanded enum constant retains its independently placed initializer.");
     if (selected.placed.request !== null || selected.placed.signature.parameters.length !== 0
       || selected.body.params.length !== 0 || selected.body.captures.length !== 0)
       return fail("An enum constant initializer has its actual argumentless and capture-free execution placement.");
@@ -521,12 +559,6 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   const constantEntriesOf = (body: TirBody): readonly number[] | null => constantEntries?.get(body) ?? null;
   const layoutOnly = ({ body, root }: TirBody): boolean => source.layoutOperands?.has(body) === true ||
     root.kind !== "SourceFile" && root.kind !== "Block" && layoutBindingOf(root) !== null;
-  const required = prepareRequiredExecutions(source, sources, (function* () {
-    for (const { body } of bodies.values())
-      if (project.has(body.root.origin.module) && constantEntriesOf(body) === null && !layoutOnly(body)) yield body;
-    yield* explicit;
-  })(), requireBody, readDeclared, account, unit);
-  if (required.kind === "refused") return required;
   for (let index = 0; index < attachments.length; index += 1) {
     const stop = chargeWork(account, 1);
     if (stop !== null) return analysisStop(stop, unit);

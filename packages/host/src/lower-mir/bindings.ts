@@ -404,7 +404,7 @@ export function finishPatternValue(lowering: Lowering, pattern: BindingPattern<T
     const element = requirePresent(current.elements.nodes[index], failure("a fixed binding list has a hole", current.origin));
     const slot = tuple.elements[index];
     const binding = element.tsonic;
-    if (slot?.kind !== "required" || element.initializer !== null || element.dotDotDotToken !== null || element.propertyName !== null)
+    if (slot?.kind !== "required" || element.initializer.kind !== "none" || element.dotDotDotToken !== null || element.propertyName !== null)
       return callerDefect("a fixed pattern must retain its actual required slot", element.origin);
     if (binding.role === "hole") continue;
     const site = siteOf(lowering.body, element);

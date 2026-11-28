@@ -4,8 +4,7 @@ import { sameNodeKind, sameNodeList } from "./syntax-compare-common.js";
 export function sameBindingElement(left: Hir.BindingElement<Hir.Phase>, right: Hir.BindingElement<Hir.Phase>): boolean {
   return ((left.dotDotDotToken === null) === (right.dotDotDotToken === null)) &&
     (left.propertyName === null ? right.propertyName === null : right.propertyName !== null && sameNodeKind(left.propertyName, right.propertyName)) &&
-    (left.name === null ? right.name === null : right.name !== null && sameNodeKind(left.name, right.name)) &&
-    (left.initializer === null ? right.initializer === null : right.initializer !== null && sameNodeKind(left.initializer, right.initializer));
+    (left.name === null ? right.name === null : right.name !== null && sameNodeKind(left.name, right.name));
 }
 
 export function sameBindingPattern(left: Hir.BindingPattern<Hir.Phase, "ArrayBindingPattern" | "ObjectBindingPattern">, right: Hir.BindingPattern<Hir.Phase, "ArrayBindingPattern" | "ObjectBindingPattern">): boolean {

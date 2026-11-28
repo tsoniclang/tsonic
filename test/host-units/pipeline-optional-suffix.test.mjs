@@ -7,7 +7,7 @@ test("a required prefix and two optional formals keep authored evaluation and pr
     "export function select(prefix: boolean, value?: boolean, tail?: boolean): boolean | undefined { return tail; }\n"
     + "export function one(): boolean | undefined { return select(false); }\n"
     + "export function two(): boolean | undefined { return select(false, undefined); }\n"
-    + "export function three(): boolean | undefined { return select(false, undefined, true); }");
+    + "export function three(): boolean | undefined { return select(false, undefined, true); }", {}, ["one", "two", "three"]);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const bodies = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected" && body.tir.root.kind === "Block");

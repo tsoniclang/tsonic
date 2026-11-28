@@ -1,4 +1,4 @@
-import type { NodeId } from "../ids/contract.js";
+import type { NodeId, SigId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { CallExpression, HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
 import { callableEndpointKey, selectedEndpointRoleFaults } from "../ir-hir/index.js";
@@ -54,6 +54,12 @@ export const declarationEndpoints = (declaration: InferenceDeclaration): Readonl
 
 const validOrdinal = (value: number): boolean => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 
+export function checkedAppliedSignature(decision: ApplicationDecision, candidate: HirCandidate | undefined): SigId | null {
+  return candidate?.ordinal === decision.candidate && candidate.declaration === decision.advertised.declaration
+    && callableEndpointKey(decision.advertised) === callableEndpointKey(decision.api) && candidate.appliedSignature.kind === "available"
+    ? candidate.appliedSignature.value : null;
+}
+
 export const verifyCallEndpoints = (
   decision: ApplicationDecision, node: TirNode, types: TypeTable, declarations: TirCallDeclarations, emit: TirOccurrenceEmit,
 ): void => {
@@ -62,9 +68,7 @@ export const verifyCallEndpoints = (
   const apiSignature = types.signatures[decision.api.signature];
   const activated = declarations.activated;
   const applied = activated !== undefined ? activated?.signature
-    : decision.api.body === null && callableEndpointKey(decision.advertised) === callableEndpointKey(decision.api)
-    && candidate?.appliedSignature.kind === "available"
-    ? candidate.appliedSignature.value : decision.api.signature;
+    : checkedAppliedSignature(decision, candidate) ?? decision.api.signature;
   const appliedSignature = applied === undefined ? undefined : types.signatures[applied];
   let valid = declarations.advertised !== null && declarations.api !== null &&
     declarations.advertised.endpoints.has(callableEndpointKey(decision.advertised)) &&

@@ -42,7 +42,7 @@ export async function checkSavedLocalRefinementGuard() {
       }
       return false;
     }
-  `);
+  `, ["read"]);
   assert.equal(analyzeHostProgram(input).kind, "ok");
   await auditRefinementClaims(input, body => body.tir.body.includes(";read];function;0]"), (rows, body) => {
     assert.equal(rows.length, 1);
@@ -58,7 +58,7 @@ export async function checkRefinementClaimRoles() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const { analysisInput } = await import("./front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", "export function simple(): boolean { return true; }");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", "export function simple(): boolean { return true; }", ["simple"]);
   const control = analyzeHostProgram(input);
   assert.equal(control.kind, "ok");
   const isSimple = body => body.tir.body.includes(";simple];function;0]");
@@ -82,7 +82,9 @@ async function refinementInput(fixture, source, policy) {
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
   const input = await nativeInt32Input(fixture, source, true);
   const { nativeFacts } = input.snapshot;
-  return { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...nativeFacts,
+  return { ...input, snapshot: { ...input.snapshot, contributions: { ...input.snapshot.contributions,
+    externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }],
+  }, nativeFacts: { ...nativeFacts,
     arrayIndexFailure: policy?.bounds ?? nativeFacts.arrayIndexFailure,
     absentAccessFailure: policy?.absent ?? nativeFacts.absentAccessFailure,
     integerOverflow: [
@@ -166,14 +168,14 @@ export async function checkDocumentedRefinementWalkthrough() {
       kind: "invalidated", sites: [{ kind: "call", at: { body: body.tir.body, node: clear.expression.id } }],
     } },
   ]);
-  checkWalkthroughLimits(analyzeHostProgram, input, 117664, 20080);
+  checkWalkthroughLimits(analyzeHostProgram, input, 118178, 20124);
 }
 
 export async function checkNativeRefinementWalkthrough() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115394, 20011], [true, 116533, 20353]]) {
+  for (const [replace, work, records] of [[false, 115908, 20055], [true, 117047, 20397]]) {
     const prepared = await nativeRefinementInput(fixture, replace);
     const result = analyzeHostProgram(prepared);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -237,9 +239,9 @@ export async function checkOrderedRefinementProofs() {
         return false;
       }
     `;
-    const base = analysisInput(fixture, "sdk-minimal", text);
+    const base = analysisInput(fixture, "sdk-minimal", text, ["read"]);
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": text },
-      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]), externalEntries: base.snapshot.contributions.externalEntries });
     const nativeFacts = { ...snapshot.nativeFacts, integerOverflow: [
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
     ] };
@@ -296,7 +298,7 @@ export async function checkOrderedRefinementProofs() {
         ${mutate ? "if (branch) clear(box); else clear(box);" : ""}
         return box.flag;
       }
-    `);
+    `, ["read"]);
     const { index, selected, facts, sourceOf } = read(input, 2);
     const statements = selected.tir.root.statements.nodes;
     const branches = statements[0];
@@ -351,7 +353,7 @@ export async function checkDisjunctiveFieldProofs() {
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const output = analyzeHostProgram(input);
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const chapter = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -408,7 +410,7 @@ export async function checkParenthesizedCountedProofs() {
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
     ] };
@@ -549,7 +551,8 @@ export async function checkNativeCountedLoopProofs() {
     const input = analysisInput(fixture, "sdk-minimal", source);
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source,
       ...(declaration === null ? {} : { "native.d.ts": declaration }) },
-      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
+      externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }] });
     if (declaration !== null) snapshot.source.input.packages.modules.find(row => row.path.endsWith("/native.d.ts")).role = "declaration";
     const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
       integerOverflow: [...(nativeInvoke || additive ? [{ carrier: "int64", operation: "add", result: "int64", law: nativeInvoke ? "abort" : stepFailure ?? "wrap" }] : []),
@@ -777,7 +780,8 @@ export async function checkSavedExtentReceivers() {
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
     const captured = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
+      externalEntries: [{ module: input.snapshot.entryPoint, name: "read" }] });
     const nativeFacts = { ...captured.nativeFacts,
       integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] };
     const result = analyzeHostProgram({ ...input, snapshot: { ...captured, nativeFacts } });
@@ -877,7 +881,7 @@ export async function checkCopiedFieldSampleTiming() {
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -955,7 +959,7 @@ export async function checkFieldStoreAcrossCall() {
         }
         return false;
       }
-    `);
+    `, ["read"]);
     const answer = analyzeHostProgram(input);
     assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
     const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1049,7 +1053,7 @@ export async function checkSavedProjectionWithPlacedCaptures() {
       }
       return copied;
     }
-  `);
+  `, ["read"]);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
@@ -1113,7 +1117,7 @@ export async function checkCapturedFieldRefinement() {
         if (box.flag !== undefined) { const effect: boolean = (${initializer}, false); return box.flag; }
         return false;
       }
-    `);
+    `, ["read"]);
     const published = analyzeHostProgram(input);
     assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
     const chapter = published.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1216,7 +1220,7 @@ export async function checkNativeFieldRefinement() {
       export function read(box: Box): boolean {
         ${branch}
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1332,7 +1336,7 @@ export async function checkNativeFieldRefinement() {
         if (box.left.flag !== undefined) { ${throughCall ? "inspect(box);" : write} return box.left.flag; }
         return false;
       }
-    `);
+    `, ["read"]);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", `${member}: ${JSON.stringify(result.diagnostics)}`);
     const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
@@ -1380,7 +1384,7 @@ export async function checkNativeFieldRefinement() {
       }
       return false;
     }
-  `);
+  `, ["read"]);
   const result = analyzeHostProgram(ancestor);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === ancestor.snapshot.entryPoint);
@@ -1441,7 +1445,7 @@ export async function checkNativeFieldRefinement() {
         ${statements}
         return false;
       }
-    `);
+    `, ["read"]);
     const native = original.snapshot.nativeFacts;
     const input = { ...original, snapshot: { ...original.snapshot, nativeFacts: { ...native,
       integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }],

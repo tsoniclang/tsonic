@@ -574,7 +574,7 @@ export interface ChapterTextContext {
 
 export function createSyntaxText(module: ModuleBodies) {
   const inventory = inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
-    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null, layout: () => null,
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, initializer: () => null, layout: () => null,
       close: () => {} }, chapterTransportSlots).value;
   const checked = printCheckedDeclarations(inventory.checkedRoots);
   const missingWire: InvariantFailure = {
@@ -585,7 +585,10 @@ export function createSyntaxText(module: ModuleBodies) {
   };
   const typed = (node: TirTypedSyntax["node"]): TextWork => token(`n:${requirePresent(inventory.wireOf(node), missingWire)}`);
   const checkedNode = (node: HirNode): TextWork => token(`c:${requirePresent(checked.wireOf(node), missingWire)}`);
-  const ordinary: SyntaxTextContext = { reference: typed, checked: checkedNode };
+  const ordinary: SyntaxTextContext = { reference: typed, checked: checkedNode, initializer: value =>
+    value.kind === "none" ? record(value.kind, []) : record(value.kind, [
+      field("root", value.kind === "checked-default" ? checkedNode(value.root) : typed(value.root)),
+    ]) };
   const context: ChapterTextContext = {
     tree: value => record(value.kind, [field("root", value.kind === "checked-root" ? checkedNode(value.root) : typed(value.root))]),
     bodyRoot: typed,
@@ -599,12 +602,7 @@ export function createSyntaxText(module: ModuleBodies) {
           [field("node", item.kind === "checked-declaration" ? checkedNode(item.node) : typed(item.node))]), "NodeList"));
       case "ready-callable": return printReadyCallable(syntax.node, ordinary,
         () => textNodeListWith(syntax.node.parameters, typed, "NodeList"));
-      case "formal": return printFormalParameter(syntax.node, ordinary, () => {
-        const initializer = syntax.node.initializer;
-        if (initializer.kind === "none") return record(initializer.kind, []);
-        return record(initializer.kind, [field("root",
-          initializer.kind === "checked-default" ? checkedNode(initializer.root) : typed(initializer.root))]);
-      });
+      case "formal": return printFormalParameter(syntax.node, ordinary);
     }
   };
   return { nodes: inventory.typed, checked: checked.text, context, definition };
