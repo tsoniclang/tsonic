@@ -485,6 +485,45 @@ test("native tuple absence belongs to its actual projected value, not the produc
   }
 });
 
+test("inferred nested binding constructs the native read tuple rather than the structural pattern context", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function plain(flag: boolean): null { const [[absent, other]] = [[null, flag]]; return absent; }
+    export function asserted(flag: boolean): null { const [[absent, other]] = ([[null, flag] as const] as const); return absent; }
+    export function hole(flag: boolean): null { const [, [absent, other]] = <const>([flag, <const>[null, flag]]); return absent; }
+    export function annotated(flag: boolean): null { const [[absent, other]]: readonly [readonly [null, boolean]] = [[null, flag]]; return absent; }
+  `);
+  const nativeFacts = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  for (const name of ["plain", "asserted", "hole", "annotated"]) {
+    const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    const binding = body.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+    const unwrap = node => {
+      while (node.kind === "ParenthesizedExpression" || node.kind === "AsExpression" || node.kind === "TypeAssertionExpression") node = node.expression;
+      return node;
+    };
+    const outer = unwrap(binding.initializer);
+    const ordinal = name === "hole" ? 1 : 0;
+    const inner = unwrap(outer.elements.nodes[ordinal]);
+    const outerTuple = result.value.index.types.terms[outer.tsonic.type];
+    const tuple = result.value.index.types.terms[inner.tsonic.type];
+    assert.equal(tuple.kind, "tuple", name);
+    assert.equal(tuple.readonly, name === "annotated", name);
+    assert.equal(outerTuple.elements[ordinal].type, inner.tsonic.type, name);
+    assert.deepEqual(tuple.elements.map(slot => slot.kind), ["required", "required"], name);
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.tir.body);
+    assert.equal(summary.returns, true, name);
+    assert.equal(summary.arena.origins[summary.result].includesAbsence, true, name);
+  }
+});
+
 for (const [form, initializer, operand] of [
   ["written", "([make(flag), true] as readonly [boolean, true])", "slots"],
   ["const", "[make(flag), true] as const", "slots"],

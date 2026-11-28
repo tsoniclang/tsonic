@@ -625,13 +625,17 @@ export function verifyTupleAssertionProduct<Stop extends object>(node: TirNode, 
 }
 
 export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
-  instance: BodyInstance, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  instance: BodyInstance, types: TypeTable, native: InferenceNativeFacts, bindingProduct: boolean,
+  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const reached = admit({ kind: "row" });
   if (reached !== null) return reached;
   const views = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views : null;
   const context = views?.contextual;
   const read = views?.read;
-  const expected = context?.kind === "available" ? context.value ?? (read?.kind === "available" ? read.value : null) : null;
+  const readType = read?.kind === "available" ? read.value : null;
+  const useRead = bindingProduct && readType !== null && types.terms[readType]?.kind === "tuple";
+  const contextualType = context?.kind === "available" && !useRead ? context.value : null;
+  const expected = context?.kind === "available" ? contextualType ?? readType : null;
   const authored = expected === null ? undefined : types.terms[expected];
   const { body, bindings } = instance;
   const phase = node.tsonic;
@@ -641,14 +645,17 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
   if (target?.kind === "array" || operation?.kind === "exact-array-construction")
     return verifyExactArray(node, original, body, types, native, decision, admit, emit);
   if (authored?.kind !== "tuple" && target?.kind !== "tuple") return null;
-  const boundSlots = context?.kind === "available" && context.value === null && phase.role === "value" && phase.type !== expected;
+  const boundSlots = context?.kind === "available" && contextualType === null && phase.role === "value" && phase.type !== expected;
+  const hasBindings = useRead && boundSlots && bindings.kind === "instantiated" && (bindings.bindings.classBindings.length !== 0
+    || bindings.bindings.methodBindings.length !== 0 || bindings.bindings.capturedBindings.length !== 0 || bindings.bindings.selfBindings.length !== 0);
   const holding = native.carrierHolding;
   for (let index = 0; index < holding.length; index += 1) {
     const stop = admit({ kind: "row" });
     if (stop !== null) return stop;
   }
   if (original?.kind !== "ArrayLiteralExpression" || authored?.kind !== "tuple" || target?.kind !== "tuple" || phase.role !== "value"
-    || authored.readonly !== target.readonly || authored.elements.length !== target.elements.length || boundSlots && bindings.kind !== "instantiated"
+    || authored.readonly !== target.readonly || authored.elements.length !== target.elements.length
+    || boundSlots && (useRead ? !hasBindings : bindings.kind !== "instantiated")
     || decision === null || operation?.kind !== "array-construction" || decision.permissionScope !== null
     || decision.decision.execution.kind !== "pure" || decision.decision.result !== phase.type
     || nativeCarrierHoldingOf(holding, "tuple") !== "in-place"

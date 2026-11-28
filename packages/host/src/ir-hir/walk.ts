@@ -1,6 +1,6 @@
-import type { ApplicationSyntaxReceipt, CheckedContextualTupleAssertionOf, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
+import type { ApplicationSyntaxReceipt, ArrayLiteralExpression, BindingPattern, CheckedContextualTupleAssertionOf, CheckedPhase, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
   OrdinarySyntaxPhase, ParameterDeclaration, Phase, SyntaxArgumentListReceipt, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
-  SyntaxCallArgumentsImage, SyntaxInitializerImage, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
+  SyntaxCallArgumentsImage, SyntaxInitializerImage, VisitCheckedInferredTupleProducts, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
@@ -50,6 +50,74 @@ export const checkedContextualTupleAssertionOf: CheckedContextualTupleAssertionO
     if (!isTuple(type)) return noContextualTupleProduct();
   }
   return { kind: "complete", value: { product: contextual.value, literal: operand.id } };
+};
+
+interface PendingTupleSlots {
+  readonly literal: ArrayLiteralExpression<CheckedPhase>;
+  readonly pattern: BindingPattern<CheckedPhase>;
+  readonly operands: readonly Expression<CheckedPhase>[];
+  readonly elements: BindingPattern<CheckedPhase>["elements"]["nodes"];
+  readonly outer: PendingTupleSlots | null;
+  index: number;
+}
+
+export const visitCheckedInferredTupleProducts: VisitCheckedInferredTupleProducts = (declaration, admit, visit) => {
+  const name = declaration.name;
+  if (name.kind !== "ArrayBindingPattern" || name.parent !== declaration.id || declaration.type !== null) return null;
+  const start = admit(1, 0);
+  if (start !== null) return start;
+  let expression = declaration.initializer;
+  let parent = declaration.id;
+  let pattern = name;
+  let pending: PendingTupleSlots | null = null;
+  for (;;) {
+    while (expression !== null) {
+      const reached = admit(1, 0);
+      if (reached !== null) return reached;
+      if (expression.parent !== parent) break;
+      if (expression.kind === "AsExpression" || expression.kind === "TypeAssertionExpression") {
+        const type = expression.type;
+        if (type.kind !== "TypeReference" || type.parent !== expression.id) break;
+        const name = type.typeName;
+        if (name.kind !== "Identifier" || name.parent !== type.id || name.text !== "const"
+          || type.typeArguments !== null || type.tsonic.referencedDefinitions.length !== 0) break;
+      } else if (expression.kind !== "ParenthesizedExpression") {
+        if (expression.kind !== "ArrayLiteralExpression" || expression.tsonic.role !== "value") break;
+        const { read, contextual } = expression.tsonic.value.views;
+        if (read.kind === "available" && contextual.kind === "available" && contextual.value !== null && contextual.value !== read.value) {
+          const stopped = visit(expression);
+          if (stopped !== null) return stopped;
+        }
+        const admitted = admit(1, 1);
+        if (admitted !== null) return admitted;
+        pending = { literal: expression, pattern, operands: expression.elements.nodes, elements: pattern.elements.nodes, outer: pending, index: 0 };
+        break;
+      }
+      parent = expression.id;
+      expression = expression.expression;
+    }
+    expression = null;
+    while (pending !== null) {
+      if (pending.index >= pending.elements.length || pending.index >= pending.operands.length) {
+        pending = pending.outer;
+        continue;
+      }
+      const reached = admit(1, 0);
+      if (reached !== null) return reached;
+      const index = pending.index++;
+      const element = pending.elements[index];
+      if (element?.kind !== "BindingElement" || element.parent !== pending.pattern.id || element.dotDotDotToken !== null
+        || element.propertyName !== null || element.initializer !== null || element.name?.kind !== "ArrayBindingPattern"
+        || element.name.parent !== element.id) continue;
+      const stopped = admit(1, 0);
+      if (stopped !== null) return stopped;
+      expression = pending.operands[index] ?? null;
+      parent = pending.literal.id;
+      pattern = element.name;
+      break;
+    }
+    if (pending === null) return null;
+  }
 };
 
 type PendingNode<PhaseType extends Phase> = (

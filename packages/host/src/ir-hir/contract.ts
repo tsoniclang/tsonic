@@ -5009,6 +5009,12 @@ export type CheckedContextualTupleAssertionOf = <Stop extends object>(
 ) => { readonly kind: "complete"; readonly value: { readonly product: TyId; readonly literal: NodeId } | null }
   | { readonly kind: "resource-stop"; readonly stop: Stop };
 
+export type VisitCheckedInferredTupleProducts = <Stop extends object>(
+  declaration: VariableDeclaration<CheckedPhase>,
+  admit: (work: number, records: number) => Stop | null,
+  visit: (literal: ArrayLiteralExpression<CheckedPhase>) => Stop | null,
+) => Stop | null;
+
 export type ChildrenOfSyntax = <P extends OrdinarySyntaxPhase<P>>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];

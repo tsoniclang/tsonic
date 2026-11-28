@@ -877,6 +877,61 @@ test("HIR contextual tuple assertion borrows only the authored literal, context 
   assert.equal(refused.kind === "resource-stop" && refused.stop === stop, true);
 });
 
+test("HIR tuple product proof follows admitted binding ordinals, not arbitrary initializer descendants", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { accountFailure, chargeResultEntries, chargeWork, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function hole(flag: boolean): null { const [, [absent, other]] = <const>([flag, <const>[null, flag]]); return absent; }
+    export function typed(flag: boolean): null { const [[absent, other]]: readonly [readonly [null, boolean]] = [[null, flag]]; return absent; }
+    export function asserted(flag: boolean): null { const [[absent, other]] = [[null, flag]] as readonly [readonly [null, boolean]]; return absent; }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const source = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const [hole, typed, asserted] = source.tree.statements.nodes.map(node => node.body.statements.nodes[0].declarationList.declarations.nodes[0]);
+  const grouping = hole.initializer.expression;
+  const outer = grouping.expression;
+  const inner = outer.elements.nodes[1].expression;
+  const values = [outer.elements.nodes[0], outer.elements.nodes[1]];
+  const reads = [];
+  Object.defineProperties(values, {
+    0: { get() { assert.fail("a hole must not pull an operand for a nested pattern"); } },
+    1: { get() { reads.push("nested operand"); return outer.elements.nodes[1]; } },
+  });
+  const owned = { ...hole, initializer: { ...hole.initializer, expression: { ...grouping,
+    expression: { ...outer, elements: { ...outer.elements, nodes: values } },
+  } } };
+  const invoke = (node, admit) => {
+    const visited = [];
+    const stop = product.visitCheckedInferredTupleProducts(node, admit, literal => { visited.push(literal.id); return null; });
+    return { stop, visited };
+  };
+  let work = 0;
+  let entries = 0;
+  assert.deepEqual(invoke(owned, (units, records) => { work += units; entries += records; return null; }),
+    { stop: null, visited: [outer.id, inner.id] });
+  assert.deepEqual(reads, ["nested operand"]);
+  for (const limits of [
+    ...Array.from({ length: work }, (_, maximumWork) => ({ maximumWork, maximumResultEntries: entries })),
+    ...Array.from({ length: entries }, (_, maximumResultEntries) => ({ maximumWork: work, maximumResultEntries })),
+  ]) {
+    reads.length = 0;
+    const account = createAccount(limits);
+    const result = invoke(owned, (units, records) => chargeWork(account, units) ?? chargeResultEntries(account, records));
+    assert.notEqual(result.stop, null);
+    assert.equal(result.stop === accountFailure(account), true);
+    assert.deepEqual(result.visited, [outer.id, inner.id].slice(0, result.visited.length));
+    if (limits.maximumWork === 0 || limits.maximumResultEntries === 0) assert.deepEqual(reads, []);
+  }
+  assert.deepEqual(invoke({ ...typed, get initializer() { assert.fail("an annotated binding does not select the inferred product"); } }, () => null),
+    { stop: null, visited: [] });
+  assert.deepEqual(invoke({ ...asserted, initializer: { ...asserted.initializer,
+    get expression() { assert.fail("a written assertion owns its operand context"); },
+  } }, () => null), { stop: null, visited: [] });
+});
+
 test("HIR structural walk pays before checked roots, required children and ordered list elements", async () => {
   const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
   const fixture = await loadFrontFixture();
@@ -1967,7 +2022,7 @@ test("HIR public index has exactly the current complete data and binding operati
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveCheckedLayoutAlias", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
-    "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
+    "visitCheckedInferredTupleProducts", "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());

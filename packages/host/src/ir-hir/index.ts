@@ -6,9 +6,10 @@ import { iterateFunctionHeaderSlots as functionSlots, iterateParameterHeaderSlot
   iterateSourceFileHeaderSlots as sourceFileSlots, iterateSyntaxChildSlots as childSlots,
   prepareFunctionHeader as functionShape, prepareSourceFileHeader as sourceFileShape, prepareSyntaxStructure as structure } from "./children.js";
 import { checkedContextualTupleAssertionOf as contextualTupleAssertion, indexSyntaxTree as index, unparenthesizedExpression as unparenthesized,
+  visitCheckedInferredTupleProducts as visitInferredTupleProducts,
   walkSyntaxForest as walkForest, walkSyntaxTree as walk } from "./walk.js";
 import { prepareSyntaxArgumentList as argumentList } from "./control-slots.js";
-import type { CheckedContextualTupleAssertionOf, UnparenthesizedExpression } from "./contract.js";
+import type { CheckedContextualTupleAssertionOf, UnparenthesizedExpression, VisitCheckedInferredTupleProducts } from "./contract.js";
 import type { CopyCheckedContent, CopyCheckedModule, CopySyntaxForest, PrepareSyntaxCopy, ProjectCheckedContent } from "./contract.js";
 import { copySyntaxForest as copyForest, prepareSyntaxCopy as prepareCopy } from "./copy-syntax.js";
 import { copyCheckedContent as copyContent, copyCheckedModule as copyModule, projectCheckedContent as projectContent } from "./checked-phase-copy.js";
@@ -80,6 +81,7 @@ export const copyCheckedContent: CopyCheckedContent = copyContent;
 export const projectCheckedContent: ProjectCheckedContent = projectContent;
 export const unparenthesizedExpression: UnparenthesizedExpression = unparenthesized;
 export const checkedContextualTupleAssertionOf: CheckedContextualTupleAssertionOf = contextualTupleAssertion;
+export const visitCheckedInferredTupleProducts: VisitCheckedInferredTupleProducts = visitInferredTupleProducts;
 export const parseHir: ParseHir = parse;
 export const printHir: PrintHir = print;
 export const parseCheckedDeclarations: ParseCheckedDeclarations = parseChecked;

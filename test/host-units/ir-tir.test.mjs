@@ -169,7 +169,7 @@ test("an uncontextualized tuple spread literal verifies its actual checked produ
   } } };
   const violations = [];
   const instance = { body: body.body, bindings: body.bindings };
-  assert.equal(verifyArrayConstruction(offered, original, instance, reader.types, reader.selectedNativeFacts,
+  assert.equal(verifyArrayConstruction(offered, original, instance, reader.types, reader.selectedNativeFacts, false,
     tirReadyReadAdmission(createAccount(input.limits.dataflow)), (rule, at) => violations.push([rule, at.id])), null);
   assert.deepEqual(violations, [["operation-type", node.id]]);
 
@@ -177,8 +177,57 @@ test("an uncontextualized tuple spread literal verifies its actual checked produ
   const account = createAccount({ maximumWork: 0, maximumResultEntries: 1 });
   const stop = chargeWork(account, 1);
   assert.notEqual(stop, null);
-  assert.equal(verifyArrayConstruction(node, unready, instance, reader.types, reader.selectedNativeFacts,
+  assert.equal(verifyArrayConstruction(node, unready, instance, reader.types, reader.selectedNativeFacts, false,
     tirReadyReadAdmission(account), () => assert.fail("reported after refusal")) === stop, true);
+});
+
+test("TIR rejects the actual structural context as the product of an inferred tuple binding", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const base = analysisInput(fixture, "sdk-minimal", `
+    export function start(flag: boolean): null { const [[absent, other]] = [[null, flag]]; return absent; }
+  `);
+  const nativeFacts = base.snapshot.nativeFacts;
+  const input = { ...base, snapshot: { ...base.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } };
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const reader = typed.value.verifierOf(input.snapshot.entryPoint);
+  const [start] = reader.source.tree.statements.nodes;
+  const body = reader.bodyOf({ body: start.tsonic.body, bindings: { kind: "parametric" } });
+  const verify = candidate => verifyTir(reader, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(candidate);
+  assert.deepEqual(verify(body), { kind: "complete", violations: [] });
+  const [statement, returned] = body.root.statements.nodes;
+  const list = statement.declarationList;
+  const [binding] = list.declarations.nodes;
+  const outer = binding.initializer;
+  const [inner] = outer.elements.nodes;
+  const original = reader.nodeOf({ kind: "body", value: { body: body.body, node: inner.id } });
+  const { read, contextual } = original.tsonic.value.views;
+  assert.equal(read.kind, "available");
+  assert.equal(contextual.kind, "available");
+  assert.equal(inner.tsonic.type, read.value);
+  assert.notEqual(contextual.value, read.value);
+  assert.equal(reader.types.terms[contextual.value].readonly, reader.types.terms[read.value].readonly);
+  const { decision } = inner.tsonic.construction;
+  const offered = { ...inner, tsonic: { ...inner.tsonic, type: contextual.value, convertedType: contextual.value,
+    construction: { kind: "decided", decision: { ...decision, decision: { ...decision.decision, result: contextual.value } } },
+  } };
+  const result = verify({ ...body, root: { ...body.root, statements: { ...body.root.statements, nodes: [
+    { ...statement, declarationList: { ...list, declarations: { ...list.declarations, nodes: [
+      { ...binding, initializer: { ...outer, elements: { ...outer.elements, nodes: [offered] } } },
+    ] } } }, returned,
+  ] } } });
+  assert.equal(result.kind, "complete");
+  assert.equal(result.violations.some(row => row.rule === "operation-type" && row.site.node === inner.id
+    && row.detail[0].value === "a fixed tuple literal requires its actual authored inventory and selected inline product"), true);
 });
 
 test("TIR verifies interface header type bindings independently of the candidate's valid type table", async () => {

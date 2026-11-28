@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, findMemberByKey, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedBindingKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedBindingKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, visitCheckedInferredTupleProducts, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -95,6 +95,7 @@ interface Walk {
   readonly typeOf: Map<NodeId, Slot>;
   readonly operators: Map<NodeId, TyId>;
   readonly returnPart: InferredSignaturePart | undefined;
+  bindingProducts: Set<ArrayNode> | null;
   returnedOperand: boolean;
   bareReturn: Origin | null;
 }
@@ -300,7 +301,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     const owned = generation.parts.get(reference) ?? [];
     const returnPart = owned.find(part => part.part.kind === "return");
     const walk: Walk = { generation, draft, signature: own === null ? undefined : signatures.get(signatureRequestKey(own.request)),
-      typeOf: new Map(), operators: new Map(), returnPart, returnedOperand: false, bareReturn: null };
+      typeOf: new Map(), operators: new Map(), returnPart, bindingProducts: null, returnedOperand: false, bareReturn: null };
     const inferReturn = returnPart !== undefined;
     const inferInitializer = owned.some(part => part.part.kind === "variable" || part.part.kind === "parameter-initializer"
       || part.part.kind === "enum-member-value");
@@ -314,6 +315,16 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
       if (frame.kind === "enter") {
         if (deps.cuts.syntax(frame.node) !== null || !inCurrentExecution(body, frame.node)) continue;
         const node = frame.node;
+        if (node.kind === "VariableDeclaration") {
+          const stopped = visitCheckedInferredTupleProducts(node, (work, records) => admitTypePublicationStep(deps.typeWork, work, records), literal => {
+            const paid = admitTypePublicationStep(deps.typeWork, 1, walk.bindingProducts === null ? 2 : 1);
+            if (paid !== null) return paid;
+            (walk.bindingProducts ??= new Set()).add(literal);
+            return null;
+          });
+          if (stopped !== null) return { kind: "done", value: refuseTypeConstruction(deps.typeWork, stopped, node.origin,
+            { query: "constraintsOf", key: group.id }) };
+        }
         if (node.kind === "NumericLiteral" && node.tsonic.role === "value"
           && (frame.nativeDefault === "owned" || frame.nativeDefault === "operand"
             && node.tsonic.value.views.contextual.kind === "available" && node.tsonic.value.views.contextual.value === null)) {
@@ -1258,21 +1269,22 @@ function prepareArrayHeader(walk: Walk, node: ArrayNode): ArrayHeader | Refusal 
   if (read.kind !== "available" || contextual.kind !== "available")
     return notInferredYet(PORT, "an array literal without its actual checked source and contextual answer", node.origin);
   const source = readType(deps.types, read.value);
-  const destination = contextual.value === null ? source : readType(deps.types, contextual.value);
+  const destinationId = source.kind === "tuple" && walk.bindingProducts?.has(node) ? null : contextual.value;
+  const destination = destinationId === null ? source : readType(deps.types, destinationId);
   const tuple = source.kind === "tuple" && destination.kind === "tuple" ? { source, destination } : null;
   if (tuple !== null ? tuple.source.elements.length !== node.elements.nodes.length
     || tuple.destination.elements.length !== tuple.source.elements.length
     : source.kind !== "array" || destination.kind !== "array")
     return notInferredYet(PORT, "a construction without matching checked array carriers or fixed tuple arity", node.origin);
   let inferredResult: TyId | null = null;
-  if (tuple === null && contextual.value === null) {
+  if (tuple === null && destinationId === null) {
     const allocated = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, node) });
     if (allocated !== null) return { kind: "refused", diagnostics: [allocated] };
     const admitted = admitTypePublicationStep(deps.typeWork, 1, 1);
     if (admitted !== null) return refuseTypeConstruction(deps.typeWork, admitted, node.origin, unit);
     inferredResult = internType(deps.types, { kind: "open", group: group.id, variable: walk.generation.nextVariable - 1 });
   }
-  return { kind: "array-header", node, source: read.value, destination: contextual.value, tuple, inferredResult };
+  return { kind: "array-header", node, source: read.value, destination: destinationId, tuple, inferredResult };
 }
 
 function arrayConstruction(walk: Walk, header: ArrayHeader): Refusal | undefined {

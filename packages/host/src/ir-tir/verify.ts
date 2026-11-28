@@ -4,7 +4,7 @@ import type { CheckedPhase, CheckedSourceObjectFields, HirApplication, HirBody, 
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
   checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
-  readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
+  readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, visitCheckedInferredTupleProducts, walkSyntaxTree,
   writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, MemberKey, ReferenceArgumentView, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { admitMemberKeyEncoding, compareAdmittedMemberKeys, isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf,
@@ -965,14 +965,26 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   if (inventory.original !== undefined) for (const list of inventory.original.candidateLists) {
     if (list !== undefined) candidates.set(list.id, list.candidates);
   }
+  let bindingProducts: Set<HirNode> | null = null;
+  const bindingProduct = (original: HirNode | undefined) => original !== undefined && bindingProducts?.has(original) === true;
+  const admitBindingProduct = (work: number, records: number) => admit({ kind: "source-field-proof", work, records });
   for (const node of structure.nodes) {
     const original = inventory.sourceNodes.get(node.id);
     if (node.kind === "VariableDeclaration") {
       const stop = verifyPatternBinding(node, original, input.types, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
+      if (original?.kind === "VariableDeclaration" && inventory.typedOfSource.get(original) === node) {
+        const stopped = visitCheckedInferredTupleProducts(original, admitBindingProduct, literal => {
+          const paid = admitBindingProduct(1, bindingProducts === null ? 2 : 1);
+          if (paid !== null) return paid;
+          (bindingProducts ??= new Set()).add(literal);
+          return null;
+        });
+        if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+      }
     }
     if (node.kind === "ArrayLiteralExpression") {
-      const stop = verifyArrayConstruction(node, original, instance, input.types, input.selectedNativeFacts, admit, emit);
+      const stop = verifyArrayConstruction(node, original, instance, input.types, input.selectedNativeFacts, bindingProduct(original), admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     const assertion = verifyTupleAssertionProduct(node, original, input.types, admit, emit);
