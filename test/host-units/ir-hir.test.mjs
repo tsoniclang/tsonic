@@ -2401,7 +2401,11 @@ test("checked variable storage reads the authored type or the actual unannotated
   ]) assert.equal(product.checkedVariableStorageOf({ tsonic: { declaredType, inferredTypeBound } }), expected);
 });
 
-test("HIR canonical nearest-binding views preserve all targets, qualification, cycles and exact F1 joins", () => {
+test("HIR canonical nearest-binding views preserve all targets, qualification, cycles and exact F1 joins", async () => {
+  const { resolveModuleBindingOn } = await import("../../packages/host/dist/ir-hir/bindings.js");
+  const { accountFailure, chargeWork, chargeResultEntries } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { checkReachedProofCuts } = await import("./fixtures/dataflow-cuts.mjs");
   const item = (node, owner = definitionIdentity) => ({ kind: "item", value: { owner, node } });
   const executing = (node, body = bodyIdentity) => ({ kind: "body", value: { body, node } });
   for (const kind of ["ImportClause", "ImportSpecifier", "NamespaceImport", "ImportEqualsDeclaration", "ExportSpecifier", "NamespaceExport", "NamespaceExportDeclaration"]) {
@@ -2431,6 +2435,16 @@ test("HIR canonical nearest-binding views preserve all targets, qualification, c
     const cycle = product.createModuleBindingViews([[{ occurrence: initial, target: available({ kind: "binding", occurrence: next }) },
       { occurrence: next, target: available({ kind: "binding", occurrence: initial }) }]]);
     assert.deepEqual(product.resolveModuleBinding(cycle, initial).cycle, initial);
+    for (const [view, expected, name] of [
+      [unavailableViews, { target: missing, aliases: [initial], cycle: null }, "unavailable"],
+      [cycle, { target: missing, aliases: [initial, next], cycle: initial }, "cycle"],
+    ]) {
+      checkReachedProofCuts(InvocationAccount.stateOf, account => {
+        const value = resolveModuleBindingOn(view, initial, (work, records) =>
+          chargeWork(account, work) ?? chargeResultEntries(account, records));
+        return accountFailure(account) ?? { kind: "complete", value };
+      }, expected, `${initial.kind} binding ${name}`);
+    }
     assert.throws(() => product.resolveModuleBinding({ bindingOf: () => null }, initial));
     for (const wrong of [initial.kind === "item" ? executing(1) : item(1), initial.kind === "item"
       ? item(1, "D[M[P[%002Fproject];other.ts]]") : executing(1, "B[D[M[P[%002Fproject];other.ts]];module;0]"), item(7)]) {
