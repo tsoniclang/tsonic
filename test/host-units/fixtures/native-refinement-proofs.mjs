@@ -774,6 +774,80 @@ export async function checkSavedExtentReceivers() {
   }
 }
 
+export async function checkCopiedFieldSampleTiming() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { fieldRefinementsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const fixture = await loadFrontFixture();
+  for (const [phase, nested, field, rebind] of [
+    ["after", false, "flag"], ["after", false, "other"],
+    ["before-comparison", false, "flag"], ["before-comparison", false, "other"],
+    ["after", true, "flag"], ["after", true, "other"],
+    ["before-comparison", true, "flag"], ["before-comparison", true, "other"],
+    ["after", false, "other", true],
+  ]) {
+    const types = "flag: boolean | undefined; other: boolean | undefined";
+    const root = nested ? "saved.part" : "saved";
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { ${nested ? `part: { ${types} }` : types} };
+      function write(box: Box, other: Box): void { ${nested ? "box.part" : "box"}.${field} = undefined; }
+      export function read(box: Box, other: Box): boolean {
+        const saved: Box = box;
+        if (${root}.flag !== ${phase === "after" ? "undefined" : "(write(saved, other), undefined)"}) {
+          ${rebind ? "box = other;" : ""}
+          ${phase !== "after" ? "" : nested ? "write(saved, other);" : "const effect: boolean = (write(saved, other), false);"}
+          return ${root}.flag;
+        }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const guard = body.tir.root.statements.nodes[1];
+    const output = guard.thenStatement.statements.nodes.at(-1);
+    const node = output.expression.id;
+    const named = field === "flag" && phase === "after";
+    const oldSample = field === "flag" && phase === "before-comparison";
+    const effect = guard.thenStatement.statements.nodes.at(-2);
+    const anchor = !named ? null : nested ? effect.expression : effect.declarationList.declarations.nodes[0];
+    const expected = named
+      ? { kind: "unproven", node, guards: [guard.expression.id],
+        reason: { kind: "invalidated", sites: [{ kind: "call", at: { body: body.tir.body, node: anchor.id } }] } }
+      : oldSample ? { kind: "unproven", node, guards: [], reason: {
+        kind: "guard-not-proven", detail: "No qualifying presence guard on every reaching path.",
+      } } : { kind: "proven", node, guards: [guard.expression.id] };
+    const label = `${phase} ${nested ? "nested" : "flat"} ${field}${rebind ? " with original receiver reassigned" : ""}`;
+    assert.deepEqual(body.facts[0].refinements.refinements, [expected], label);
+    const checks = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+    assert.deepEqual(checks.map(row => [row.tir.node, body.mir.places[row.place].base.projection.kind]), [[node, "refined"]], label);
+    if (!named || nested) continue;
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const occurrences = sourceOccurrences(body.tir, createAccount(limits));
+    assert.equal(occurrences.kind, "complete");
+    checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, body.mir, 2, {
+      sourceOf: node => occurrences.value.get(node),
+      callBindings: { lexical: body.tir.lexicalBindings,
+        scopeOf: owner => captured.value.descriptions.get(owner)?.generics ?? null },
+      summaryAt: (block, operation) => {
+        assert.equal(operation, body.mir.blocks[block].terminator);
+        assert.equal(operation.callee.kind, "body");
+        const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 0
+          && sameInstance(row.key.execution.instance, operation.callee.instance));
+        assert.ok(summary);
+        return { kind: "complete", value: summary };
+      },
+    }), [expected], label);
+  }
+}
+
 export async function checkCapturedFieldRefinement() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");

@@ -41,6 +41,7 @@ interface ReachingCopy {
   readonly block: MirBlock;
   readonly operand: MirOperand;
   readonly position: number;
+  readonly fieldsOutsideCopy: number;
 }
 
 function writesOnEdge(term: MirTerminator, current: number, writes: (place: PlaceId) => DataflowResult<boolean>,
@@ -60,21 +61,21 @@ function writesOnEdge(term: MirTerminator, current: number, writes: (place: Plac
 function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | null, resolution: FieldRead, useBlock: MirBlock, before: number,
   copies: ReadonlyMap<LocalId, ReachingCopy> | null, flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
   if (copies === null) return available;
-  const writes = (block: MirBlock, position: number, place: PlaceId): DataflowResult<boolean> => {
+  const writes = (block: MirBlock, position: number, place: PlaceId, first: number): DataflowResult<boolean> => {
     const base = mir.places[place]?.base;
     if (base?.kind === "local") return base.local === local ? available : unavailable;
-    if (path === null) return unavailable;
+    if (path === null || first >= path.length) return unavailable;
     if (resolution === "effect-address" || (base?.kind !== "place" && base?.kind !== "checked") || base.projection.kind !== "field")
       return available;
-    return writesProjectedField(mir, block, position, place, local, path, flow, account);
+    return writesProjectedField(mir, block, position, place, local, path, flow, account, first);
   };
-  const scan = (block: MirBlock, start: number, end: number): DataflowStop | boolean => {
+  const scan = (block: MirBlock, start: number, end: number, first: number): DataflowStop | boolean => {
     for (let index = start; index < end; index += 1) {
       const work = chargeWork(account, 1);
       if (work !== null) return work;
       const row = denseRow(block.statements, index);
       if (row.kind === "assign") {
-        const effect = writes(block, index, row.place);
+        const effect = writes(block, index, row.place, first);
         if (effect.kind !== "complete") return effect;
         if (effect.value) return false;
       } else if ((row.kind === "storage-live" || row.kind === "storage-dead") && row.local === local) return false;
@@ -87,9 +88,10 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
     if (paid !== null) return paid;
     const use = uses.next();
     if (use.done) return unavailable;
-    const { block: sampled, position } = use.value;
+    const { block: sampled, position, fieldsOutsideCopy: first } = use.value;
+    const protectsSample = path !== null && first < path.length;
     const same = sampled === useBlock && position <= before;
-    const tail = scan(useBlock, same ? position : 0, before);
+    const tail = scan(useBlock, same ? position : 0, before, first);
     if (typeof tail !== "boolean") return tail;
     if (!tail) return unavailable;
     if (!same) {
@@ -110,27 +112,27 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
           if (flow.reachable[predecessor] !== true) continue;
           const block = denseRow(mir.blocks, predecessor);
           const term = block.terminator;
-          if (path !== null && (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
+          if (protectsSample && (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
             || term.kind === "invoke" && term.operation.decision.execution.kind === "invocation" && term.operation.decision.execution.writesStorage))
             return unavailable;
-          if (path !== null && term.kind === "call") {
+          if (protectsSample && term.kind === "call") {
             const lookup = chargeWork(account, 1);
             if (lookup !== null) return lookup;
             const summary = effectSummary(flow, block.id, term);
             if (summary.kind !== "complete") return summary;
-            const interference = resolution === "sample" ? appliedWrite(mir, block, term, summary.value, local, path, flow, account)
+            const interference = resolution === "sample" ? appliedWrite(mir, block, term, summary.value, local, path, flow, account, first)
               : refinementMayWrite(account, summary.value, () => available);
             if (interference.kind !== "complete") return interference;
             if (interference.value) return unavailable;
           }
-          const overwritten = writesOnEdge(term, current, place => writes(block, block.statements.length, place), account);
+          const overwritten = writesOnEdge(term, current, place => writes(block, block.statements.length, place, first), account);
           if (typeof overwritten !== "boolean") return overwritten;
           if (overwritten) return unavailable;
           if (seen.has(predecessor)) continue;
           const kept = chargeResultEntries(account, block === sampled ? 1 : 2);
           if (kept !== null) return kept;
           seen.add(predecessor);
-          const whole = scan(block, block === sampled ? position : 0, block.statements.length);
+          const whole = scan(block, block === sampled ? position : 0, block.statements.length, first);
           if (typeof whole !== "boolean") return whole;
           if (!whole) return unavailable;
           if (block !== sampled) pending.push(predecessor);
@@ -144,7 +146,7 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
   return available;
 }
 
-function copyInBlock(mir: MirBody, block: MirBlock, position: number, local: LocalId,
+function copyInBlock(mir: MirBody, block: MirBlock, position: number, local: LocalId, fieldsOutsideCopy: number,
   account: DataflowAccount): DataflowResult<ReachingCopy | "entry" | null> {
   while (position > 0) {
     const stop = chargeWork(account, 1);
@@ -159,15 +161,15 @@ function copyInBlock(mir: MirBody, block: MirBlock, position: number, local: Loc
       if (base?.kind !== "local" || base.local !== local) continue;
       if (statement.value.kind !== "use") return missing;
       const held = chargeResultEntries(account, 1);
-      return held ?? { kind: "complete", value: { block, operand: statement.value.operand, position } };
+      return held ?? { kind: "complete", value: { block, operand: statement.value.operand, position, fieldsOutsideCopy } };
     }
   }
   return { kind: "complete", value: "entry" };
 }
 
-function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: LocalId, flow: Flow,
+function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: LocalId, fieldsOutsideCopy: number, flow: Flow,
   account: DataflowAccount): DataflowResult<ReachingCopy | null> {
-  const initial = copyInBlock(mir, block, position, local, account);
+  const initial = copyInBlock(mir, block, position, local, fieldsOutsideCopy, account);
   if (initial.kind !== "complete") return initial;
   if (initial.value !== "entry") return { kind: "complete", value: initial.value };
   const setup = chargeResultEntries(account, 2);
@@ -207,14 +209,14 @@ function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: Loc
       if (result == null || "kind" in result || known !== null && (known.block !== prior || known.position !== prior.statements.length)) return missing;
       const retained = chargeResultEntries(account, 2);
       if (retained !== null) return retained;
-      known = { block: prior, operand: { kind: "place", place: result.place }, position: prior.statements.length };
+      known = { block: prior, operand: { kind: "place", place: result.place }, position: prior.statements.length, fieldsOutsideCopy };
       continue;
     }
     if ("unwind" in term && term.unwind.kind === "handler" && term.unwind.exception !== null) {
       const destination = mir.places[term.unwind.exception]?.base;
       if (destination?.kind === "local" && destination.local === local) return missing;
     }
-    const found = copyInBlock(mir, prior, prior.statements.length, local, account);
+    const found = copyInBlock(mir, prior, prior.statements.length, local, fieldsOutsideCopy, account);
     if (found.kind !== "complete") return found;
     if (found.value === null) return missing;
     if (found.value === "entry") {
@@ -236,7 +238,7 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
   let cursor = block;
   let aliases: Map<LocalId, ReachingCopy> | null = null;
   let selected: { readonly identity: string; readonly node: NodeId }[] | null = null;
-  let sampledField = false;
+  let firstSampledField: number | null = null;
   let current: Field | null = null;
   const receiver = (local: LocalId): DataflowResult<Field | null> => {
     const retained = chargeResultEntries(account, 1);
@@ -249,7 +251,6 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
     const base = mir.places[operand.place]?.base;
     if (current !== null && base?.kind !== "local") return known();
     if (base?.kind === "place" && base.projection.kind === "field") {
-      sampledField ||= aliases !== null;
       const member = base.projection.member;
       if (base.place >= operand.place || base.tir.body !== mir.body || member.decision.primary === null || member.decision.location.kind !== "data"
         || member.decision.location.receiver !== "by-reference" || member.decision.location.check.kind !== "none") return missing;
@@ -270,7 +271,7 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
     if (location === "exposed") return known();
     const local = mir.locals[base.local];
     const parameter = local?.role.kind === "parameter" && local.mode === "by-value";
-    const protectPath = sampledField || (selected?.length ?? 0) > 1 ? selected : null;
+    const protectPath = firstSampledField !== null && selected !== null && firstSampledField < selected.length ? selected : null;
     const replaced = parameter && location === "reassigned";
     if (parameter && !replaced && protectPath === null) return receiver(base.local);
     if (parameter && replaced && current !== null) return known();
@@ -288,12 +289,13 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
     if (aliases?.has(base.local)) return known();
     const retained = chargeResultEntries(account, aliases === null ? 2 : 1);
     if (retained !== null) return retained;
-    const copy = reachesCopy(mir, cursor, position, base.local, flow, account);
+    const copy = reachesCopy(mir, cursor, position, base.local, selected?.length ?? 0, flow, account);
     if (copy.kind !== "complete") return copy;
     if (copy.value === null) return known();
     if (local.role.kind === "user" && (copy.value.operand.kind !== "place" || mir.places[copy.value.operand.place]?.base.kind !== "local"))
       return known();
     (aliases ??= new Map()).set(base.local, copy.value);
+    firstSampledField ??= copy.value.fieldsOutsideCopy;
     ({ operand, position, block: cursor } = copy.value);
   }
   return known();
@@ -347,7 +349,8 @@ function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Fiel
   return { kind: "complete", value: assignment.tir };
 }
 
-function interference(path: Field["path"]) {
+function interference(path: Field["path"], first: number) {
+  const length = path.length - first;
   let depth = 0;
   let matchesPath = true;
   let matchesParent = true;
@@ -355,13 +358,13 @@ function interference(path: Field["path"]) {
   return {
     field: (key: string): void => {
       matchesParent = matchesPath;
-      if (depth < path.length && path[path.length - depth - 1]?.identity !== key) matchesPath = false;
+      if (depth < length && path[path.length - depth - 1]?.identity !== key) matchesPath = false;
       depth += 1;
       last = key;
     },
     writes: (account: DataflowAccount): boolean | DataflowStop => {
-      if (matchesPath && depth <= path.length || !matchesParent && path.length > 1) return true;
-      for (let index = 0; index < path.length; index += 1) {
+      if (matchesPath && depth <= length || !matchesParent && length > 1) return true;
+      for (let index = first; index < path.length; index += 1) {
         const read = chargeWork(account, 1);
         if (read !== null) return read;
         if (path[index]?.identity === last) return true;
@@ -383,11 +386,11 @@ function writesField(mir: MirBody, block: MirBlock, before: number, place: Place
 }
 
 function writesProjectedField(mir: MirBody, block: MirBlock, before: number, place: PlaceId, receiver: LocalId, path: Field["path"],
-  flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
+  flow: Flow, account: DataflowAccount, first = 0): DataflowResult<boolean> {
   const read = fieldOf(mir, block, { kind: "place", place }, before, "effect-address", flow, account);
   if (read.kind !== "complete") return read;
   if (read.value === null || read.value.receiver !== receiver) return available;
-  const compare = interference(path);
+  const compare = interference(path, first);
   for (let index = read.value.path.length - 1; index >= 0; index -= 1) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
@@ -400,7 +403,7 @@ function writesProjectedField(mir: MirBody, block: MirBlock, before: number, pla
 }
 
 function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, receiver: LocalId, path: Field["path"],
-  flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
+  flow: Flow, account: DataflowAccount, first = 0): DataflowResult<boolean> {
   return refinementMayWrite(account, summary, (subject, paths, selected) => {
     let root: ReturnType<typeof fieldOf>;
     let view = null;
@@ -428,7 +431,7 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
       const read = chargeWork(account, 1);
       if (read !== null) return read;
       const writePath = denseRow(paths, write);
-      const compare = interference(path);
+      const compare = interference(path, first);
       for (let index = actual.path.length - 1; index >= 0; index -= 1) {
         const step = chargeWork(account, 1);
         if (step !== null) return step;
