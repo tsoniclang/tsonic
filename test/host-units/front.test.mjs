@@ -84,6 +84,52 @@ test("checked inferred storage retains all cell inputs across an ordinary by-val
   assert.deepEqual(verifyChecked(decoded.value, interner).map(row => row.rule), ["inferred-type-bound"]);
 });
 
+test("a checked nominal accessor retains independent read and write declaration evidence", async () => {
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
+  const { checked, interner } = checkedModuleOf(`
+    interface Holder {
+      get value(): number;
+      set value(next: number | boolean);
+      get unrelated(): string;
+    }
+    export function get(holder: Holder): number { return holder.value; }
+    export function set(holder: Holder, next: boolean): void { holder.value = next; }
+    export function update(holder: Holder): void { holder.value += 1; }
+  `);
+  const [owner, reader, writer, updater] = checked.tree.statements.nodes;
+  const [getter, setter] = owner.members.nodes;
+  const getterType = getter.type.tsonic.type.value;
+  const setterType = setter.parameters.nodes[0].type.tsonic.type.value;
+  assert.notEqual(getterType, setterType);
+  const receiverOf = node => readType(interner, node.expression.tsonic.value.views.read.value);
+  assert.notEqual(getter.tsonic.definition, setter.tsonic.definition);
+  const source = (origin, member) => assert.deepEqual([origin.kind, origin.declaration], ["declared", member.tsonic.definition]);
+  const value = reader.body.statements.nodes[0].expression;
+  assert.equal(value.tsonic.role, "value");
+  assert.deepEqual(value.tsonic.value.views.read, { kind: "available", value: getterType });
+  assert.equal(value.tsonic.origins.value.length, 1);
+  source(value.tsonic.origins.value[0], getter);
+  for (const [callable, access] of [[writer, "write"], [updater, "read-write"]]) {
+    const target = callable.body.statements.nodes[0].expression.left;
+    assert.equal(target.tsonic.role, "assignment-target");
+    assert.equal(target.tsonic.access, access);
+    const place = target.tsonic.place.value;
+    assert.deepEqual(place.base, { kind: "receiver", node: target.expression.id });
+    assert.deepEqual(place.write, { kind: "available", value: setterType });
+    assert.equal(place.step.origins.length, 1);
+    source(place.step.origins[0], setter);
+    if (access === "read-write") {
+      assert.deepEqual(place.read, { kind: "available", value: getterType });
+      assert.equal(target.tsonic.origins.value.length, 1);
+      source(target.tsonic.origins.value[0], getter);
+    } else assert.deepEqual(place.read, { kind: "unavailable", reason: "not-provided", causes: [] });
+    assert.equal(receiverOf(target).definition, owner.tsonic.definition);
+  }
+  assert.equal(receiverOf(value).kind, "declared");
+  assert.equal(receiverOf(value).definition, owner.tsonic.definition);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+});
+
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
   session.connect();
