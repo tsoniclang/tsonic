@@ -333,6 +333,11 @@ test("checked numeric binding distinguishes the declared member from an equal-ty
   await checkLiteralFieldCall("number");
 });
 
+test("checked object alias chains preserve the actual terminal declaration and paid lookup order", async () => {
+  const { checkObjectAliasHolding } = await import("./fixtures/object-alias-holding.mjs");
+  await checkObjectAliasHolding();
+});
+
 test("a placed field write authenticates the receiver's actual outer storage", async () => {
   const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
   await checkCapturedFieldRefinement();

@@ -200,6 +200,11 @@ test("S-1 a numeric field effect crosses to its actual by-value caller reference
   await checkLiteralFieldCall("number");
 });
 
+test("S-1 field selection and guarded reference transport follow the actual checked type aliases", async () => {
+  const { checkObjectAliasHolding } = await import("./fixtures/object-alias-holding.mjs");
+  await checkObjectAliasHolding();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
