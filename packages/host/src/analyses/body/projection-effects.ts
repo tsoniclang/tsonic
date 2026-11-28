@@ -9,6 +9,7 @@ import { visitMirControlEdges, visitMirStorageExposures } from "../../ir-mir/ind
 import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
 import type { ReferenceArgumentView, SourceObjectField } from "../../ir-types/contract.js";
+import type { IncomingValue } from "./calls.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
 import { arrayDestination } from "./storage.js";
@@ -610,6 +611,18 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     if (transported.kind !== "complete") return transported;
     return transported.value && image !== null ? image : bodyFrontier("An applied data field has no actual selected caller correspondence.");
   }
+  function callFieldView(operation: Call, role: IncomingRole, index: number): ReferenceArgumentView | null {
+    if (role === "capture") {
+      const capture = operation.callee.kind === "body" ? operation.callee.captures[index] : undefined;
+      if (capture === undefined || capture.capture === null)
+        return bodyFrontier("An applied field requires its actual selected capture.");
+      return null;
+    }
+    const mapping = operation.callee.kind === "direct" ? operation.callee.resolution.decision.parameters[index] : undefined;
+    if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" || mapping.passing !== "by-value")
+      return bodyFrontier("An applied field requires its actual selected by-value argument.");
+    return mapping.kind === "reference-argument" ? mapping.view : null;
+  }
   function call(operation: Call, access: Access, incoming: AppliedSummary["parameters"][number] | AppliedSummary["captures"][number], callee: Summary,
     caller: RelationalArena): DataflowStop | null {
     const { source } = incoming;
@@ -634,16 +647,10 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         if (paid !== null) return paid;
         if ("slot" in source) {
           const { slot } = source;
-          const mapping = slot.kind === "parameter" && operation.callee.kind === "direct"
-            ? operation.callee.resolution.decision.parameters[slot.index] : undefined;
-          if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument")
+          if (slot.kind !== "parameter")
             return bodyFrontier("An applied field access requires its actual selected by-value argument.");
-          if (mapping.kind === "reference-argument") view = mapping.view;
-        } else {
-          const capture = operation.callee.kind === "body" ? operation.callee.captures[source.index] : undefined;
-          if (capture === undefined || capture.capture === null)
-            return bodyFrontier("An applied field access requires its actual selected capture.");
-        }
+          view = callFieldView(operation, "parameter", slot.index);
+        } else view = callFieldView(operation, "capture", source.index);
       } else {
         const admission = chargeWork(deps.account, 3);
         if (admission !== null) return admission;
@@ -681,15 +688,13 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     }
     return null;
   }
-  function appliedValue(operation: Call, callee: Summary, index: number, path: ProjectionPathId, receiver: OriginsId,
+  function appliedValue(operation: Call, callee: Summary, producer: IncomingValue, path: ProjectionPathId, receiver: OriginsId,
     values: ValueOrigins, bound: BoundProducer[], producers: Producer[], admit: AdmitOrigins): OriginsId | DataflowStop {
     const paid = chargeWork(deps.account, 1);
     if (paid !== null) return paid;
-    const mapping = operation.callee.kind === "direct" ? operation.callee.resolution.decision.parameters[index] : undefined;
-    if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" || mapping.passing !== "by-value")
-      return bodyFrontier("A projected callee producer retains its actual selected incoming argument.");
+    const view = callFieldView(operation, producer.kind, producer.index);
     return projectValue(receiver, false, values, bound, producers, admit,
-      parent => callerPath(callee.arena.projections, path, mapping.kind === "reference-argument" ? mapping.view : null, parent));
+      parent => callerPath(callee.arena.projections, path, view, parent));
   }
   return { paths: (access: Access, kind: IncomingRole, index: number) => effectsAt(kind, access)?.get(index),
     projections, remember, observe, value, call, appliedValue };

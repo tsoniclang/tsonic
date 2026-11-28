@@ -79,7 +79,7 @@ export function applyValueOrigins(input: ValueApplicationInput, limits: ValueApp
       const selected = context.captures[producer.index];
       const copied = original !== undefined && "origins" in original;
       if (copied ? original.index !== producer.index || selected === undefined || !("origins" in selected)
-        || selected.index !== producer.index || selected.origins !== actual?.id
+        || selected.index !== producer.index || producer.path === null && selected.origins !== actual?.id
         : selected !== undefined && "origins" in selected)
         throw new TypeError("A copied capture binds its actual caller value, not a storage location");
     }

@@ -13,7 +13,7 @@ import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } f
 import type { CallError, ReadAppliedValue, ReadCallApplication } from "./calls.js";
 import type { ArrayReturn } from "./array-results.js";
 import { arrayReturnSource, isCreatedProducer } from "./array-results.js";
-import { applyScalarCall, bindArgumentValue, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
+import { applyScalarCall, bindIncomingValue, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
 import { orderedRows, selectedSourceApplication, sourceOccurrences } from "./source.js";
 import { arrayDestination, assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
 import type { AssignedState } from "./storage.js";
@@ -622,9 +622,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   };
   const originsOf = (operand: MirOperand): OriginsId | DataflowStop =>
     operandOrigins(input, constantOrigins, currentOrigins, operand, storageSlots, projections, referenceRead);
-  const projectAppliedValue: ReadAppliedValue = (call, summary, parameter, path, actual) => projectionEffects === null
-    ? bodyFrontier("An applied projected formal requires its actual caller reference inventory.")
-    : projectionEffects.appliedValue(call, summary, parameter, path, actual, values.value, boundProducers, producers, admitUnion);
+  const projectAppliedValue: ReadAppliedValue = (call, summary, producer, path, actual) => projectionEffects === null
+    ? bodyFrontier("An applied projected entry requires its actual caller reference inventory.")
+    : projectionEffects.appliedValue(call, summary, producer, path, actual, values.value, boundProducers, producers, admitUnion);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
     localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls,
     storageSlots, staticCallees, projections, objectValues, transport, nativeArrayFlow, referenceRead, projectAppliedValue) : null;
@@ -954,26 +954,19 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const arguments_: ValueArgument[] = [];
       const transports: ArgumentTransport[] = [];
       const entryBindings: ValueEntryBinding[] = [];
+      const captureOrigins = (place: PlaceId) => originsOf({ kind: "place", place });
+      const parameterOrigins = (index: number) => {
+        const argument = scalarArgument(deps, terminator, index);
+        return argument.kind === "complete" ? originsOf(argument.value) : argument;
+      };
       for (const bound of summary.arena.boundProducers) {
         const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
         if (work !== null) return work;
         const producer = summary.arena.producers[bound.producer];
         if (isCreatedProducer(summary, producer)) continue;
-        const capture = producer?.kind === "capture" && producer.path === null && terminator.callee.kind === "body"
-          ? callCaptures[producer.index] : undefined;
-        if (capture !== undefined) {
-          const actual = originsOf({ kind: "place", place: capture.place });
-          if (typeof actual !== "number") return actual;
-          entryBindings.push({ formal: bound.id, actual });
-        } else if (producer?.kind === "parameter" && terminator.callee.kind === "direct") {
-          const argument = scalarArgument(deps, terminator, producer.index);
-          if (argument.kind !== "complete") return argument;
-          const actual = originsOf(argument.value);
-          if (typeof actual !== "number") return actual;
-          const entry = bindArgumentValue(projectAppliedValue, terminator, summary, producer, actual);
-          if (typeof entry !== "number") return entry;
-          entryBindings.push({ formal: bound.id, actual: entry });
-        } else return bodyFrontier("A selected callee entry value requires its actual root argument or capture transport.");
+        const actual = bindIncomingValue(projectAppliedValue, terminator, summary, producer, callCaptures, captureOrigins, parameterOrigins);
+        if (typeof actual !== "number") return actual;
+        entryBindings.push({ formal: bound.id, actual });
       }
       if (terminator.callee.kind === "direct") {
         const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 1);

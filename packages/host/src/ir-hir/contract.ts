@@ -4068,7 +4068,7 @@ export interface CheckedSourceObjectRead extends CheckedSourceStorageRead {
 }
 
 export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,
-  read: CheckedSourceStorageRead,
+  read: CheckedSourceObjectRead,
 ) => SourceObjectHolding | null;
 
 export interface ReferenceArgumentRequest {

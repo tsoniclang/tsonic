@@ -1,6 +1,6 @@
 import type { CheckedBindingKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
   HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, PropertyName, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
-import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
+import type { DefId, LocalId, LocalRef, NodeId, TyId } from "../ids/contract.js";
 import type { Member, MemberKey, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
 import { compareAdmittedMemberKeys, compareMemberKeys, findMemberByKey } from "../ir-types/index.js";
 import { resolveModuleBindingOn } from "./bindings.js";
@@ -19,9 +19,9 @@ function admittedOperand(node: HirNode, admit: CheckedSourceStorageRead["admit"]
   return current;
 }
 
-type SourceObjectDeclaration = Extract<HirNode, { readonly kind: "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "Parameter" | "VariableDeclaration" }>;
 type ObjectAlias = TypeAliasDeclaration<CheckedPhase, "TypeAliasDeclaration"> & { readonly type: TypeLiteral };
 type ObjectAliasReference = Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" | "ImportType" }>;
+type ObjectContainer = TypeLiteral | ObjectAlias;
 
 function isObjectAliasReference(annotation: TypeNode<CheckedPhase>): annotation is ObjectAliasReference {
   return annotation.kind === "TypeReference" || annotation.kind === "ImportType";
@@ -74,10 +74,9 @@ function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceS
   }
 }
 
-function ordinaryObjectDeclaration(declaration: SourceObjectDeclaration, annotation: TypeNode<CheckedPhase> | null, type: TyId,
-  read: CheckedSourceStorageRead): SourceObjectDeclaration | null {
+function ordinaryObjectContainer(annotation: TypeNode<CheckedPhase> | null, type: TyId, read: CheckedSourceStorageRead): ObjectContainer | null {
   if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
-  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? declaration : null;
+  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? annotation : null;
   if (!isObjectAliasReference(annotation)) return null;
   const definition = objectAliasOwner(annotation, read);
   if (definition == null) return null;
@@ -109,8 +108,17 @@ function captureStorage(body: HirBody, local: HirLocal, type: TyId, read: Checke
     && slot.declaration.value.node === local.declaration.value.node && read.admit(0, 1) ? { body: outer, slot } : null;
 }
 
-function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, declaration: SourceObjectDeclaration) => Proof | null,
-  ...[body, local, read]: Parameters<CheckedSourceObjectHoldingOf>): Proof | null {
+interface SavedHolding<Proof> {
+  readonly initializerBody: HirBody;
+  readonly access: Access;
+  readonly before: LocalRef;
+  readonly resumeHolding: (field: CheckedField) => HoldingProof<Proof>;
+}
+
+type HoldingProof<Proof> = Proof | SavedHolding<Proof> | null;
+
+function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, container: ObjectContainer) => Proof | null,
+  body: HirBody, local: LocalRef, read: CheckedSourceObjectRead, before: LocalRef | null = null): HoldingProof<Proof> {
   let initial: HirLocal | undefined;
   if (local.body === body.body) {
     const own = body.locals[local.local];
@@ -130,110 +138,137 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, decla
     }
   }
   if (initial?.checkerSlot.kind !== "available") return null;
+  if (before !== null) {
+    if (!read.admit(1, 0) || local.body === before.body && local.local >= before.local) return null;
+    const source = initial.capturedFrom;
+    if (source?.body === before.body && source.local >= before.local) return null;
+  }
   const { nodeOf, admit } = read;
   const type = initial.checkerSlot.value;
   let inputs: { readonly body: HirBody; readonly local: LocalId }[] | null = null;
   let reached: Set<HirLocal> | null = null;
   let captured: Set<HirLocal> | null = null;
   let alias: DefId | null = null;
-  let objectDeclaration: SourceObjectDeclaration | null = null;
+  let container: ObjectContainer | null = null;
   let current = initial.id;
   let currentBody = body;
   let localRow = initial;
-  for (;;) {
-    let actual: DefId | null = null;
-    let actualDeclaration: SourceObjectDeclaration | null = null;
+  const retain = (actual: DefId, actualContainer: ObjectContainer | null): boolean => {
+    alias ??= actual;
+    if (alias !== actual) return false;
+    if (actualContainer !== null) {
+      container ??= actualContainer;
+      if (container !== actualContainer) return false;
+    }
+    reached?.add(localRow);
+    return true;
+  };
+  const advance = (saved: CheckedField | null): HoldingProof<Proof> => {
+    if (saved !== null) {
+      const value = saved.value;
+      if (value === null || value.type !== type || !retain(value.container.kind === "TypeAliasDeclaration"
+        ? value.container.tsonic.definition : saved.proof.field, value.container)) return null;
+    }
     for (;;) {
-      if (reached?.has(localRow)) break;
-      if (localRow.declaration.kind !== "item") return null;
-      if (localRow.role === "capture") {
-        if (captured?.has(localRow) || !admit(1, captured === null ? 2 : 1)) return null;
-        const outer = captureStorage(currentBody, localRow, type, read);
-        if (outer === null) return null;
-        (captured ??= new Set()).add(localRow);
-        current = outer.slot.id;
-        currentBody = outer.body;
-        localRow = outer.slot;
-        continue;
-      }
-      if (localRow.role === "parameter") {
-        const formal = nodeOf(localRow.declaration);
-        if (formal?.kind !== "Parameter" || formal.id !== localRow.declaration.value.node || formal.tsonic.parent !== currentBody.owner
-          || formal.tsonic.declaration.kind !== "local"
-          || formal.tsonic.declaration.local.body !== currentBody.body || formal.tsonic.declaration.local.local !== current
-          || formal.dotDotDotToken !== null || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type) return null;
-        const passing = formal.tsonic.core.argumentPassing;
-        if (passing.kind !== "available" || passing.value !== null &&
-          (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
-        actualDeclaration = ordinaryObjectDeclaration(formal, formal.type, type, read);
-        if (actualDeclaration === null) return null;
-        actual = actualDeclaration.kind === "TypeAliasDeclaration" ? actualDeclaration.tsonic.definition : localRow.declaration.value.owner;
-        break;
-      }
-      if (localRow.role !== "binding" || !admit(1, 0)) return null;
-      const declaration = nodeOf(localRow.declaration);
-      if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
-        || !("declaration" in declaration.tsonic) || declaration.origin.module !== currentBody.root.origin.module
-        || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== currentBody.body
-        || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
-      if (declaration.type !== null) {
-        actualDeclaration = ordinaryObjectDeclaration(declaration, declaration.type, type, read);
-        if (actualDeclaration === null) return null;
-        actual = actualDeclaration.kind === "TypeAliasDeclaration" ? actualDeclaration.tsonic.definition : localRow.declaration.value.owner;
-        break;
-      }
-      if (declaration.initializer === null || declaration.tsonic.initializer === null) return null;
-      if (localRow.mutable) {
-        const bound = declaration.tsonic.inferredTypeBound;
-        if (bound?.kind !== "available" || typeof bound.value === "number" || bound.value.sources === null
-          || bound.value.sources.length === 0) return null;
-        actual = bound.value.alias;
-        if (alias !== null && alias !== actual) return null;
-        reached ??= new Set<HirLocal>();
-        inputs ??= [];
-        for (let index = 0; index < bound.value.sources.length; index += 1) {
-          if (!admit(1, 1)) return null;
-          const source = bound.value.sources[index];
-          if (source === undefined) return null;
-          inputs.push({ body: currentBody, local: source });
+      let actual: DefId | null = null;
+      let actualContainer: ObjectContainer | null = null;
+      while (saved === null) {
+        if (reached?.has(localRow)) break;
+        if (localRow.declaration.kind !== "item") return null;
+        if (localRow.role === "capture") {
+          if (captured?.has(localRow) || !admit(1, captured === null ? 2 : 1)) return null;
+          const outer = captureStorage(currentBody, localRow, type, read);
+          if (outer === null || before !== null && outer.body.body === before.body && outer.slot.id >= before.local) return null;
+          (captured ??= new Set()).add(localRow);
+          current = outer.slot.id;
+          currentBody = outer.body;
+          localRow = outer.slot;
+          continue;
         }
-        break;
+        if (localRow.role === "parameter") {
+          const formal = nodeOf(localRow.declaration);
+          if (formal?.kind !== "Parameter" || formal.id !== localRow.declaration.value.node || formal.tsonic.parent !== currentBody.owner
+            || formal.tsonic.declaration.kind !== "local"
+            || formal.tsonic.declaration.local.body !== currentBody.body || formal.tsonic.declaration.local.local !== current
+            || formal.dotDotDotToken !== null || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type) return null;
+          const passing = formal.tsonic.core.argumentPassing;
+          if (passing.kind !== "available" || passing.value !== null &&
+            (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
+          actualContainer = ordinaryObjectContainer(formal.type, type, read);
+          if (actualContainer === null) return null;
+          actual = actualContainer.kind === "TypeAliasDeclaration" ? actualContainer.tsonic.definition : localRow.declaration.value.owner;
+          break;
+        }
+        if (localRow.role !== "binding" || !admit(1, 0)) return null;
+        const declaration = nodeOf(localRow.declaration);
+        if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
+          || !("declaration" in declaration.tsonic) || declaration.origin.module !== currentBody.root.origin.module
+          || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== currentBody.body
+          || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
+        if (declaration.type !== null) {
+          actualContainer = ordinaryObjectContainer(declaration.type, type, read);
+          if (actualContainer === null) return null;
+          actual = actualContainer.kind === "TypeAliasDeclaration" ? actualContainer.tsonic.definition : localRow.declaration.value.owner;
+          break;
+        }
+        const root = declaration.initializer;
+        const initializerBody = declaration.tsonic.initializer;
+        if (root === null || initializerBody === null) return null;
+        if (localRow.mutable) {
+          const bound = declaration.tsonic.inferredTypeBound;
+          if (bound?.kind !== "available" || typeof bound.value === "number" || bound.value.sources === null
+            || bound.value.sources.length === 0) return null;
+          actual = bound.value.alias;
+          if (alias !== null && alias !== actual) return null;
+          reached ??= new Set<HirLocal>();
+          inputs ??= [];
+          for (let index = 0; index < bound.value.sources.length; index += 1) {
+            if (!admit(1, 1)) return null;
+            const source = bound.value.sources[index];
+            if (source === undefined) return null;
+            inputs.push({ body: currentBody, local: source });
+          }
+          break;
+        }
+        const initializer = admittedOperand(root, admit);
+        if (initializer?.kind === "PropertyAccessExpression") {
+          if (initializer.tsonic.role !== "value" || initializer.tsonic.value.views.read.kind !== "available" ||
+            initializer.tsonic.value.views.read.value !== type || root.parent !== declaration.id ||
+            !admit(1 + initializerBody.length, 0)) return null;
+          const placed = read.bodyOf(initializerBody);
+          if (placed?.body !== initializerBody || placed.owner !== localRow.declaration.value.owner || placed.root !== root ||
+            !admit(1, 2)) return null;
+          return { initializerBody: placed, access: initializer, before: declaration.tsonic.declaration.local, resumeHolding: advance };
+        }
+        if (initializer?.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
+          || initializer.tsonic.resolution.local.body !== currentBody.body || initializer.tsonic.resolution.local.local >= current
+          || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
+        current = initializer.tsonic.resolution.local.local;
+        if (!admit(1, 0)) return null;
+        const next = currentBody.locals[current];
+        if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
+        localRow = next;
       }
-      const initializer = admittedOperand(declaration.initializer, admit);
-      if (initializer?.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
-        || initializer.tsonic.resolution.local.body !== currentBody.body || initializer.tsonic.resolution.local.local >= current
-        || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
-      current = initializer.tsonic.resolution.local.local;
+      if (actual !== null && !retain(actual, actualContainer)) return null;
+      saved = null;
+      if (inputs === null || inputs.length === 0) break;
       if (!admit(1, 0)) return null;
+      const incoming = inputs.pop();
+      if (incoming === undefined) return null;
+      current = incoming.local;
+      currentBody = incoming.body;
+      captured = null;
       const next = currentBody.locals[current];
       if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
       localRow = next;
     }
-    if (actual !== null) {
-      alias ??= actual;
-      if (alias !== actual) return null;
-      if (actualDeclaration !== null) {
-        objectDeclaration ??= actualDeclaration;
-        if (objectDeclaration !== actualDeclaration) return null;
-      }
-      reached?.add(localRow);
-    }
-    if (inputs === null || inputs.length === 0) break;
-    if (!admit(1, 0)) return null;
-    const incoming = inputs.pop();
-    if (incoming === undefined) return null;
-    current = incoming.local;
-    currentBody = incoming.body;
-    captured = null;
-    const next = currentBody.locals[current];
-    if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
-    localRow = next;
-  }
-  return alias === null || objectDeclaration === null ? null : accept({ local, declaration: alias, receiver: type }, objectDeclaration);
+    return alias === null || container === null ? null : accept({ local, declaration: alias, receiver: type }, container);
+  };
+  return advance(null);
 }
 
 export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, read) =>
-  sourceObjectHolding(holding => holding, body, local, read);
+  settleHolding(sourceObjectHolding(holding => holding, body, local, read), read);
 
 type Property = Extract<HirNode, { readonly kind: "PropertySignature" }>;
 type TypeLiteral = Extract<HirNode, { readonly kind: "TypeLiteral" }>;
@@ -241,7 +276,7 @@ type Access = PropertyAccessExpression<CheckedPhase>;
 
 interface FieldValue {
   readonly type: TyId;
-  readonly container: TypeLiteral | ObjectAlias;
+  readonly container: ObjectContainer;
   readonly presence: SourceObjectFieldPresence | null;
 }
 
@@ -324,7 +359,7 @@ interface CheckedField {
   readonly value: FieldValue | null;
 }
 
-function sourceObjectFields<Field>(body: HirBody, read: CheckedSourceObjectRead, project: (field: CheckedField) => Field) {
+function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
   const { nodeOf, itemOf, admit } = read;
   let fields: Map<NodeId, CheckedField> | null = null;
   const select = (reached: ReachedField, holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): CheckedField | null => {
@@ -345,18 +380,31 @@ function sourceObjectFields<Field>(body: HirBody, read: CheckedSourceObjectRead,
     (fields ??= new Map()).set(access.id, row);
     return row;
   };
-  const field = (access: Access): Field | null => {
+  const field = (access: Access, before: LocalRef | null): HoldingProof<CheckedField> => {
     let current = access;
     let pending: ReachedField[] | null = null;
     let visited: Set<Access> | null = null;
-    let ready: CheckedField | null;
+    const finish = (base: CheckedField | null): CheckedField | null => {
+      let ready = base;
+      while (ready !== null && pending !== null && pending.length !== 0) {
+        if (!admit(1, 0)) return null;
+        const next = pending.pop();
+        if (next === undefined || ready.value === null) return null;
+        const payload = current.tsonic;
+        if (payload.role !== "value" || payload.value.views.read.kind !== "available" || payload.value.views.read.value !== ready.value.type) return null;
+        const { local, field } = ready.proof;
+        if (!admit(0, 1)) return null;
+        ready = select(next, { local, declaration: field, receiver: ready.value.type }, ready.value.container, ready.proof);
+        current = next.access;
+      }
+      return ready;
+    };
     for (;;) {
       if (!admit(1, 0)) return null;
       const prior = fields?.get(current.id);
       if (prior !== undefined) {
         if (prior.access !== current) return null;
-        ready = prior;
-        break;
+        return finish(prior);
       }
       if (visited?.has(current) === true || nodeOf({ kind: "body", value: { body: body.body, node: current.id } }) !== current) return null;
       const declaration = selectedField(current);
@@ -372,39 +420,54 @@ function sourceObjectFields<Field>(body: HirBody, read: CheckedSourceObjectRead,
       }
       if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local"
         || !admit(0, 1)) return null;
-      ready = sourceObjectHolding((holding, owner) => owner.type?.kind === "TypeLiteral"
-        ? select({ access: current, declaration }, holding, owner.type, null) : null,
-      body, receiver.tsonic.resolution.local, read);
-      break;
+      return sourceObjectHolding((holding, container) => finish(select({ access: current, declaration }, holding, container, null)),
+        body, receiver.tsonic.resolution.local, read, before);
     }
-    while (ready !== null && pending !== null && pending.length !== 0) {
-      if (!admit(1, 0)) return null;
-      const next = pending.pop();
-      if (next === undefined || ready.value === null) return null;
-      const payload = current.tsonic;
-      if (payload.role !== "value" || payload.value.views.read.kind !== "available" || payload.value.views.read.value !== ready.value.type) return null;
-      const { local, field } = ready.proof;
-      if (!admit(0, 1)) return null;
-      ready = select(next, { local, declaration: field, receiver: ready.value.type }, ready.value.container, ready.proof);
-      current = next.access;
-    }
-    return ready === null ? null : project(ready);
   };
   return { field, ready: (node: NodeId) => fields?.get(node)?.proof ?? null };
 }
 
-function fieldProof(field: CheckedField): SourceObjectField { return field.proof; }
-function reachedField(field: CheckedField): CheckedField { return field; }
+function settleHolding<Proof extends object>(result: HoldingProof<Proof>, read: CheckedSourceObjectRead): Proof | null {
+  if (result === null || !("resumeHolding" in result)) return result;
+  for (;;) {
+    if (!read.admit(1, 3)) return null;
+    const active = new Set<HirBody>();
+    active.add(result.initializerBody);
+    const pending: SavedHolding<CheckedField>[] = [];
+    let field = sourceObjectFields(result.initializerBody, read).field(result.access, result.before);
+    for (;;) {
+      if (field === null) return null;
+      if ("resumeHolding" in field) {
+        if (!read.admit(1, 0) || active.has(field.initializerBody) || !read.admit(1, 3)) return null;
+        active.add(field.initializerBody);
+        pending.push(field);
+        field = sourceObjectFields(field.initializerBody, read).field(field.access, field.before);
+        continue;
+      }
+      if (pending.length === 0) break;
+      if (!read.admit(1, 0)) return null;
+      const next = pending.pop();
+      if (next === undefined) return null;
+      active.delete(next.initializerBody);
+      field = next.resumeHolding(field);
+    }
+    result = result.resumeHolding(field);
+    if (result === null || !("resumeHolding" in result)) return result;
+  }
+}
 
-export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => sourceObjectFields(body, read, fieldProof);
+export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => {
+  const source = sourceObjectFields(body, read);
+  return { field: access => settleHolding(source.field(access, null), read)?.proof ?? null, ready: source.ready };
+};
 
-function heldObjectOperand<Proof>(body: HirBody, operand: HirNode, read: CheckedSourceObjectRead,
+function heldObjectOperand<Proof extends object>(body: HirBody, operand: HirNode, read: CheckedSourceObjectRead,
   select: (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null) => Proof | null): Proof | null {
   if (operand.kind === "Identifier" && operand.tsonic.role === "value" && operand.tsonic.resolution.kind === "local")
-    return sourceObjectHolding((holding, declaration) => declaration.type?.kind === "TypeLiteral" ? select(holding, declaration.type, null) : null,
-      body, operand.tsonic.resolution.local, read);
+    return settleHolding(sourceObjectHolding((holding, container) => select(holding, container, null),
+      body, operand.tsonic.resolution.local, read), read);
   if (operand.kind !== "PropertyAccessExpression" || operand.tsonic.role !== "value" || !read.admit(1, 3)) return null;
-  const source = sourceObjectFields(body, read, reachedField).field(operand);
+  const source = settleHolding(sourceObjectFields(body, read).field(operand, null), read);
   if (source === null || source.value === null) return null;
   const view = operand.tsonic.value.views.read;
   if (view.kind !== "available" || view.value !== source.value.type || !read.admit(0, 1)) return null;
@@ -462,12 +525,13 @@ function matchesStaticTextPropertyName(name: PropertyName<CheckedPhase>, key: st
   return admit(text.length + key.length, 0) && text === key;
 }
 
-function referenceSurface(owner: DefId, syntax: TypeLiteral, type: TyId, read: CheckedSourceObjectRead): ReferenceSurface | null {
+function referenceSurface(owner: DefId, container: ObjectContainer, type: TyId, read: CheckedSourceObjectRead): ReferenceSurface | null {
   if (!read.admit(1, 0)) return null;
+  const syntax = container.kind === "TypeLiteral" ? container : container.type;
   const term = read.typeOf(type);
   if (term?.kind !== "shape" || term.indexes.length !== 0 || term.calls.length !== 0 || term.constructs.length !== 0
     || term.members.length !== syntax.members.nodes.length || !read.admit(0, 1)) return null;
-  return { owner, syntax, members: term.members };
+  return { owner: container.kind === "TypeAliasDeclaration" ? container.tsonic.definition : owner, syntax, members: term.members };
 }
 
 function referenceField(surface: ReferenceSurface, member: Member, read: CheckedSourceObjectRead): ReferenceField | null {
@@ -519,8 +583,7 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
     || !read.admit(1, 0)) return null;
   const caller = heldObjectOperand(site.body, argument, read, (holding, container) => {
     if (holding.receiver !== site.caller) return null;
-    return container.kind === "TypeLiteral" ? referenceSurface(holding.declaration, container, site.caller, read)
-      : referenceSurface(container.tsonic.definition, container.type, site.caller, read);
+    return referenceSurface(holding.declaration, container, site.caller, read);
   });
   if (caller === null || !read.admit(1, 0)) return null;
   const callable = read.itemOf(site.endpoint.declaration);
@@ -546,10 +609,9 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   const passing = parameter.tsonic.core.argumentPassing;
   if (passing.kind !== "available" || passing.value !== null && (passing.value.role !== "declaration" || passing.value.mode !== "by-value")
     || !read.admit(1, 0)) return null;
-  const declaration = ordinaryObjectDeclaration(parameter, parameter.type, site.formal.type, read);
-  if (declaration?.type?.kind !== "TypeLiteral") return null;
-  const owner = declaration.kind === "TypeAliasDeclaration" ? declaration.tsonic.definition : site.formal.declaration;
-  const formal = referenceSurface(owner, declaration.type, site.formal.type, read);
+  const container = ordinaryObjectContainer(parameter.type, site.formal.type, read);
+  if (container === null) return null;
+  const formal = referenceSurface(site.formal.declaration, container, site.formal.type, read);
   if (formal === null || !read.admit(1, 4)) return null;
   const fields: ReferenceArgumentField[] = [];
   const result: ReferenceArgumentView = { caller: site.caller, formal: site.formal.type, fields };

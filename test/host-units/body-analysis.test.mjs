@@ -727,7 +727,7 @@ test("actual captured call bindings refuse growth and retain every unsupported n
   for (const role of [{ kind: "local", local: cell.occurrence.local }, { kind: "capture", index: 1 }])
     assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, cells: [{ ...cell, role }] } }), /actual static, capture or created-cell binding/);
   assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, producers: [{ id: 0, path: 0, kind: "capture", index: 0 }] } }),
-    /actual root argument or capture transport/);
+    /An applied projected entry requires its actual caller reference inventory/u);
   assert.equal(run({ ...pair.summary, writes: [{ target: 0, value: 0 }] }).kind, "complete",
     "a known primitive cell history is not an unsupported event or reference effect");
   assert.throws(() => run({ ...pair.summary, concurrentWrites: [{ target: 0, value: 0 }] }),
