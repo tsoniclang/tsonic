@@ -37,7 +37,7 @@ export { CommentDirectiveKindExpectError, CommentDirectiveKindIgnore, CommentDir
 export type { ContextFlags, Signature, Type } from "./internal/checker/types.js";
 export type { ResolvedCallApplicationEvidence, ResolvedCallArgumentEvidence, ResolvedCallArgumentMap, ResolvedCallEvidence, ResolvedCallInferenceContribution, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, ResolvedCallSelectionEvidence, ResolvedCallTypeArgumentEvidence, ResolvedCheckedCallCandidateEvidence, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedCheckerDiagnosticOwnership, ResolvedCheckerDiagnosticCoverage, ResolvedOriginalSignatureEvidence, } from "./internal/checker/types.js";
 export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
-export { hasDeclaredIndexReadEvidence } from "./internal/checker/declared-index-evidence.js";
+export { hasDeclaredIndexReadEvidence } from "./internal/checker/checker/source-type-answers.js";
 export { ContextFlagsSkipBindingPatterns, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
 export { prepareSourceImports } from "./services/compiler-session.js";
 export type { PreparedImportDiagnostic, SourceImportPreparation, SourceImportPreparationInput } from "./services/compiler-session.js";

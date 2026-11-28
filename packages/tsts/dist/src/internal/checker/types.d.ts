@@ -14,7 +14,7 @@ import type { Result } from "../evaluator/evaluator.js";
 import type { CacheHashKey, Checker, CheckMode } from "./checker/state.js";
 import type { TypeMapper } from "./mapper.js";
 import type { LiteralCreation, LiteralCreatorInput } from "./checker/literal-creation.js";
-import type { DeclaredIndexReadSource } from "./declared-index-evidence.js";
+import type { DeclaredIndexReadSource } from "./checker/source-type-answers.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::ParseFlags","kind":"type","status":"implemented","sigHash":"351ebf721cd2754016dc44fcbdf16dc89d33b4fc6a92eed1f9db4696eed47fcd","bodyHash":"ec2c138c6126fd16db739ef0b467090e9d970a145b42a30cb3dfebf6b442776b"}
  *

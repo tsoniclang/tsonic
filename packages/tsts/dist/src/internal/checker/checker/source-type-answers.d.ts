@@ -3,6 +3,19 @@ import type { Diagnostic } from "../../ast/diagnostic.js";
 import type { Symbol } from "../../ast/symbol.js";
 import { type Checker, type CheckMode } from "./state.js";
 import type { IndexedTypeReadSource, Signature, Type } from "../types.js";
+export declare class DeclaredIndexReadSource {
+    #private;
+    readonly annotation: Node;
+    readonly receiver: Type;
+    readonly index: Type;
+    readonly result: Type;
+    readonly kind: "declared-index-read";
+    private constructor();
+    get declaration(): Node;
+    static retain(annotation: Node, receiver: Type, index: Type, declaration: Node, result: Type): DeclaredIndexReadSource;
+    static owns(value: object): value is DeclaredIndexReadSource;
+}
+export declare function hasDeclaredIndexReadEvidence(value: unknown): value is DeclaredIndexReadSource;
 export interface ResolvedSourceTypeInfo {
     readonly type: Type;
     readonly causes: readonly Diagnostic[];
