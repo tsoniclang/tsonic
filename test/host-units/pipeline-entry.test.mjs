@@ -321,6 +321,7 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     function later(): boolean { return false; }
     function consume(first: boolean, second: boolean, tail: boolean): boolean { return tail; }
     function consumeTrue(first: boolean, second: true, tail: boolean): boolean { return tail; }
+    function consumeOptional(first: boolean, second: boolean | null, tail: boolean): boolean { return tail; }
     export function bare(flag: boolean): boolean { return consume(...[keep(flag), true], later()); }
     export function grouped(flag: boolean): boolean { return consume(...(([keep(flag), true])), later()); }
     export function asserted(flag: boolean): boolean { return consume(...(([keep(flag), true] as [boolean, boolean])), later()); }
@@ -328,6 +329,7 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     export function constant(flag: boolean): boolean { return consumeTrue(...(([keep(flag), true]) as const), later()); }
     export function constantPrefix(flag: boolean): boolean { return consumeTrue(...(<const>[keep(flag), true]), later()); }
     export function converted(flag: boolean): boolean { return consume(...(([keep(flag), true]) as const), later()); }
+    export function lifted(flag: boolean): boolean { return consumeOptional(...(([keep(flag), true]) as const), later()); }
   `;
   const input = analysisInput(fixture, "sdk-minimal", source);
   const nativeFacts = input.snapshot.nativeFacts;
@@ -347,11 +349,11 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     assert.equal(expression.kind, "ArrayLiteralExpression");
     return expression;
   };
-  for (const [name, kind, context, readonly] of [
-    ["bare", "ArrayLiteralExpression", false, false], ["grouped", "ArrayLiteralExpression", false, false],
-    ["asserted", "AsExpression", true, false], ["bracketed", "TypeAssertionExpression", true, false],
-    ["constant", "AsExpression", false, true], ["constantPrefix", "TypeAssertionExpression", false, true],
-    ["converted", "AsExpression", false, true],
+  for (const [name, kind, context, readonly, fit] of [
+    ["bare", "ArrayLiteralExpression", false, false, null], ["grouped", "ArrayLiteralExpression", false, false, null],
+    ["asserted", "AsExpression", true, false, null], ["bracketed", "TypeAssertionExpression", true, false, null],
+    ["constant", "AsExpression", false, true, null], ["constantPrefix", "TypeAssertionExpression", false, true, null],
+    ["converted", "AsExpression", false, true, "literal-fit"], ["lifted", "AsExpression", false, true, "union-injection"],
   ]) {
     const original = sourceModule.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
     const operand = original.body.statements.nodes[0].expression.arguments.nodes[0].expression;
@@ -395,17 +397,19 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     assert.deepEqual(consume.arguments.slice(0, 2).map(argument => argument.operand),
       projected.map(row => ({ kind: "place", place: row.place })));
     assert.deepEqual(consume.arguments[2].operand, { kind: "place", place: subsequent.destination });
-    if (name === "converted") {
+    if (fit !== null) {
       const conversion = projected[1].value;
       const selected = call.tsonic.application.decision.callee.decision;
       const formal = result.value.index.types.signatures[selected.completion.signature].parameters[1];
       assert.deepEqual(selected.parameters[1], { kind: "converted-argument", parameter: 1, argument: 0, component: 1,
-        passing: "by-value", conversion: { from: tuple.elements[1].type, to: formal.type, kind: "literal-fit" } });
+        passing: "by-value", conversion: { from: tuple.elements[1].type, to: formal.type, kind: fit } });
       assert.equal(conversion.kind, "convert");
       const proof = conversion.operation.decision.operation.embedding.proof;
       assert.deepEqual(proof.steps[0].from, { root: { kind: "body", value: { body: body.tir.body, node: spread.expression.id } },
         path: [{ kind: "tuple-element", index: 1 }] });
       assert.deepEqual(proof.steps[0].to.path, [{ kind: "parameter", signature: selected.completion.signature, index: 1 }]);
+    }
+    if (name === "converted") {
       const { printTir, parseTir } = await import("../../packages/host/dist/ir-tir/index.js");
       const { printMir, parseMir } = await import("../../packages/host/dist/ir-mir/index.js");
       const { printFacts, parseFacts } = await import("../../packages/host/dist/ir-facts/index.js");
