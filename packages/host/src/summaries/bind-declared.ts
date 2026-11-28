@@ -52,6 +52,7 @@ function validateSelection(account: DataflowAccount, deps: DeclaredSummaryDeps, 
     }
     switch (mapping.kind) {
       case "argument":
+      case "converted-argument":
         if (!validOrdinal(mapping.argument) || position >= provided || mapping.passing !== parameter.passing
           || mapping.component !== null && !validOrdinal(mapping.component) || parameter.kind === "rest") {
           throw new TypeError("A supplied fixed parameter retains its actual passing mode and argument");

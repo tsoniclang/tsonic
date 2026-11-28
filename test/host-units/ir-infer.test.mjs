@@ -1706,6 +1706,20 @@ test("a closed fixed spread binds each required tuple slot and the following aut
   const defaults = assemble().types.terms;
   fullEqual(product.verifyInference(assemble([{ ...spread, type: 3 }, tail], mappings,
     [...defaults, { kind: "open", group, variable: 0 }], true)), [], "the actual finalized tuple supplies its fixed slots");
+  const converted = [...mappings];
+  converted[1] = { ...mappings[1], kind: "converted-argument", conversion: { from: 3, to: 0, kind: "literal-fit" } };
+  const literalTerms = [defaults[0], { ...tuple, elements: [tuple.elements[0], { ...tuple.elements[1], type: 3 }] },
+    defaults[2], { kind: "literal", base: 0, value: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } }];
+  const literalArguments = [{ ...spread, tuple: [0, 3] }, tail];
+  const exact = assemble(literalArguments, converted, literalTerms);
+  fullEqual(product.verifyInference(exact), [], "the reached literal slot independently earns its selected conversion");
+  const text = product.printSolution(exact.solution);
+  fullEqual(product.parseSolution(text), { kind: "parsed", value: exact.solution }, "the admitted projection conversion roundtrips");
+  assert.notEqual(product.parseSolution(text.replace('fit="literal-fit"', 'fit="numeric"')).kind, "parsed");
+  for (const crossed of [mappings[1], { ...converted[1], conversion: { ...converted[1].conversion, to: 2 } }]) {
+    assert.ok(product.verifyInference(assemble(literalArguments, [converted[0], crossed, ...converted.slice(2)], literalTerms))
+      .some(row => row.detail.some(detail => detail.value === "component")));
+  }
   for (const invalid of [
     assemble([{ ...spread, type: 0 }, tail]),
     assemble([{ ...spread, tuple: [0] }, tail]),

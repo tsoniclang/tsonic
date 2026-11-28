@@ -11,6 +11,8 @@ export interface TypedOperation {
   readonly permissionScope: NodeId | null;
 }
 
+export type TupleArgumentOperation = (application: TirApplication, invocation: NodeRef, parameter: number) => TypedOperation | null;
+
 export interface TypedCase {
   readonly operation: RuleOutcome<TypedOperation>;
 }

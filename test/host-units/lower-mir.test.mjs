@@ -177,7 +177,11 @@ test("authored MIR: finite spreads evaluate the one producer and take its slots 
   const { internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
   const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
   const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
-  for (const [tuple, formals, count] of [["[boolean, boolean]", "first: boolean, second: boolean, ", 2], ["[]", "", 0]]) {
+  for (const [tuple, formals, count, converts] of [
+    ["[boolean, boolean]", "first: boolean, second: boolean, ", 2, false],
+    ["[true, true]", "first: boolean, second: boolean, ", 2, true],
+    ["[]", "", 0, false],
+  ]) {
     const input = analysisInput(fixture, "sdk-minimal", `
       function take(${formals}tail: boolean): boolean { return tail; }
       function produce(pair: ${tuple}): ${tuple} { return pair; }
@@ -232,15 +236,17 @@ test("authored MIR: finite spreads evaluate the one producer and take its slots 
     assert.equal(stopped.kind, "refused");
     assert.equal("value" in stopped, false);
     const mir = lower.value;
-    assert.deepEqual(verifyMir(mir, mirVerificationContext(run, selected, entries)), { kind: "complete", violations: [] });
+    const context = mirVerificationContext(run, selected, entries);
+    assert.deepEqual(verifyMir(mir, context), { kind: "complete", violations: [] });
     const operations = [];
     const orderedReads = [];
     const slots = mir.places.filter(place => place.base.kind === "place" && place.base.projection.kind === "element");
     for (let block = mir.blocks[mir.entries[0].block]; block !== undefined;) {
       const end = block.terminator;
-      for (const statement of block.statements) if (statement.kind === "assign" && statement.tir.node === spread.id) {
+      for (const statement of block.statements) if (statement.kind === "assign" &&
+        (statement.tir.node === spread.id || statement.tir.node === call.id && statement.value.kind === "convert")) {
         assert.equal(operations.length, 1, "each slot is read after the producer and before the later call");
-        assert.equal(statement.value.kind, "use");
+        assert.equal(statement.value.kind, converts ? "convert" : "use");
         orderedReads.push(statement);
       }
       if (end.kind === "return") break;
@@ -255,6 +261,15 @@ test("authored MIR: finite spreads evaluate the one producer and take its slots 
       Array.from({ length: count }, (_, index) => [producer.destination, index]));
     assert.deepEqual(orderedReads.map(read => read.value.operand.place), slots.map(place => place.id));
     assert.deepEqual(consumer.arguments.map(argument => argument.operand.place), [...orderedReads.map(read => read.place), tail.destination]);
+    if (converts) {
+      assert.equal(slots[0].storage, slots[1].storage);
+      const crossed = structuredClone(mir);
+      const copied = crossed.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.place === orderedReads[1].place);
+      copied.value.operand = { kind: "place", place: slots[0].id };
+      const rejected = verifyMir(crossed, context);
+      assert.equal(rejected.kind, "complete");
+      assert.equal(rejected.violations.some(finding => finding.rule === "operation-selected"), true);
+    }
     if (count === 0) assert.equal(producer.destination, null, "an empty spread still evaluates but keeps no unused result");
   }
 });

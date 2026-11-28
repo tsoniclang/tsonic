@@ -1,5 +1,6 @@
 import type { AccessLocation, ApplicationDecision, CheckRequirement, CompletionEndpoint, CorrespondenceStep, DischargeObligationProof, DischargeProof, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, ParameterMapping, RefinementDecision } from "./contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess, ReferenceArgumentField } from "../ir-types/contract.js";
+import type { TupleArgumentConversion } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
@@ -243,9 +244,10 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
   });
 
   const parameterMappingSchema: RecordSchema<ParameterMapping> = unionSchema<ParameterMapping>("ParameterMapping",
-    () => [argumentMappingSchema, referenceArgumentSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema], value => {
+    () => [argumentMappingSchema, convertedArgumentSchema, referenceArgumentSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema], value => {
     switch (value.kind) {
       case "argument": return argumentMappingSchema.stage(value);
+      case "converted-argument": return convertedArgumentSchema.stage(value);
       case "reference-argument": return referenceArgumentSchema.stage(value);
       case "default": return defaultMappingSchema.stage(value);
       case "omitted": return omittedMappingSchema.stage(value);
@@ -260,6 +262,18 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const passing = read("passing", () => passingModeSchema, value => value.passing);
     return { fields: [parameter, argument, component, passing], value: () => ({ kind: "argument", parameter: parameter.value(), argument: argument.value(), component: component.value(), passing: passing.value() }) };
   });
+  const convertedArgumentSchema = recordSchema<Extract<ParameterMapping, { readonly kind: "converted-argument" }>>(
+    "ConvertedArgumentMapping", "converted-argument", read => {
+      const parameter = read("parameter", () => numberSchema, value => value.parameter);
+      const argument = read("argument", () => numberSchema, value => value.argument);
+      const component = read("component", () => numberSchema, value => value.component);
+      const from = read("from", () => tSchema, value => value.conversion.from);
+      const to = read("to", () => tSchema, value => value.conversion.to);
+      const fit = read("fit", () => enumSchema<TupleArgumentConversion["kind"]>("TupleArgumentFit", ["literal-fit","absence","union-injection"]), value => value.conversion.kind);
+      return { fields: [parameter, argument, component, from, to, fit], value: () => ({ kind: "converted-argument", passing: "by-value",
+        parameter: parameter.value(), argument: argument.value(), component: component.value(),
+        conversion: { from: from.value(), to: to.value(), kind: fit.value() } }) };
+    });
 
   const referenceFieldSchema = recordSchema<ReferenceArgumentField>("ReferenceArgumentField", "ReferenceArgumentField", read => {
     const parent = read("parent", () => nullableSchema(numberSchema), row => row.parent);

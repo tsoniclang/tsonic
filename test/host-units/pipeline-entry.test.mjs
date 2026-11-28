@@ -327,6 +327,7 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     export function bracketed(flag: boolean): boolean { return consume(...(<[boolean, boolean]>[keep(flag), true]), later()); }
     export function constant(flag: boolean): boolean { return consumeTrue(...(([keep(flag), true]) as const), later()); }
     export function constantPrefix(flag: boolean): boolean { return consumeTrue(...(<const>[keep(flag), true]), later()); }
+    export function converted(flag: boolean): boolean { return consume(...(([keep(flag), true]) as const), later()); }
   `;
   const input = analysisInput(fixture, "sdk-minimal", source);
   const nativeFacts = input.snapshot.nativeFacts;
@@ -350,6 +351,7 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     ["bare", "ArrayLiteralExpression", false, false], ["grouped", "ArrayLiteralExpression", false, false],
     ["asserted", "AsExpression", true, false], ["bracketed", "TypeAssertionExpression", true, false],
     ["constant", "AsExpression", false, true], ["constantPrefix", "TypeAssertionExpression", false, true],
+    ["converted", "AsExpression", false, true],
   ]) {
     const original = sourceModule.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
     const operand = original.body.statements.nodes[0].expression.arguments.nodes[0].expression;
@@ -384,8 +386,8 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     assert.equal(aggregate.tir.node, literal.id);
     assert.equal(aggregate.value.aggregate.kind, "tuple");
     assert.deepEqual(aggregate.value.aggregate.elements[0], { kind: "place", place: keep.destination });
-    const projected = body.mir.blocks[keep.next].statements.filter(row =>
-      row.kind === "assign" && row.tir.node === spread.id && row.value.kind === "use");
+    const projected = body.mir.blocks[keep.next].statements.filter(row => row.kind === "assign" &&
+      (row.tir.node === spread.id && row.value.kind === "use" || row.tir.node === call.id && row.value.kind === "convert"));
     assert.deepEqual(projected.map(row => {
       const { base } = body.mir.places[row.value.operand.place];
       return [base.place, base.projection.index];
@@ -393,6 +395,35 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     assert.deepEqual(consume.arguments.slice(0, 2).map(argument => argument.operand),
       projected.map(row => ({ kind: "place", place: row.place })));
     assert.deepEqual(consume.arguments[2].operand, { kind: "place", place: subsequent.destination });
+    if (name === "converted") {
+      const conversion = projected[1].value;
+      const selected = call.tsonic.application.decision.callee.decision;
+      const formal = result.value.index.types.signatures[selected.completion.signature].parameters[1];
+      assert.deepEqual(selected.parameters[1], { kind: "converted-argument", parameter: 1, argument: 0, component: 1,
+        passing: "by-value", conversion: { from: tuple.elements[1].type, to: formal.type, kind: "literal-fit" } });
+      assert.equal(conversion.kind, "convert");
+      const proof = conversion.operation.decision.operation.embedding.proof;
+      assert.deepEqual(proof.steps[0].from, { root: { kind: "body", value: { body: body.tir.body, node: spread.expression.id } },
+        path: [{ kind: "tuple-element", index: 1 }] });
+      assert.deepEqual(proof.steps[0].to.path, [{ kind: "parameter", signature: selected.completion.signature, index: 1 }]);
+      const { printTir, parseTir } = await import("../../packages/host/dist/ir-tir/index.js");
+      const { printMir, parseMir } = await import("../../packages/host/dist/ir-mir/index.js");
+      const { printFacts, parseFacts } = await import("../../packages/host/dist/ir-facts/index.js");
+      const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+      const { index } = result.value;
+      for (const [print, parse, value] of [
+        [printTir, parseTir, body.tir], [printMir, parseMir, body.mir], [printFacts, parseFacts, body.facts[0]],
+        [module => printModuleBodies(index, module), source => parseModuleBodies(index, source), chapter],
+      ]) {
+        const text = print(value);
+        const decoded = parse(text);
+        assert.equal(decoded.kind, "parsed");
+        assert.equal(print(decoded.value) === text, true);
+        const invalid = text.replace(/(converted-argument\([^)]*?fit=)"literal-fit"/u, '$1"numeric"');
+        assert.notEqual(invalid, text);
+        assert.notEqual(parse(invalid).kind, "parsed");
+      }
+    }
     const transport = body.facts[0].origins.invocations.find(row => row.node === call.id).alternatives[0].arguments;
     assert.deepEqual(transport.map(row => [row.parameterIndex, row.authoredIndex]), [[0, 0], [1, 0], [2, 1]]);
   }

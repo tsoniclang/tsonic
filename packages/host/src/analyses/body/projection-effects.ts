@@ -700,7 +700,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       return null;
     }
     const mapping = operation.callee.kind === "direct" ? operation.callee.resolution.decision.parameters[index] : undefined;
-    if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" || mapping.passing !== "by-value")
+    if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" && mapping?.kind !== "converted-argument" || mapping.passing !== "by-value")
       return bodyFrontier("An applied field requires its actual selected by-value argument.");
     return mapping.kind === "reference-argument" ? mapping.view : null;
   }

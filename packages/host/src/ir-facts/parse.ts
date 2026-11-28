@@ -1,4 +1,5 @@
 import type { TextParseResult } from "../diag/contract.js";
+import type { TupleArgumentConversion } from "../ir-infer/contract.js";
 import type {
   BlockId, BoundProducerId, DefId, LayoutId, LibraryExportIdentity, LibraryModuleIdentity,
   LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef, OpenBoundaryId, OriginsId, PlaceId, ProducerId, ItemNodeRef,
@@ -1486,7 +1487,7 @@ const referenceArgumentField: Decode<ReferenceArgumentField> = (state, input) =>
           then(readField(state, values, "callerType", typeIdentity), callerType =>
             then(readField(state, values, "formalType", typeIdentity), formalType =>
               finishRecord<ReferenceArgumentField>(state, values, { parent, caller, formal, callerType, formalType })))))));
-const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(input, ["argument","reference-argument","default","omitted","rest"]), kind => {
+const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(input, ["argument","converted-argument","reference-argument","default","omitted","rest"]), kind => {
   switch (kind) {
     case "argument": return then(fields(state, input, "argument"), values =>
     then(readField(state, values, "parameter", scalarNumber), parameterValue =>
@@ -1494,6 +1495,17 @@ const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(
     then(readField(state, values, "component", (state, input) => nullable(state, input, scalarNumber)), componentValue =>
     then(readField(state, values, "passing", (state, input) => literal(state, input, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"])), passingValue =>
       finishRecord<ParameterMapping>(state, values, { kind: "argument", parameter: parameterValue, argument: argumentValue, component: componentValue, passing: passingValue }))))));
+    case "converted-argument": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "parameter", scalarNumber), parameter =>
+        then(readField(state, values, "argument", scalarNumber), argument =>
+          then(readField(state, values, "component", scalarNumber), component =>
+            then(readField(state, values, "from", typeIdentity), from =>
+              then(readField(state, values, "to", typeIdentity), to =>
+                then(readField<TupleArgumentConversion["kind"]>(state, values, "fit",
+                  (state, input) => literal(state, input, ["literal-fit","absence","union-injection"])), fit =>
+                    finishRecord<ParameterMapping>(state, values, {
+                      kind, parameter, argument, component, passing: "by-value", conversion: { from, to, kind: fit },
+                    }))))))));
     case "reference-argument": return then(fields(state, input, "reference-argument"), values =>
       then(readField(state, values, "parameter", scalarNumber), parameter =>
         then(readField(state, values, "argument", scalarNumber), argument =>

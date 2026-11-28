@@ -5,10 +5,11 @@ import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults }
 import type { ApplicationDecision } from "../ir-infer/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { ChapterSyntaxSlots, MemberSelection, ResolvedCallee, TirBody, TirChapterSyntax, TirProtocol, TirProtocolStep, TirSyntaxOccurrence, TypedOperation } from "../ir-tir/contract.js";
-import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTypeOf, tirBodySyntaxOf } from "../ir-tir/index.js";
+import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTypeOf, tirBodySyntaxOf, tupleArgumentOperation } from "../ir-tir/index.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirControlEdgeKind, MirControlProjection, MirExecutionEdge, MirExecutionPoint, MirFixedControlEdge, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite, VisitMirControlEdges } from "./contract.js";
+import type { MirOperand } from "./contract.js";
 import { hasUnwindKind, prepareExecutionGraph } from "./completion.js";
 import type { CleanupDeparture } from "./verify-departure.js";
 import { verifyRequiredDepartures } from "./verify-departure.js";
@@ -560,9 +561,35 @@ export function verifySelections(
     for (const selected of selection.decision.selectedDeclarations) definition(selected, site);
     if (selection.decision.primary !== null) definition(selection.decision.primary, site);
   };
-  const operation = (selected: TypedOperation, source: SourceNode | undefined, site: MirViolationSite): void => {
+  const projectedConversion = (selected: TypedOperation, node: TirSyntaxOccurrence, operand: MirOperand, offered: string): boolean => {
+    if (node.kind !== "CallExpression" || !("application" in node.tsonic) || operand.kind !== "place") return false;
+    if (!admitWork(meter, 1)) return false;
+    const identity = selected.decision.operation;
+    const call = node.tsonic.application;
+    if (identity.kind !== "conversion" || identity.embedding.kind !== "conversion" || call?.kind !== "decided") return false;
+    if (!admitWork(meter, 2)) return false;
+    const selector = identity.embedding.proof.steps[0]?.to.path[0];
+    if (selector?.kind !== "parameter") return false;
+    if (!admitWork(meter, 3)) return false;
+    const application = call.decision;
+    const mapped = application.callee.decision.parameters[selector.index];
+    const arguments_ = node.arguments;
+    const syntax = mapped?.kind === "converted-argument" && !("kind" in arguments_) ? arguments_.nodes[mapped.argument] : undefined;
+    const place = body.places[operand.place];
+    if (mapped?.kind !== "converted-argument" || syntax?.kind !== "SpreadElement" || place?.base.kind !== "place"
+      || place.base.tir.body !== body.body || place.base.tir.node !== syntax.id || place.base.projection.kind !== "element"
+      || place.base.projection.index !== mapped.component || place.storage !== identity.from) return false;
+    const required = tupleArgumentOperation(application, { body: body.body, node: node.id }, selector.index);
+    return required !== null && offered === texts.operation(required);
+  };
+  const operation = (selected: TypedOperation, source: SourceNode | undefined, site: MirViolationSite, operand: MirOperand | null = null): void => {
     // One finding per operation occurrence: it differs from its source, or one of its call steps is not a valid selection.
-    let selection = source !== undefined && !source.operations.has(texts.operation(selected));
+    let selection = false;
+    if (source !== undefined) {
+      const offered = texts.operation(selected);
+      selection = !source.operations.has(offered) && (operand === null || !projectedConversion(selected, source.node, operand, offered));
+      if (meter.exhausted) return;
+    }
     if (selection) report("operation-selected", site);
     if (selected.permissionScope !== null && !knownNode(selected.permissionScope)) report("tir-node-resolves", site);
     const identity = selected.decision.operation;
@@ -613,7 +640,9 @@ export function verifySelections(
       const source = at(statement, site);
       if (statement.kind !== "assign") continue;
       const value = statement.value;
-      if (value.kind === "unary" || value.kind === "binary" || value.kind === "convert") operation(value.operation, source, site);
+      if (value.kind === "unary" || value.kind === "binary" || value.kind === "convert")
+        operation(value.operation, source, site, value.kind === "convert" ? value.operand : null);
+      if (meter.exhausted) return violations;
       if (value.kind === "aggregate" && (value.aggregate.kind === "object" || value.aggregate.kind === "record"))
         for (const field of value.aggregate.fields) member(field.member, site);
       if (value.kind === "closure" && source !== undefined) {

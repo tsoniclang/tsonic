@@ -517,7 +517,7 @@ function* appliedWrite(block: MirBlock, call: Call, summary: Summary | null, rec
       const supplied = call.arguments[slot.index];
       const mapping = call.callee.resolution.decision.parameters[slot.index];
       if (supplied?.kind !== "value" || supplied.passing !== "by-value"
-        || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument") return available;
+        || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" && mapping?.kind !== "converted-argument") return available;
       view = mapping.kind === "reference-argument" ? mapping.view : null;
       operand = supplied.operand;
     } else {

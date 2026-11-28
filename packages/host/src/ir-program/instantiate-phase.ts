@@ -131,6 +131,18 @@ function prepareApplicationWith<Output>(scan: ProjectionInventory, value: Applic
       case "argument":
       case "default":
       case "rest": return { kind: "copied", value: () => parameter };
+      case "converted-argument": {
+        const stop = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 5) ?? inventoryRecord(scan, 3);
+        if (stop !== null) return { kind: "refused", stop };
+        const { parameter: formal, argument, component, conversion } = parameter;
+        const { from, to, kind } = conversion;
+        const typeStop = inventoryType(scan, from) ?? inventoryType(scan, to);
+        if (typeStop !== null) return { kind: "refused", stop: typeStop };
+        return { kind: "copied", value: rewrite => ({
+          kind: "converted-argument", parameter: formal, argument, component, passing: "by-value",
+          conversion: { from: rewrite.type(from), to: rewrite.type(to), kind },
+        }) };
+      }
       case "reference-argument": {
         const stop = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 5) ?? inventoryRecord(scan, 3);
         if (stop !== null) return { kind: "refused", stop };

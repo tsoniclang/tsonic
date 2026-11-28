@@ -734,7 +734,7 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       for (const mapping of decision.parameters) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-if (mapping.kind === "argument" && mapping.component !== null) {
+if ((mapping.kind === "argument" || mapping.kind === "converted-argument") && mapping.component !== null) {
         const components = consumed.get(mapping.argument);
         const output = chargeResultEntries(account, components === undefined ? 3 : 1);
         if (output !== null) return output;
@@ -822,7 +822,7 @@ if (!consumed.get(index)?.has(component)) {
           }
         } else if (argument.kind === "provided" && mapping !== undefined &&
           Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0)) {
-          const fixed = mapping.kind === "argument" || mapping.kind === "reference-argument";
+          const fixed = mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument";
           const valid = fixed ? argument.authoredIndex === mapping.argument
             : mapping.kind === "rest" && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true;
           const projection = argument.projection === null ? null : facts.arena.projections[argument.projection]?.projection;
@@ -887,7 +887,7 @@ if (!consumed.get(index)?.has(component)) {
       for (const parameter of decision.parameters) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-if (parameter.kind === "argument" || parameter.kind === "reference-argument") provided += 1;
+if (parameter.kind === "argument" || parameter.kind === "reference-argument" || parameter.kind === "converted-argument") provided += 1;
   }
       const summary = alternative.summary;
       let selectedExecution = false;

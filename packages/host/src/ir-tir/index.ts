@@ -10,6 +10,8 @@ import { admitFormalInitializer as admitInitializer, bodyOccurrenceSlots as occu
 import { parseTypedBody } from "./parse.js";
 import { printTypedBody } from "./print.js";
 import { selectionKey } from "./selection-key.js";
+import type { TupleArgumentOperation } from "./contract.js";
+import { tupleArgumentOperation as argumentOperation } from "./verify-applications.js";
 import { tirOperationsOf as operationsOf, verifyTypedBody, verifyTypedModule } from "./verify.js";
 
 export const printTir: PrintTir = printTypedBody;
@@ -33,3 +35,4 @@ export const formalInitializerSyntax: FormalInitializerSyntax = initializerSynta
 export const layoutBindingOf: LayoutBindingOf = layoutBinding;
 export const layoutObservationOf: LayoutObservationOf = layoutObservation;
 export const rawValueTypeOf: RawValueTypeOf = rawValueType;
+export const tupleArgumentOperation: TupleArgumentOperation = argumentOperation;

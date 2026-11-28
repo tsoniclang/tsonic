@@ -111,7 +111,8 @@ export type Work =
   | NativeArrayWork
   | { readonly kind: "scope-end"; readonly node: NodeHeader; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
-  | { readonly kind: "call-spread"; readonly node: SpreadElement<TypedPhase>; readonly count: number }
+  | { readonly kind: "call-spread"; readonly node: SpreadElement<TypedPhase>; readonly invocation: NodeHeader;
+      readonly application: TirApplication; readonly first: number; readonly count: number }
   | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId;
     readonly receiver: FieldReceiver }
   | { readonly kind: "field-assignment"; readonly node: BinaryExpression<TypedPhase>; readonly target: PropertyAccessExpression<TypedPhase>;

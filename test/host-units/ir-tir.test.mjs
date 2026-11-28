@@ -1501,7 +1501,7 @@ for (const path of [...functionCases, ...verifierCases]) {
 test("exact annotated runtime ports include the owning operation projection and retire the second binding walk", () => {
   assertCompleteValue(Object.keys(product).sort(), ["admitFormalInitializer", "bodyOccurrenceSlots", "chapterStatementSyntax", "chapterSyntaxSlots", "chapterTransportSlots",
     "formalInitializerSlot", "formalInitializerSyntax", "indexChapterSyntax", "isLayoutOperandBody", "layoutArgumentSlots", "layoutBindingOf", "layoutObservationOf", "memberSelectionKey", "parseTir", "printTir", "rawValueTypeOf", "readChapterSyntaxSlot", "tirBodySyntaxOf",
-    "tirOperationsOf", "verifyTir", "verifyTirModule"]);
+    "tirOperationsOf", "tupleArgumentOperation", "verifyTir", "verifyTirModule"]);
 });
 
 test("operation projection retains the actual ready body domain", () => {

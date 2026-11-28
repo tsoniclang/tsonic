@@ -50,7 +50,7 @@ export const elaborateSelectedCall: ElaborateSelectedCall = ({ signatureOf }, ap
   const operands = application.parameters.map((mapping, parameter): TirArgument => {
     if (mapping.parameter !== parameter) return callerDefect("a call must retain its actual selected parameter order", origin);
     if (mapping.kind === "rest") return notElaboratedYet("the selected rest argument transport of this call", origin);
-    if (mapping.kind !== "argument" && mapping.kind !== "reference-argument") {
+    if (mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "converted-argument") {
       formals ??= signatureOf(application.completion.signature).parameters;
       const formal = formals?.[parameter];
       if (activation === null || formal === undefined || !formal.acceptsOmission)

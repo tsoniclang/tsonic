@@ -204,6 +204,10 @@ const parameterMapping = (writer: Writer, value: ParameterMapping): void => {
   switch (value.kind) {
     case "argument": fields.push(["argument", () => scalar(writer, value.argument)],
       ["component", () => scalar(writer, value.component)], ["passing", () => scalar(writer, value.passing)]); break;
+    case "converted-argument": fields.push(["argument", () => scalar(writer, value.argument)],
+      ["component", () => scalar(writer, value.component)],
+      ["from", () => identity(writer, "t", value.conversion.from)], ["to", () => identity(writer, "t", value.conversion.to)],
+      ["fit", () => scalar(writer, value.conversion.kind)]); break;
     case "reference-argument": fields.push(["argument", () => scalar(writer, value.argument)],
       ["caller", () => identity(writer, "t", value.view.caller)], ["formal", () => identity(writer, "t", value.view.formal)],
       ["fields", () => sequence(writer, value.view.fields, row => record(writer, "ReferenceArgumentField", [

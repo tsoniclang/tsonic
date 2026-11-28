@@ -243,6 +243,12 @@ export function textParameterMapping(value: ParameterMapping): TextWork {
       field("component", (value.component === null ? token("null") : numeric(value.component))),
       field("passing", text(value.passing)),
     ]);
+      case "converted-argument":
+        return record(value.kind, [
+          field("parameter", numeric(value.parameter)), field("argument", numeric(value.argument)), field("component", numeric(value.component)),
+          field("from", numericIdentity("t", value.conversion.from)), field("to", numericIdentity("t", value.conversion.to)),
+          field("fit", text(value.conversion.kind)),
+        ]);
       case "reference-argument":
         return record(value.kind, [
           field("parameter", numeric(value.parameter)),

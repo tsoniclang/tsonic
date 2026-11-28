@@ -50,7 +50,7 @@ export function unknownDeclaredSummary(account: DataflowAccount, deps: DeclaredS
     if (read !== null) return read;
     const mapping = deps.parameters[index];
     if (mapping === undefined) throw new TypeError("The admitted declared parameter inventory is dense");
-    if (mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "rest") {
+    if (mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument" || mapping.kind === "rest") {
       const origin = formal("parameter", mapping.parameter);
       if (typeof origin !== "number") return origin;
       const keep = chargeResultEntries(account, 2);

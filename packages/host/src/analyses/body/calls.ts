@@ -232,7 +232,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
       if (read !== null) return read;
       const mapping = operation.callee.resolution.decision.parameters[index];
       const formal = signature.parameters[index];
-      if (formal?.passing !== "by-value" || mapping?.kind !== "argument" && mapping?.kind !== "reference-argument"
+      if (formal?.passing !== "by-value" || mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" && mapping?.kind !== "converted-argument"
         || mapping.parameter !== index || mapping.passing !== "by-value"
         || !Number.isSafeInteger(mapping.argument) || Object.is(mapping.argument, -0) || mapping.argument < 0
         || (mapping.argument === authored

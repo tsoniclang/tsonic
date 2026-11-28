@@ -91,15 +91,25 @@ function mappingReferences(context: SolutionContext, decision: ApplicationDecisi
       parameter.kind === "default" && (formal.kind !== "default" || !formal.acceptsOmission || parameter.initializer !== formal.initializer) ||
       parameter.kind === "omitted" && (!formal.acceptsOmission || formal.kind === "default" || formal.kind === "rest" || parameter.type !== formal.type) ||
       parameter.kind === "rest" && (formal.kind !== "rest" || formal.passing !== parameter.passing) ||
-      (parameter.kind === "argument" || parameter.kind === "reference-argument") && (formal.kind === "rest" || formal.passing !== parameter.passing) ||
+      (parameter.kind === "argument" || parameter.kind === "reference-argument" || parameter.kind === "converted-argument")
+        && (formal.kind === "rest" || formal.passing !== parameter.passing) ||
       parameter.kind === "reference-argument" && (decision.api.body === null || formal.type !== parameter.view.formal))
       emit(output, "parameter-mapping-total", site, "formal");
     previous = parameter.parameter;
-    if ((parameter.kind === "argument" || parameter.kind === "reference-argument") && (!ordinal(parameter.argument) ||
+    if ((parameter.kind === "argument" || parameter.kind === "reference-argument" || parameter.kind === "converted-argument") && (!ordinal(parameter.argument) ||
       operandCount !== null && parameter.argument >= operandCount ||
+      parameter.kind === "converted-argument" && (!ordinal(parameter.component) || parameter.passing !== "by-value") ||
       parameter.component !== null && (!ordinal(parameter.component) || arguments_ !== null &&
-        (arguments_[parameter.argument]?.tuple === null || arguments_[parameter.argument]?.tuple?.[parameter.component] === undefined))))
+        arguments_[parameter.argument]?.tuple?.[parameter.component] === undefined)))
       emit(output, "parameter-mapping-total", site, "arguments");
+    if ((parameter.kind === "argument" || parameter.kind === "converted-argument") && parameter.component !== null) {
+      const conversion = parameter.kind === "converted-argument" ? parameter.conversion : null;
+      const source = arguments_?.[parameter.argument]?.tuple?.[parameter.component];
+      if (conversion === null ? source !== undefined && formal?.type !== finalizedType(source)
+        : formal?.type !== conversion.to || source !== undefined && finalizedType(source) !== conversion.from
+          || conversion.from === conversion.to)
+        emit(output, "parameter-mapping-total", site, "component");
+    }
     if (parameter.kind === "reference-argument") {
       const source = arguments_?.[parameter.argument];
       if (source !== undefined && (source.kind !== "value" || finalizedType(source.type) !== parameter.view.caller))
@@ -157,12 +167,13 @@ function fixedSpreadMappings(input: InferVerificationInput, arguments_: readonly
     } else if (slots !== null) return false;
     for (let slot = 0; slot < (slots?.length ?? 1); slot += 1, effective += 1) {
       const mapping = mappings[effective];
-      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" || mapping.parameter !== effective || mapping.argument !== authored
-        || mapping.component !== (slots === null ? null : slot)) return false;
+      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" && mapping?.kind !== "converted-argument"
+        || mapping.parameter !== effective || mapping.argument !== authored || mapping.component !== (slots === null ? null : slot)) return false;
     }
   }
   for (; effective < mappings.length; effective += 1)
-    if (mappings[effective]?.kind === "argument" || mappings[effective]?.kind === "reference-argument") return false;
+    if (mappings[effective]?.kind === "argument" || mappings[effective]?.kind === "reference-argument"
+      || mappings[effective]?.kind === "converted-argument") return false;
   return true;
 }
 

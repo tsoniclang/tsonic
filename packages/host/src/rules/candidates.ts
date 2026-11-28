@@ -107,10 +107,21 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
     if (checkedArguments !== null && argument.value.type !== parameter.type) {
       const checked = checkedArguments[argument.index];
       if (checked === undefined) return notDecidedYet("the actual inferred argument embedding contribution", origin);
-      needsReferenceProof = readType(deps.types, checked.type).kind === "open";
-      if (needsReferenceProof && (!referenceShape || checked.kind !== "value" || checked.occurrence.body !== argument.occurrence.body
-        || checked.occurrence.node !== argument.occurrence.node))
-        return notDecidedYet("the actual inferred argument embedding contribution", origin);
+      if (readType(deps.types, checked.type).kind === "open") {
+        if (checked.occurrence.body !== argument.occurrence.body || checked.occurrence.node !== argument.occurrence.node)
+          return notDecidedYet("the actual inferred argument embedding contribution", origin);
+        if (argument.component !== null) {
+          const slotRead = admitTypePublicationStep(work.typeWork);
+          if (slotRead !== null) return refuseTypeConstruction(work.typeWork, slotRead, origin, work.unit);
+          const slot = checked.kind === "spread" ? checked.tuple?.[argument.component] : undefined;
+          if (slot === undefined || slot !== argument.value.type && readType(deps.types, slot).kind !== "open")
+            return notDecidedYet("the actual inferred tuple slot embedding contribution", origin);
+        } else {
+          if (!referenceShape || checked.kind !== "value")
+            return notDecidedYet("the actual inferred argument embedding contribution", origin);
+          needsReferenceProof = true;
+        }
+      }
     }
     const form = embeddingForm(deps, argument.value.type, parameter.type, work, null);
     if (form !== null && typeof form !== "string") return refuseTypeConstruction(work.typeWork, form, origin, work.unit);
@@ -139,8 +150,13 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
     }
     if (form === null)
       return notDecidedYet("the actual selected argument embedding contribution", origin);
-    if (argument.component !== null && form !== "identity")
-      return notDecidedYet("the actual embedding of a selected tuple component", origin);
+    if (argument.component !== null && form !== "identity") {
+      const retained = admitTypePublicationStep(work.typeWork, 1, 1);
+      if (retained !== null) return refuseTypeConstruction(work.typeWork, retained, origin, work.unit);
+      parameters.push({ kind: "converted-argument", parameter: index, argument: argument.index,
+        component: argument.component, passing: "by-value", conversion: { from: argument.value.type, to: parameter.type, kind: form } });
+      continue;
+    }
     parameters.push({ kind: "argument", parameter: index, argument: argument.index, component: argument.component, passing: parameter.passing });
   }
   if (!supplied.next().done) return notDecidedYet("the actual selected extra or rest formal transport", origin);

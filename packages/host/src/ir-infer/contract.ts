@@ -511,8 +511,16 @@ export interface IndexDecision {
   readonly writeCheck: "before-value" | "after-value" | null;
 }
 
+export interface TupleArgumentConversion {
+  readonly from: TyId;
+  readonly to: TyId;
+  readonly kind: "literal-fit" | "absence" | "union-injection";
+}
+
 export type ParameterMapping =
   | { readonly kind: "argument"; readonly parameter: number; readonly argument: number; readonly component: number | null; readonly passing: PassingMode }
+  | { readonly kind: "converted-argument"; readonly parameter: number; readonly argument: number; readonly component: number;
+      readonly passing: "by-value"; readonly conversion: TupleArgumentConversion }
   | { readonly kind: "reference-argument"; readonly parameter: number; readonly argument: number; readonly component: null;
       readonly passing: "by-value"; readonly view: ReferenceArgumentView }
   | { readonly kind: "default"; readonly parameter: number; readonly initializer: BodyId }

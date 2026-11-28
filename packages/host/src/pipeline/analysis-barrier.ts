@@ -490,7 +490,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         if (read !== null) return analysisStop(read, unit);
         const mapping = parameters[index];
         if (mapping === undefined) return fail("A selected declared call retains ordered actual parameter mappings.");
-        if (mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "rest") continue;
+        if (mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "converted-argument" && mapping.kind !== "rest") continue;
         const formal = signature.parameters[index];
         if (formal === undefined) return fail("A selected declared call requires its corresponding formal.");
         const stop = given(formal.type, index);

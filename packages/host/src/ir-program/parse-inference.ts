@@ -4,6 +4,7 @@ import type { CheckFailure, HandleActivation, ReceiverAccess, ReferenceArgumentF
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { NativeIntegerPrimitive } from "../ir-types/contract.js";
 import type { NativeArrayConstructionPart } from "../ir-infer/contract.js";
+import type { TupleArgumentConversion } from "../ir-infer/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
 import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, OperationExecution, FlowRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
@@ -252,7 +253,7 @@ function readReferenceArgumentField<Root>(cursor: Cursor, finish: (value: Refere
 }
 
 export function readParameterMappingText<Root>(cursor: Cursor, finish: (value: ParameterMapping) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["argument","reference-argument","default","omitted","rest"]), label =>
+  return atomicText(cursor, next => choice(next, ["argument","converted-argument","reference-argument","default","omitted","rest"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -263,6 +264,17 @@ export function readParameterMappingText<Root>(cursor: Cursor, finish: (value: P
         fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>
               acceptText({ kind: label, parameter: parameterValue, argument: argumentValue, component: componentValue, passing: passingValue }, finish))))));
+        case "converted-argument":
+          return fieldText<number, Root>(cursor, fields, "parameter", (next, done) => atomicText(next, readNumber, done), parameter =>
+            fieldText<number, Root>(cursor, fields, "argument", (next, done) => atomicText(next, readNumber, done), argument =>
+              fieldText<number, Root>(cursor, fields, "component", (next, done) => atomicText(next, readNumber, done), component =>
+                fieldText<TyId, Root>(cursor, fields, "from", (next, done) => atomicText(next, readTypeId, done), from =>
+                  fieldText<TyId, Root>(cursor, fields, "to", (next, done) => atomicText(next, readTypeId, done), to =>
+                    fieldText<TupleArgumentConversion["kind"], Root>(cursor, fields, "fit",
+                      (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["literal-fit","absence","union-injection"]), done), kind =>
+                        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({
+                          kind: label, parameter, argument, component, passing: "by-value", conversion: { from, to, kind },
+                        }, finish))))))));
         case "reference-argument":
           return fieldText<number, Root>(cursor, fields, "parameter", (next, done) => atomicText(next, readNumber, done), parameter =>
             fieldText<number, Root>(cursor, fields, "argument", (next, done) => atomicText(next, readNumber, done), argument =>

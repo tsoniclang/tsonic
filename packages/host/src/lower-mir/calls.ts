@@ -4,11 +4,12 @@ import type { CallExpression, Expression, NewExpression } from "../ir-hir/contra
 import { unparenthesizedExpression } from "../ir-hir/index.js";
 import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TirApplication, TypedApplication, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import { tupleArgumentOperation } from "../ir-tir/index.js";
 import type { Signature } from "../ir-types/contract.js";
 import type { Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, readPlace, saveBeforeControl, temporary, tupleElementPlace } from "./operands.js";
-import { enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
+import { emitStatement, enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 import { unwindToHandler } from "./bindings.js";
 
 export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>, selected: TypedApplication): boolean {
@@ -40,7 +41,8 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
     const tail = end;
     for (; end > 0; end -= 1) {
       const mapping = parameters[end - 1];
-      if ((mapping?.kind !== "argument" && mapping?.kind !== "reference-argument") || mapping.argument !== position) break;
+      if ((mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" && mapping?.kind !== "converted-argument")
+        || mapping.argument !== position) break;
     }
     const count = tail - end;
     if (argument.kind === "SpreadElement") {
@@ -48,11 +50,11 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
         return notLoweredYet("a spread call argument", argument.origin);
       for (let index = 0; index < count; index += 1) {
         const slot = parameters[end + index];
-        if (slot?.kind !== "argument" || slot.component !== index || slot.passing !== "by-value")
+        if (slot?.kind !== "argument" && slot?.kind !== "converted-argument" || slot.component !== index || slot.passing !== "by-value")
           return callerDefect("a finite call spread must retain its ordered selected value slots", argument.origin);
       }
       lowering.work.push(count === 0 ? { kind: "discard", node: argument, read: null }
-        : { kind: "call-spread", node: argument, count });
+        : { kind: "call-spread", node: argument, invocation: node, application, first: end, count });
       lowering.work.push({ kind: "expression", node: argument.expression });
       continue;
     }
@@ -88,7 +90,7 @@ function validateCallArguments(node: CallExpression<TypedPhase> | NewExpression<
         return callerDefect("an omitted call argument lacks its selected omission capability", node.origin);
       continue;
     }
-    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument")
+    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "converted-argument")
       return notLoweredYet("a call with omitted, rest or expanded arguments", node.origin);
     const authored = arguments_?.[mapping.argument];
     const spread = authored?.kind === "SpreadElement";
@@ -102,7 +104,8 @@ function validateCallArguments(node: CallExpression<TypedPhase> | NewExpression<
   return provided;
 }
 
-export function finishCallSpread(lowering: Lowering, { node, count }: Extract<Work, { readonly kind: "call-spread" }>): boolean {
+export function finishCallSpread(lowering: Lowering, { node, invocation, application, first, count }:
+  Extract<Work, { readonly kind: "call-spread" }>): boolean {
   const source = popOperand(lowering, failure("a call spread completed without its actual operand", node.origin));
   const tuple = lowering.typeOf(source.storage);
   if (tuple.kind !== "tuple" || tuple.elements.length !== count || source.operand.kind !== "place")
@@ -111,11 +114,27 @@ export function finishCallSpread(lowering: Lowering, { node, count }: Extract<Wo
   for (let index = 0; index < count; index += 1) {
     const slot = tuple.elements[index];
     if (slot?.kind !== "required") return callerDefect("a finite call spread requires its actual required tuple slot", node.origin);
+    const mapping = application.callee.decision.parameters[first + index];
+    if (mapping?.kind !== "argument" && mapping?.kind !== "converted-argument" || mapping.component !== index)
+      return callerDefect("a finite call spread requires its actual selected projection", node.origin);
     const place = tupleElementPlace(lowering, source.operand.place, index, slot.type, site);
     if (place === null) return false;
-    const value = readPlace(lowering, place, slot.type, site);
-    if (value === null) return false;
-    pushOperand(lowering, value);
+    const conversion = mapping.kind === "converted-argument" ? mapping.conversion : null;
+    if (conversion === null) {
+      const value = readPlace(lowering, place, slot.type, site);
+      if (value === null) return false;
+      pushOperand(lowering, value);
+    } else {
+      if (conversion.from !== slot.type) return callerDefect("a tuple slot conversion requires its actual source type", node.origin);
+      const selected = siteOf(lowering.body, invocation);
+      const operation = tupleArgumentOperation(application, selected.tir, first + index);
+      if (operation === null) return callerDefect("a tuple slot conversion requires its actual selected operation", node.origin);
+      const destination = temporary(lowering, conversion.to, selected);
+      if (destination === null || !emitStatement(lowering.state, { ...selected, kind: "assign", place: destination, step: null,
+        value: { kind: "convert", operation, operand: { kind: "place", place }, to: conversion.to } }))
+        return false;
+      pushOperand(lowering, held(destination, conversion.to, selected));
+    }
   }
   return true;
 }
@@ -160,7 +179,7 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
       arguments_.push({ kind: "omitted" });
       continue;
     }
-    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument")
+    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "converted-argument")
       return callerDefect("a call argument differs from its actual selected mapping", node.origin);
     const value = popOperand(lowering, failure("a call completed without its argument", node.origin));
     if (mapping.kind === "reference-argument" && value.storage !== mapping.view.caller)

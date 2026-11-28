@@ -241,7 +241,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
         if (read !== null) return null;
         const mapping = decision.parameters[parameter];
         const formal = signature.parameters[parameter];
-        if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument") {
+        if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" && mapping?.kind !== "converted-argument") {
           if (mapping?.parameter !== parameter || formal === undefined || !formal.acceptsOmission)
             return fail("The omitted typed disposition requires the actual selected omission capability.");
           if (mapping.kind === "omitted") {

@@ -7,6 +7,7 @@ import type { MemberInventory, MemberInventoryEntry, MemberKey, MemberOrigin, Si
 import { bindingVectorKey } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirBody, TirNode, TirProtocol, TirReadyReadAdmission, TypedOperation, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
+import type { TupleArgumentOperation } from "./contract.js";
 import { typedValueOf } from "./verify-occurrences.js";
 
 export interface TirDeclarationInventory {
@@ -14,6 +15,29 @@ export interface TirDeclarationInventory {
   readonly endpoints: ReadonlySet<string>;
   readonly overloaded: boolean;
 }
+
+export const tupleArgumentOperation: TupleArgumentOperation = (application, invocation, parameter) => {
+  const { decision } = application.callee;
+  const mapping = decision.parameters[parameter];
+  const argument = application.arguments[parameter];
+  if (mapping?.kind !== "converted-argument" || argument?.kind !== "provided"
+    || mapping.parameter !== parameter || argument.parameter !== parameter) return null;
+  const { from, to, kind } = mapping.conversion;
+  return {
+    permissionScope: null, decision: {
+      kind: "selected", operation: { kind: "conversion", from, to, embedding: {
+        kind: "conversion", conversion: kind, check: { kind: "none" },
+        proof: { steps: [{ rule: kind, premises: [],
+          from: { root: { kind: "body", value: { body: invocation.body, node: argument.expression } },
+            path: [{ kind: "tuple-element", index: mapping.component }] },
+          to: { root: { kind: "body", value: invocation },
+            path: [{ kind: "parameter", signature: decision.completion.signature, index: parameter }] },
+        }], conclusion: 0 },
+      } },
+      operands: [from], result: to, execution: { kind: "pure" },
+    },
+  };
+};
 
 export interface TirCallDeclarations {
   readonly advertised: TirDeclarationInventory | null;
@@ -78,8 +102,9 @@ const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, sig
     const parameter = signature.parameters[position];
     if (mapping === undefined || parameter === undefined) { total = false; continue; }
     if (!Object.is(mapping.parameter, position)) order = false;
-    if ((mapping.kind === "argument" || mapping.kind === "reference-argument")
-      && (!validOrdinal(mapping.argument) || mapping.component !== null && !validOrdinal(mapping.component))) order = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument")
+      && (!validOrdinal(mapping.argument) || mapping.kind === "converted-argument" && !validOrdinal(mapping.component)
+        || mapping.component !== null && !validOrdinal(mapping.component))) order = false;
     if (mapping.kind === "rest") {
       let previous = -1;
       for (const argument of mapping.arguments) {
@@ -87,7 +112,8 @@ const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, sig
         previous = argument;
       }
     }
-    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "rest") && mapping.passing !== parameter.passing) passing = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument" || mapping.kind === "rest")
+      && mapping.passing !== parameter.passing) passing = false;
     if (mapping.kind === "default" && (parameter.kind !== "default" || !parameter.acceptsOmission || mapping.initializer !== parameter.initializer) ||
       mapping.kind === "omitted" && (!parameter.acceptsOmission || parameter.kind === "default" || parameter.kind === "rest" || mapping.type !== parameter.type) ||
       mapping.kind === "rest" && parameter.kind !== "rest") omission = false;
@@ -143,30 +169,32 @@ export const verifyArgumentTransport = <Stop extends object>(
     if (argument === undefined || formal === undefined || mapping === undefined) { total = false; continue; }
     if (!Object.is(argument.parameter, position)) parameterOrder = false;
     if (!omissionMatches(argument, formal)) omissions = false;
-    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "rest") && mapping.passing !== formal.passing) passing = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument" || mapping.kind === "rest")
+      && mapping.passing !== formal.passing) passing = false;
     if (argument.kind === "provided") {
-      if (mapping.kind !== "argument" && mapping.kind !== "reference-argument") total = false;
+      if (mapping.kind !== "argument" && mapping.kind !== "reference-argument" && mapping.kind !== "converted-argument") total = false;
       else {
-        if (!validOrdinal(mapping.argument) || mapping.component !== null && !validOrdinal(mapping.component) ||
+        const ordinal = mapping.component;
+        if (!validOrdinal(mapping.argument) || ordinal !== null && !validOrdinal(ordinal) ||
           mapping.argument < previousArgument || mapping.argument === previousArgument &&
-          (mapping.component === null || mapping.component <= previousComponent)) authoredOrder = false;
+          (ordinal === null || ordinal <= previousComponent)) authoredOrder = false;
         previousArgument = mapping.argument;
-        previousComponent = mapping.component === null ? -1 : mapping.component;
+        previousComponent = ordinal ?? -1;
         const captured = sourceNodes.get(argument.expression)?.tsonic;
         if (captured !== undefined && captured !== null && "core" in captured &&
           captured.core.argumentPassing.kind === "available" && captured.core.argumentPassing.value?.role === "argument" &&
           captured.core.argumentPassing.value.mode !== mapping.passing) passing = false;
       }
-      if ((mapping.kind === "argument" || mapping.kind === "reference-argument") && original !== null) {
+      if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "converted-argument") && original !== null) {
         const source = original.arguments[mapping.argument];
+        const ordinal = mapping.component;
         if (!Number.isSafeInteger(mapping.argument) || mapping.argument < 0 || Object.is(mapping.argument, -0) ||
           source === undefined || source.expression !== argument.expression) authoredOrder = false;
-        else if (source.kind === "value" ? mapping.component !== null : mapping.component === null ||
-          !Number.isSafeInteger(mapping.component) || mapping.component < 0 || Object.is(mapping.component, -0)) authoredOrder = false;
-        if (source?.kind === "spread" && mapping.component !== null) {
+        else if (source.kind === "value" ? ordinal !== null : ordinal === null || !validOrdinal(ordinal)) authoredOrder = false;
+        if (source?.kind === "spread" && ordinal !== null) {
           const previous = maximumComponent.get(mapping.argument);
-          if (previous === undefined || mapping.component > previous) maximumComponent.set(mapping.argument, mapping.component);
-          if (source.tuple.kind === "available" && source.tuple.value !== null && mapping.component >= source.tuple.value.length) authoredOrder = false;
+          if (previous === undefined || ordinal > previous) maximumComponent.set(mapping.argument, ordinal);
+          if (source.tuple.kind === "available" && source.tuple.value !== null && ordinal >= source.tuple.value.length) authoredOrder = false;
         }
       }
     } else if (argument.kind === "omitted") {
@@ -254,12 +282,24 @@ function verifyFixedCallSpread<Stop extends object>(application: TirApplication,
       if (paid !== null) return paid;
       const mapping = application.callee.decision.parameters[effective];
       const passed = application.arguments[effective];
-      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" || mapping.parameter !== effective || mapping.argument !== authored
-        || mapping.component !== (tuple === null ? null : component)
+      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" && mapping?.kind !== "converted-argument"
+        || mapping.parameter !== effective || mapping.argument !== authored || mapping.component !== (tuple === null ? null : component)
         || passed?.kind !== "provided" || passed.expression !== source.expression) exact = false;
       if (tuple !== null) {
         const element = tuple.elements[component];
-        if (element?.kind !== "required" || element.type !== signature.parameters[effective]?.type) exact = false;
+        const formal = signature.parameters[effective];
+        if (element?.kind !== "required" || formal === undefined || mapping?.kind !== "argument" && mapping?.kind !== "converted-argument" || mapping.passing !== "by-value"
+          || mapping.component === null) exact = false;
+        else {
+          const conversion = mapping.kind === "converted-argument" ? mapping.conversion : null;
+          if (conversion === null) exact &&= element.type === formal.type;
+          else {
+            const paidConversion = admit({ kind: "row" });
+            if (paidConversion !== null) return paidConversion;
+            if (conversion.from !== element.type || conversion.to !== formal.type || conversion.from === conversion.to
+              || conversion.kind !== "literal-fit" && conversion.kind !== "absence" && conversion.kind !== "union-injection") exact = false;
+          }
+        }
       }
     }
   }

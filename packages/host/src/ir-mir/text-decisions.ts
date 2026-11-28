@@ -17,6 +17,7 @@ import type { HirBinaryOperator, HirCallableEndpoint, HirUnaryOperator } from ".
 import type { ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep, AccessLocation, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TypedOperation } from "../ir-tir/contract.js";
 import type { NativeArrayConstructionOperation, NativeArrayConstructionPart } from "../ir-infer/contract.js";
+import type { TupleArgumentConversion } from "../ir-infer/contract.js";
 import { choice, field, finish, identityWire, literals, nullable, numberToken, ownedScalar, record, stringToken, variants, vector } from "./text.js";
 import type { ScalarWires } from "./text.js";
 import type { Wire } from "./text.js";
@@ -481,6 +482,16 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
         field("component", () => nullable(() => numberWire), value => value.component, component =>
           field("passing", () => passingWire, value => value.passing, passing => finish(() => ({ kind: "argument", parameter, argument, component, passing })))))));
 
+  const convertedArgument = record<Extract<ParameterMapping, { readonly kind: "converted-argument" }>>("converted-argument", () =>
+    field("parameter", () => numberWire, value => value.parameter, parameter =>
+      field("argument", () => numberWire, value => value.argument, argument =>
+        field("component", () => numberWire, value => value.component, component =>
+          field("from", () => typeWire, value => value.conversion.from, from =>
+            field("to", () => typeWire, value => value.conversion.to, to =>
+              field("fit", () => literals<TupleArgumentConversion["kind"]>(["literal-fit","absence","union-injection"]),
+                value => value.conversion.kind, kind => finish(() => ({
+                  kind: "converted-argument", parameter, argument, component, passing: "by-value", conversion: { from, to, kind },
+                })))))))));
   const referenceField = record<ReferenceArgumentField>("ReferenceArgumentField", () =>
     field("parent", () => nullable(() => numberWire), value => value.parent, parent =>
       field("caller", () => definitionWire, value => value.caller, caller =>
@@ -510,11 +521,13 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
         field("passing", () => passingWire, value => value.passing, passing => finish(() => ({ kind: "rest", parameter, arguments: argumentsValue, passing }))))));
 
   const mappingWire: Wire<ParameterMapping> = variants([
-    choice("argument", () => argumentMapping), choice("reference-argument", () => referenceArgument), choice("default", () => defaultMapping),
+    choice("argument", () => argumentMapping), choice("converted-argument", () => convertedArgument),
+    choice("reference-argument", () => referenceArgument), choice("default", () => defaultMapping),
     choice("omitted", () => omittedMapping), choice("rest", () => restMapping),
   ], (value, path, next) => {
     switch (value.kind) {
       case "argument": return argumentMapping.write(value, path, next);
+      case "converted-argument": return convertedArgument.write(value, path, next);
       case "reference-argument": return referenceArgument.write(value, path, next);
       case "default": return defaultMapping.write(value, path, next);
       case "omitted": return omittedMapping.write(value, path, next);

@@ -14,6 +14,7 @@ import type {
   AccessLocation, ApplicationDecision, BodyCaptureRow, CaptureRow, LogicalCapture, CheckRequirement, ClosureDecision, CompletionEndpoint, ConstructionPartDecision, OperationExecution, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
 } from "../ir-infer/contract.js";
 import type { BackedConversionIdentity, ConversionIdentity } from "./contract.js";
+import type { TupleArgumentConversion } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
@@ -211,6 +212,18 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("component", "?number", value => nullableWork(value.component, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(ParameterMapping & { readonly kind: "argument" })["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
     .finish((field_parameter, field_argument, field_component, field_passing) => ({ kind: "argument", parameter: field_parameter, argument: field_argument, component: field_component, passing: field_passing })));
+  const convertedArgument = defineRecord<Extract<ParameterMapping, { readonly kind: "converted-argument" }>>(
+    "ParameterMapping#converted-argument", "ParameterMapping", { field: "kind", value: "converted-argument" }, "converted-argument", null, null, fields => fields
+    .field("parameter", "number", value => scalarWork("number", value.parameter), numberReader)
+    .field("argument", "number", value => scalarWork("number", value.argument), numberReader)
+    .field("component", "number", value => scalarWork("number", value.component), numberReader)
+    .field("from", "t", value => referenceWork("t", value.conversion.from), typeReader)
+    .field("to", "t", value => referenceWork("t", value.conversion.to), typeReader)
+    .field("fit", "TupleArgumentFit", value => scalarWork("TupleArgumentFit", value.conversion.kind),
+      literalReader<TupleArgumentConversion["kind"]>("TupleArgumentFit", ["literal-fit","absence","union-injection"]))
+    .finish((parameter, argument, component, from, to, kind) => ({
+      kind: "converted-argument", parameter, argument, component, passing: "by-value", conversion: { from, to, kind },
+    })));
   const referenceField = defineRecord<ReferenceArgumentField>("ReferenceArgumentField", "ReferenceArgumentField", null, "ReferenceArgumentField", null, null, fields => fields
     .field("parent", "?number", value => nullableWork(value.parent, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("caller", "def", value => scalarWork("def", value.caller), definitionReader)
@@ -296,12 +309,13 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   const work_ParameterMapping: TirRecordCodec<ParameterMapping> = unionRecord<ParameterMapping>("ParameterMapping", (value: ParameterMapping): TirTypedRecordWork => {
     switch (value.kind) {
       case "argument": return work_ParameterMapping_argument.write(value);
+      case "converted-argument": return convertedArgument.write(value);
       case "reference-argument": return referenceArgument.write(value);
       case "default": return work_ParameterMapping_default.write(value);
       case "omitted": return work_ParameterMapping_omitted.write(value);
       case "rest": return work_ParameterMapping_rest.write(value);
     }
-  }, () => [work_ParameterMapping_argument.reader, referenceArgument.reader, work_ParameterMapping_default.reader, work_ParameterMapping_omitted.reader, work_ParameterMapping_rest.reader]);
+  }, () => [work_ParameterMapping_argument.reader, convertedArgument.reader, referenceArgument.reader, work_ParameterMapping_default.reader, work_ParameterMapping_omitted.reader, work_ParameterMapping_rest.reader]);
   const work_LiteralConstructionPart: TirRecordCodec<LiteralConstructionPart> = unionRecord<LiteralConstructionPart>("LiteralConstructionPart", (value: LiteralConstructionPart): TirTypedRecordWork => {
     switch (value.kind) {
       case "element": return work_LiteralConstructionPart_element.write(value);
