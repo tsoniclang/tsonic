@@ -3456,6 +3456,72 @@ test("a declared tuple field uses its own authored inventory slot for each reach
   }
 });
 
+test("an object binding's contextual tuple retains the actual nested pattern, not the selected field's tuple", async () => {
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  for (const [key, ordinal] of [["nested", 0], ["other", 1]]) {
+    const { deps, program, module } = openedModule(`export function start(record: { nested: [[boolean, boolean], boolean]; other: [[boolean, boolean], boolean] }): boolean {
+      const { ${key}: [[first, second], third] } = record;
+      return first && second && third;
+    }`);
+    const capture = (maximumCapturedEdgesPerModule, maximumCapturedFactsPerModule) => captureSingleModule(front, {
+      ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedEdgesPerModule, maximumCapturedFactsPerModule },
+    }, program, module);
+    assert.equal(captureSingleModule(front, deps, program, module).kind, "ok", "prepare the real checker cache before exact warm cuts");
+    for (const [edges, facts, limit, maximum] of [
+      [556, 394, "front.maximumCapturedEdgesPerModule", 556],
+      [557, 393, "front.maximumCapturedFactsPerModule", 393],
+    ]) assert.deepEqual(capture(edges, facts), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
+      limit, maximum, site: { kind: "file", path: "/project/src/main.ts" },
+      unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } },
+    })] });
+    const captured = capture(557, 394);
+    assert.equal(captured.kind, "ok");
+    const raw = captured.value;
+    const callable = raw.tree.statements.nodes[0];
+    const declaration = callable.body.statements.nodes[0].declarationList.declarations.nodes[0];
+    const initializer = { module, node: declaration.initializer.id };
+    const sourceField = { module, node: callable.parameters.nodes[0].type.members.nodes[ordinal].id };
+    const occurrence = { module, node: declaration.name.elements.nodes[0].id };
+    const view = raw.checkerViews.find(row => row.node.node === initializer.node);
+    assert.notEqual(view.contextual.value, view.read.value);
+    const member = type => {
+      const table = raw.types.members[raw.types.types[type].form.value.inventory];
+      return table.members.find(row => row.name === key);
+    };
+    const selected = member(view.read.value);
+    const synthetic = member(view.contextual.value);
+    assert.deepEqual(selected.declarations, [sourceField]);
+    assert.deepEqual(synthetic.declarations, []);
+    const verifyTuple = (type, path, shape, scalar) => {
+      const row = raw.types.types[type];
+      const component = raw.types.components[row.component];
+      assert.deepEqual(component.root, initializer);
+      assert.deepEqual(rawComponentPath(raw.types.components, component), path);
+      assert.equal(row.form.kind, "available");
+      if (shape === null) {
+        assert.deepEqual(row.form.value, { kind: "scalar", scalar });
+        return;
+      }
+      assert.equal(row.form.value.kind, "tuple");
+      assert.equal(row.form.value.readonly, false);
+      assert.equal(row.form.value.elements.length, shape.length);
+      for (const [index, slot] of row.form.value.elements.entries()) {
+        assert.equal(slot.kind, "required");
+        assert.equal(slot.declaration, null);
+        verifyTuple(slot.type, [...path, { kind: "tuple-element", index }], shape[index], scalar);
+      }
+    };
+    for (const access of ["read", "write"]) {
+      const step = { kind: "source-member", occurrence, access };
+      assert.ok(synthetic.origins.some(origin => origin.access === access));
+      assert.notEqual(synthetic[access].value, selected[access].value);
+      assert.deepEqual(synthetic.origins.find(origin => origin.access === access), step);
+      verifyTuple(synthetic[access].value, [step], [[null, null], null], "any");
+      verifyTuple(selected[access].value, [{ kind: "member", declaration: sourceField, access }], [[null, null], null], "boolean");
+    }
+  }
+});
+
 test("tuple return literals keep the checked slots separate from the actual callable destination", async () => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");

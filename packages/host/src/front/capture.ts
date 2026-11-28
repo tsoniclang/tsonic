@@ -146,7 +146,7 @@ interface InterfaceDescriptionUse {
   readonly target: Type;
 }
 type BindingUse = ReceiverUse | CallableUse | UnionArmUse | AuthoredFormalArms | DeclaredArgumentsUse | TupleProjectionUse
-  | ContextualTupleUse | LiteralTupleUse | DirectResultUse | ComposedUnionUse | DeclaredRestUse | InterfaceDescriptionUse;
+  | ContextualTupleUse | BindingPatternTuple | LiteralTupleUse | DirectResultUse | ComposedUnionUse | DeclaredRestUse | InterfaceDescriptionUse;
 type FormalUse = Node | CallbackInputUse | ReceiverProjectionUse | RestInput | ComposedUnionUse;
 
 interface ReceiverProjectionUse {
@@ -270,6 +270,12 @@ interface ContextualTupleSyntax {
   readonly original: Type;
 }
 
+interface BindingPatternTuple {
+  readonly kind: "binding-pattern-tuple";
+  readonly pattern: Node;
+  readonly original: Type;
+}
+
 type TupleContextAssociation = ContextualTupleUse | ContextualTupleSyntax;
 
 interface LiteralTupleUse {
@@ -314,7 +320,8 @@ interface SignatureBindingUse {
 
 type CaptureTask =
   | { readonly kind: "type"; readonly id: RawTypeId; readonly answer: ResolvedSourceTypeInfo; readonly position: RawComponentId;
-      readonly originalUse: OriginalTypeUse | null; readonly bindingUse: TypeBindingUse | null; readonly literalNode: Node | null }
+      readonly originalUse: OriginalTypeUse | null; readonly bindingUse: TypeBindingUse | null; readonly literalNode: Node | null;
+      readonly contextual: boolean }
   | { readonly kind: "leave-type"; readonly id: RawTypeId; readonly type: Type; readonly key: BindingUse | null }
   | { readonly kind: "indexed-alias-scope"; readonly declaration: Node; readonly enter: boolean }
   | { readonly kind: "merged-inventory-scope"; readonly symbol: CheckerSymbol; readonly type: Type; readonly enter: boolean }
@@ -948,7 +955,8 @@ function primitiveBindingSource(scope: CaptureScope, element: Node, pattern: Nod
 }
 
 function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory<Diagnostic>,
-  position: RawComponentId, receiver: ReceiverUse | null): readonly RawMember[] | null {
+  task: TypeCapture, receiver: ReceiverUse | null): readonly RawMember[] | null {
+  const { position } = task;
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
   const members: RawMember[] = [];
@@ -1003,11 +1011,26 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         const occurrence = referenceTo(scope, scope.program, pattern.element);
         if (scope.meter.refusal !== null) return null;
         if (occurrence === null) return throwInvariant(invariant("A contextual member requires its admitted binding occurrence."));
+        let tuple: BindingPatternTuple | null = null;
+        if (task.contextual && scope.shape.isTuple(property.type)) {
+          if (!admit(scope, "edges")) return null;
+          const initializer = admittedTypeUse(scope, parent.root);
+          const declaration = ast.as.AsVariableDeclaration(ast.parent(initializer));
+          const owner = ast.parent(pattern.element);
+          const element = ast.as.AsBindingElement(pattern.element);
+          if (task.answer.type !== type || task.answer.causes.length !== 0 || parent.path !== null
+            || initializer === undefined || declaration?.Initializer !== initializer || declaration.Type !== undefined || declaration.name !== owner)
+            return throwInvariant(invariant("A contextual member must belong to its actual checked binding source."));
+          if (element?.name === undefined || ast.kindName(element.name) !== "KindArrayBindingPattern")
+            return throwInvariant(invariant("An inferred tuple member must retain its actual tuple binding pattern."));
+          if (!admit(scope, "facts")) return null;
+          tuple = { kind: "binding-pattern-tuple", pattern: element.name, original: property.type };
+        }
         const origins: Extract<RawMemberOrigin, { readonly kind: "source-member" }>[] = [];
         const accessType = (access: "read" | "write"): RawTypeId | null => {
           if (!admit(scope, "facts")) return null;
           const origin: Extract<RawMemberOrigin, { readonly kind: "source-member" }> = { kind: "source-member", occurrence, access };
-          const selected = readType(property.type, origin);
+          const selected = readType(property.type, origin, tuple);
           if (selected !== null) origins.push(origin);
           return selected;
         };
@@ -1678,7 +1701,7 @@ function tupleAnnotationOf(scope: CaptureScope, type: Type, annotation: Node | u
 }
 
 function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
-  originalUse: OriginalTypeUse | null, binding: TupleProjectionUse | ContextualTupleUse | LiteralTupleUse | null,
+  originalUse: OriginalTypeUse | null, binding: TupleProjectionUse | ContextualTupleUse | LiteralTupleUse | BindingPatternTuple | null,
   projection: ProjectedOperandUse | null): RawTypeForm | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
@@ -1703,6 +1726,15 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
         scope.tables.components[prefix]?.path?.step.kind !== "result")))
     return throwInvariant(invariant("A projected source must retain its exact native tuple and component."));
   const ast = scope.checked.ast;
+  let patternSlots: readonly (Node | undefined)[] | undefined;
+  if (binding?.kind === "binding-pattern-tuple") {
+    if (!admit(scope, "edges")) return null;
+    const role = parent.path?.step.kind;
+    patternSlots = ast.as.AsBindingPattern(binding.pattern)?.Elements?.Nodes;
+    if (binding.original !== type || originalUse !== null || (role !== "source-member" && role !== "tuple-element")
+      || ast.kindName(binding.pattern) !== "KindArrayBindingPattern" || patternSlots === undefined)
+      return throwInvariant(invariant("An inferred tuple requires its actual selected binding pattern and component."));
+  }
   let literalSlots: readonly (Node | undefined)[] | undefined;
   if (binding?.kind === "literal-tuple") {
     if (!admit(scope, "edges")) return null;
@@ -1721,7 +1753,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     if (literalSlots === undefined || binding.original !== type)
       return throwInvariant(invariant("An executing tuple literal requires its actual checked expression and native result."));
   }
-  let source = binding?.kind === "literal-tuple" ? undefined
+  let source = binding?.kind === "literal-tuple" || binding?.kind === "binding-pattern-tuple" ? undefined
     : binding?.syntax ?? (originalUse === null ? undefined : admittedTypeUse(scope, originalUse));
   let syntax = source === undefined ? undefined : tupleSyntax(scope, source);
   if (scope.meter.refusal !== null) return null;
@@ -1736,7 +1768,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     syntax = source === undefined ? undefined : tupleSyntax(scope, source);
     if (scope.meter.refusal !== null) return null;
   }
-  const inferredPattern = !nativeProjection && syntax === undefined && literalSlots === undefined;
+  const inferredPattern = !nativeProjection && syntax === undefined && literalSlots === undefined && patternSlots === undefined;
   if (inferredPattern) {
     const occurrence = originalUse === null && binding === null && parent.path === null
       ? admittedTypeUse(scope, parent.root) : undefined;
@@ -1760,7 +1792,8 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     throw new TypeError("front: a tuple requires its actual native target and ordered slot information");
   const { elements: originalSlots } = originalTuple;
   const { elements: selected } = selectedTuple;
-  if (originalSlots.length !== selected.length || literalSlots !== undefined && literalSlots.length !== selected.length || syntax !== undefined &&
+  if (originalSlots.length !== selected.length || literalSlots !== undefined && literalSlots.length !== selected.length
+    || patternSlots !== undefined && patternSlots.length !== selected.length || syntax !== undefined &&
     (originalSlots.length !== syntax.elements.length || syntax.readonly !== originalTuple.readonly))
     throw new TypeError("front: a tuple requires its actual unflattened authored slots");
   const projectedTuple = binding?.kind === "tuple-projection" && onlyReceiverSlot(binding.receiver)?.declaration === null;
@@ -1788,7 +1821,22 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
         throw new TypeError("front: a tuple slot requires its actual authored checker type");
     }
     let sourceUse: Node | null = operand ?? null;
-    let nestedUse: LiteralTupleUse | ProjectedOperandUse | null = null;
+    let nestedUse: LiteralTupleUse | ProjectedOperandUse | BindingPatternTuple | null = null;
+    if (patternSlots !== undefined) {
+      if (!admit(scope, "edges")) return null;
+      const element = patternSlots[index];
+      const bound = ast.as.AsBindingElement(element);
+      if (element === undefined || binding?.kind !== "binding-pattern-tuple" || ast.parent(element) !== binding.pattern
+        || slot.elementKind !== "required" || ast.kindName(element) !== "KindOmittedExpression" &&
+        (bound === undefined || bound.PropertyName !== undefined || bound.DotDotDotToken !== undefined || bound.Initializer !== undefined))
+        return throwInvariant(invariant("An inferred tuple must retain its original ordered fixed binding slots."));
+      if (scope.shape.isTuple(slot.type)) {
+        if (bound?.name === undefined || ast.kindName(bound.name) !== "KindArrayBindingPattern")
+          return throwInvariant(invariant("An inferred tuple slot must retain its nested binding name."));
+        if (!admit(scope, "facts")) return null;
+        nestedUse = { kind: "binding-pattern-tuple", original: slot.type, pattern: bound.name };
+      }
+    }
     if (literalSlots !== undefined) {
       const element = literalSlots[index];
       const elementKind = ast.kindName(element);
@@ -3232,7 +3280,8 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     return { kind, members };
   }
   if (shape.isTuple(type)) return captureTuple(scope, type, position, originalUse,
-    bindingUse?.kind === "tuple-projection" || bindingUse?.kind === "contextual-tuple" || bindingUse?.kind === "literal-tuple" ? bindingUse : null, projection);
+    bindingUse?.kind === "tuple-projection" || bindingUse?.kind === "contextual-tuple" || bindingUse?.kind === "literal-tuple"
+      || bindingUse?.kind === "binding-pattern-tuple" ? bindingUse : null, projection);
   if (symbol !== undefined && interfaceFragments === 1 && interfaceFragment !== undefined) {
     const native = declarations.length === 1 ? undefined : nativeInterfaceDeclarations(scope, shape.getTypeReferenceTarget(type) ?? type);
     if (native === null) return null;
@@ -3432,7 +3481,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
       if (value === null) return null;
       indexes.push({ origin, key, value, readonly: selected.readonly });
     }
-    const members = capturedMembers(scope, type, properties, position, bindingUse?.kind === "receiver" ? bindingUse : null);
+    const members = capturedMembers(scope, type, properties, task, bindingUse?.kind === "receiver" ? bindingUse : null);
     if (members === null) return null;
     if (!hasInventory && !authoredObject && members.length === 0 && !preparing)
       throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
@@ -3771,17 +3820,18 @@ function withoutTypeCause(type: Type | undefined, typeSource?: Node): ResolvedSo
 }
 
 function rawType(scope: CaptureScope, read: () => ResolvedSourceTypeInfo | undefined, position: RawComponentId | null,
-  originalUse: OriginalTypeUse | null, bindingUse: TypeBindingUse | null = null, literalNode: Node | null = null): RawTypeId | null {
+  originalUse: OriginalTypeUse | null, bindingUse: TypeBindingUse | null = null, literalNode: Node | null = null,
+  contextual = false): RawTypeId | null {
   if (position === null || !admit(scope, "facts")) return null;
   const answer = read();
-  return scope.meter.refusal === null ? enqueueRawType(scope, answer, position, originalUse, bindingUse, literalNode) : null;
+  return scope.meter.refusal === null ? enqueueRawType(scope, answer, position, originalUse, bindingUse, literalNode, contextual) : null;
 }
 
 function enqueueRawType(scope: CaptureScope, answer: ResolvedSourceTypeInfo | undefined, position: RawComponentId,
-  originalUse: OriginalTypeUse | null, bindingUse: TypeBindingUse | null, literalNode: Node | null): RawTypeId {
+  originalUse: OriginalTypeUse | null, bindingUse: TypeBindingUse | null, literalNode: Node | null, contextual = false): RawTypeId {
   if (answer === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
   const id = rawTypeId(scope.tables.nextType++);
-  scope.tables.pending.push({ kind: "type", id, answer, position, originalUse, bindingUse, literalNode });
+  scope.tables.pending.push({ kind: "type", id, answer, position, originalUse, bindingUse, literalNode, contextual });
   return id;
 }
 
@@ -6236,7 +6286,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         contextualSource = contextualNativeArrayAnnotation(scope, node, parent, contextual);
       if (scope.meter.refusal !== null) break;
       const contextualType = contextual === undefined ? null
-        : rawType(scope, () => contextual, component(scope, reference, null), contextualSource, tupleContext);
+        : rawType(scope, () => contextual, component(scope, reference, null), contextualSource, tupleContext, null, true);
       if (contextual !== undefined && contextualType === null) break;
       const symbol = declaredRead ? declarationSymbol : scope.checker.getSymbolAtLocation(node);
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
