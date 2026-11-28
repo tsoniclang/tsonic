@@ -2412,6 +2412,37 @@ test("a placed binding default retains the captured reference at its actual earl
   assert.deepEqual(reached, [["CallExpression", 0]]);
 });
 
+test("an actual native address loan is not a saved reference-copy destination", async () => {
+  const { wt6 } = await import("./fixtures/lower-mir/programs/wt6.mjs");
+  const { localReferenceCopies } = await import("../../packages/host/dist/analyses/body/projection-effects.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const program = wt6({ bounds: "unwind", absent: "unwind" }).orderFixedAliased;
+  const { input: { mir } } = fixture(program);
+  const check = mir.blocks.map(block => block.terminator).find(term => term.kind === "check" && term.tir.node === program.at("@target"));
+  const call = mir.blocks.find(block => block.terminator.kind === "call" && block.terminator.tir.node === program.at("mutateFixed(a)"));
+  const [loan] = call.terminator.arguments;
+  assert.equal(loan.kind, "place");
+  assert.equal(loan.passing, "byref-readwrite");
+  assert.equal(mir.places[check.place].base.place, loan.place);
+  const saved = mir.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.value.kind === "use"
+    && row.value.operand.kind === "place" && row.value.operand.place === check.place);
+  const borrowed = mir.places[loan.place].base.local;
+  const temporary = mir.places[saved.place].base.local;
+  assert.equal(mir.locals[borrowed].role.kind, "parameter");
+  assert.equal(mir.locals[temporary].role.kind, "temporary");
+  let reads = 0;
+  const observed = { ...mir, blocks: mir.blocks.map(block => block !== call ? block : { ...call,
+    terminator: { ...call.terminator, arguments: [{ ...loan, get place() { reads += 1; return loan.place; } }] } }) };
+  const run = account => {
+    const prior = accountFailure(account);
+    const before = reads;
+    const result = localReferenceCopies(observed, account);
+    if (prior !== null) assert.equal(reads, before);
+    return result.kind !== "complete" ? result : { kind: "complete", value: [result.value.has(borrowed), result.value.get(temporary) === saved] };
+  };
+  checkReachedProofCuts(InvocationAccount.stateOf, run, [false, true], "selected array location loan", () => assert.equal(reads, 1));
+});
+
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
