@@ -338,6 +338,11 @@ test("checked object alias chains preserve the actual terminal declaration and p
   await checkObjectAliasHolding();
 });
 
+test("a binding field retains its actual required or guarded enclosing object place", async () => {
+  const { checkHeldFieldBinding } = await import("./fixtures/held-field-binding.mjs");
+  await checkHeldFieldBinding();
+});
+
 test("a placed field write authenticates the receiver's actual outer storage", async () => {
   const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
   await checkCapturedFieldRefinement();

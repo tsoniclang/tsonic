@@ -205,6 +205,11 @@ test("S-1 field selection and guarded reference transport follow the actual chec
   await checkObjectAliasHolding();
 });
 
+test("S-1 binds a field of the one held required or guarded object projection", async () => {
+  const { checkHeldFieldBinding } = await import("./fixtures/held-field-binding.mjs");
+  await checkHeldFieldBinding();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

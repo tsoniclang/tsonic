@@ -299,14 +299,12 @@ interface CheckedField {
   readonly value: FieldValue | null;
 }
 
-export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => {
+function sourceObjectFields<Field>(body: HirBody, read: CheckedSourceObjectRead, project: (field: CheckedField) => Field) {
   const { nodeOf, itemOf, admit } = read;
   let fields: Map<NodeId, CheckedField> | null = null;
   const select = (reached: ReachedField, holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): CheckedField | null => {
     if (!admit(1, 0)) return null;
-    const property = container.kind === "TypeLiteral"
-      ? qualifiedSourceField(holding.declaration, container, reached.declaration, itemOf)
-      : qualifiedSourceField(container.tsonic.definition, container.type, reached.declaration, itemOf);
+    const property = qualifiedSourceField(holding.declaration, container, reached.declaration, itemOf);
     if (property === null) return null;
     const value = fieldValue(property, read);
     if (value === undefined) return null;
@@ -322,7 +320,7 @@ export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, r
     (fields ??= new Map()).set(access.id, row);
     return row;
   };
-  const field: ReturnType<CheckedSourceObjectFieldsOf>["field"] = access => {
+  const field = (access: Access): Field | null => {
     let current = access;
     let pending: ReachedField[] | null = null;
     let visited: Set<Access> | null = null;
@@ -368,12 +366,21 @@ export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, r
       ready = select(next, { local, declaration: field, receiver: ready.value.type }, ready.value.container, ready.proof);
       current = next.access;
     }
-    return ready?.proof ?? null;
+    return ready === null ? null : project(ready);
   };
-  return { field, ready: node => fields?.get(node)?.proof ?? null };
-};
+  return { field, ready: (node: NodeId) => fields?.get(node)?.proof ?? null };
+}
 
-function qualifiedSourceField(owner: DefId, container: TypeLiteral, definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
+function fieldProof(field: CheckedField): SourceObjectField { return field.proof; }
+function reachedField(field: CheckedField): CheckedField { return field; }
+
+export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => sourceObjectFields(body, read, fieldProof);
+
+function qualifiedSourceField(owner: DefId, container: FieldValue["container"], definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
+  if (container.kind === "TypeAliasDeclaration") {
+    owner = container.tsonic.definition;
+    container = container.type;
+  }
   const field = itemOf(definition);
   if (field?.kind !== "PropertySignature" || field.postfixToken?.kind === "ExclamationToken" || field.tsonic.parent !== owner
     || field.parent !== container.id
@@ -602,10 +609,9 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   const owner = nodeOf({ kind: "body", value: { body: body.body, node: pattern.parent } });
   if (owner?.kind !== "VariableDeclaration" || owner.name !== pattern || owner.initializer === null) return null;
   const receiver = unparenthesizedExpression<CheckedPhase>(owner.initializer);
-  if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
-  return sourceObjectHolding((holding, declaration) => {
-    if (declaration.type?.kind !== "TypeLiteral" || !admit(1, 0)) return null;
-    const field = qualifiedSourceField(holding.declaration, declaration.type, definition, itemOf);
+  const select = (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): SourceObjectField | null => {
+    if (!admit(1, 0)) return null;
+    const field = qualifiedSourceField(holding.declaration, container, definition, itemOf);
     if (field === null) return null;
     if (key.kind === "text") {
       if (!matchesStaticTextPropertyName(field.name, key.value, admit)) return null;
@@ -618,9 +624,19 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
     }
     const value = fieldValue(field, read);
     return value === undefined || !admit(0, 1) ? null
-      : { ...holding, occurrence, field: definition, parent: null, requiredReference: value?.presence === null ? value.type : null,
+      : { ...holding, occurrence, field: definition, parent, requiredReference: value?.presence === null ? value.type : null,
         presence: value?.presence ?? null };
-  }, body, receiver.tsonic.resolution.local, read);
+  };
+  if (receiver.kind === "Identifier" && receiver.tsonic.role === "value" && receiver.tsonic.resolution.kind === "local")
+    return sourceObjectHolding((holding, declaration) => declaration.type?.kind === "TypeLiteral" ? select(holding, declaration.type, null) : null,
+      body, receiver.tsonic.resolution.local, read);
+  if (receiver.kind !== "PropertyAccessExpression" || receiver.tsonic.role !== "value" || !admit(1, 3)) return null;
+  const source = sourceObjectFields(body, read, reachedField).field(receiver);
+  if (source === null || source.value === null) return null;
+  const view = receiver.tsonic.value.views.read;
+  if (view.kind !== "available" || view.value !== source.value.type || !admit(0, 1)) return null;
+  const { local, field } = source.proof;
+  return select({ local, declaration: field, receiver: source.value.type }, source.value.container, source.proof);
 };
 
 export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {
