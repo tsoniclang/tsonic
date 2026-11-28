@@ -111,6 +111,135 @@ test("a mutable reference holds only its actual closed source declarations and s
   }
 });
 
+test("a named field receiver preserves its own alias and the field that supplied it", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
+  for (const optional of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Child = { flag: boolean };
+      type Twin = { flag: boolean };
+      type Box = { part: Child${optional ? " | undefined" : ""} };
+      export function read(box: Box): boolean {
+        ${optional ? "if (box.part === undefined) return false;" : ""}
+        return box.part.flag;
+      }
+    `);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+    const { checked, modules, types } = captured.value;
+    const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const [child, twin, box, callable] = module.tree.statements.nodes;
+    const body = checked.bodies.get(callable.tsonic.body);
+    const access = body.root.statements.nodes.at(-1).expression;
+    const [part] = box.type.members.nodes;
+    const [flag] = child.type.members.nodes;
+    const declared = property => property.tsonic.declaration.definition;
+    const childType = child.tsonic.type.value;
+    const childIdentity = child.tsonic.definition;
+    const itemOf = definition => checked.nodeOf(checked.declarationSourceOf(definition));
+    const reader = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf,
+      itemOf, typeOf: type => readType(types, type), admit: () => true };
+    const proof = product.checkedSourceObjectFieldsOf(body, reader).field(access);
+    assert.ok(proof);
+    assert.equal(proof.receiver, childType);
+    assert.equal(proof.field, declared(flag));
+    assert.equal(proof.declaration, declared(part));
+    assert.equal(proof.parent.field, declared(part));
+    assert.equal(proof.parent.declaration, box.tsonic.definition);
+    assert.equal(proof.parent.requiredReference, optional ? null : childType);
+    assert.deepEqual(proof.parent.presence, optional ? { storage: part.tsonic.declaredType.value, present: childType } : null);
+    let childReadAt = null;
+    let work = 0;
+    let records = 0;
+    let childReadRecords = null;
+    assert.ok(product.checkedSourceObjectFieldsOf(body, { ...reader, admit: (units, retained) => {
+      work += units; records += retained; return true;
+    }, itemOf: definition => {
+      if (definition === childIdentity) { childReadAt = work; childReadRecords = records; }
+      return itemOf(definition);
+    } }).field(access));
+    assert.ok(childReadAt > 0 && childReadRecords > 0);
+    for (const [workCap, recordCap] of [[childReadAt - 1, records], [work, childReadRecords - 1]]) {
+      let remainingWork = workCap;
+      let remainingRecords = recordCap;
+      const stopped = product.checkedSourceObjectFieldsOf(body, { ...reader, admit: (units, retained) => {
+        if (units > remainingWork || retained > remainingRecords) return false;
+        remainingWork -= units; remainingRecords -= retained; return true;
+      }, itemOf: definition => {
+        assert.notEqual(definition, declared(flag));
+        if (workCap !== work) assert.notEqual(definition, childIdentity);
+        return itemOf(definition);
+      } }).field(access);
+      assert.equal(stopped, null);
+    }
+    const crossed = product.checkedSourceObjectFieldsOf(body, { ...reader, itemOf: definition => {
+      assert.notEqual(definition, declared(flag));
+      return definition === childIdentity ? twin : itemOf(definition);
+    } }).field(access);
+    assert.equal(crossed, null);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === body.body);
+    assert.deepEqual(selected.mir.blocks.filter(row => row.terminator.kind === "check")
+      .map(row => selected.mir.places[row.terminator.place].base.projection.kind), optional ? ["refined"] : []);
+    if (optional) assert.equal(selected.facts[0].refinements.refinements[0].kind, "proven");
+  }
+});
+
+test("named by-value views revisit siblings but do not unroll a recursive ancestor", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { readSignature, readType } = await import("../../packages/host/dist/ir-types/index.js");
+  for (const recursive of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Caller = { flag: boolean${recursive ? "; next: Caller | undefined" : ""} };
+      type Formal = { flag: boolean${recursive ? "; next: Formal | undefined" : ""} };
+      function touch(formal: { x: Formal | undefined; z: Formal }): boolean { return formal.z.flag; }
+      export function entry(caller: { x: undefined | Caller; z: Caller }): boolean {
+        ${recursive ? "caller; return true;" : "return touch(caller);"}
+      }
+    `);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+    const { checked, modules, types } = captured.value;
+    const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const [callerAlias, formalAlias, touch, entry] = module.tree.statements.nodes;
+    const body = checked.bodies.get(entry.tsonic.body);
+    const expression = body.root.statements.nodes[0].expression;
+    const argument = recursive ? expression : expression.arguments.nodes[0];
+    const caller = argument.tsonic.value.views.read.value;
+    const endpoint = touch.tsonic.signatures.find(row => row.role === "api-body");
+    const [formal] = readSignature(types, endpoint.signature).parameters;
+    const member = (alias, ordinal) => alias.type.members.nodes[ordinal].tsonic.declaration.definition;
+    const reached = [];
+    const view = product.checkedReferenceArgumentViewOf({ body, argument: { body: body.body, node: argument.id },
+      caller, endpoint, ordinal: 0, formal }, {
+      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, typeOf: type => readType(types, type),
+      itemOf: key => { reached.push(key); return checked.nodeOf(checked.declarationSourceOf(key)); }, admit: () => true,
+    });
+    const callerFlag = member(callerAlias, 0);
+    const formalFlag = member(formalAlias, 0);
+    if (recursive) {
+      assert.equal(view, null);
+      assert.equal(reached.filter(key => key === callerFlag).length, 1);
+      assert.deepEqual(reached.slice(-4), [member(callerAlias, 1), callerAlias.tsonic.definition,
+        member(formalAlias, 1), formalAlias.tsonic.definition]);
+    } else {
+      assert.deepEqual(view.fields.map(row => row.parent), [null, 0, null, 2]);
+      assert.deepEqual(view.fields.filter(row => row.parent !== null).map(row => [row.caller, row.formal]),
+        [[callerFlag, formalFlag], [callerFlag, formalFlag]]);
+      const result = analyzeHostProgram(input);
+      assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    }
+  }
+});
+
 test("checked by-value reference views pair actual field declarations and native present arms", async () => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
