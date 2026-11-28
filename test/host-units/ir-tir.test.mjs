@@ -8540,6 +8540,68 @@ for (const kind of ["declared", "class-prototype", "mapped"]) {
   });
 }
 
+test("actual typed numeric binding qualification preserves its own key and original width stop", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    export function read(source: { 16: boolean; 17: boolean }): boolean {
+      const {0x10: value} = source;
+      return !value;
+    }
+  `);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+  const body = proof.module.bodies.find(row => row.root.kind === "Block" && row.bindings.kind === "instantiated");
+  const element = body.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[0];
+  const original = element.propertyName.tsonic.key;
+  const instance = { body: body.body, bindings: body.bindings };
+  const table = proof.memberTableOf(instance, { kind: "selection", node: element.id, ordinal: 0 });
+  const sibling = table.members.find(row => row.key.kind === "number" && row.key.value.numerator === 17n);
+  const verifyAt = (maximumWork, unreadSibling = false) => {
+    const account = createAccount({ ...input.limits.dataflow, maximumWork });
+    const pay = tirReadyReadAdmission(account);
+    const requests = [];
+    const owner = unreadSibling ? { ...proof, memberTableOf: (body, occurrence) => {
+      const offered = proof.memberTableOf(body, occurrence);
+      return offered !== table ? offered : { ...table, members: table.members.map(row => row !== sibling ? row : {
+        ...row, get key() { return assert.fail("later numeric inventory key after the first width refusal"); },
+      }) };
+    } } : proof;
+    const result = verifyTir(owner, request => {
+      requests.push([request.kind, InvocationAccount.stateOf(account).work]);
+      return pay(request);
+    })(body);
+    return { result, requests, stop: accountFailure(account), pay };
+  };
+  const limits = input.limits.dataflow;
+  const complete = verifyAt(limits.maximumWork);
+  assert.deepEqual(complete.result, { kind: "complete", violations: [] });
+  const firstWidth = complete.requests.findIndex(([kind]) => kind === "member") + 1;
+  assert.ok(firstWidth > 0);
+  assert.equal(complete.requests[firstWidth][0], "source-field-proof");
+  const cut = verifyAt(complete.requests[firstWidth][1], true);
+  assert.equal(cut.result.kind === "resource-stop" && cut.result.stop === cut.stop, true);
+  assert.equal(cut.pay({ kind: "prior" }) === cut.stop, true);
+  assert.deepEqual(cut.requests, complete.requests.slice(0, firstWidth + 1));
+  try {
+    element.propertyName.tsonic.key = sibling.key;
+    const crossed = verifyAt(limits.maximumWork).result;
+    assert.equal(crossed.kind, "complete");
+    assert.deepEqual(crossed.violations.map(row => [row.rule, row.site.node]), [["member-origin", element.id]]);
+  } finally {
+    element.propertyName.tsonic.key = original;
+  }
+});
+
 test("F-3 source-only member selection cannot borrow a declaration identity", () => {
   const fixture = foreignMemberScenario("declared");
   const origin = { kind: "source-member", occurrence: { body: bodyId, node: 3 } };

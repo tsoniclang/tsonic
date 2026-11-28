@@ -20,14 +20,12 @@ export function fixedTypeTerm(value: TypeTerm): value is FixedTypeTerm {
 export const compareMemberKeys: CompareMemberKeys = (left, right) =>
   compareText(memberKeyText(left), memberKeyText(right));
 
-const refusedKey = {};
-
 export const admitMemberKeyEncoding: AdmitMemberKeyEncoding = (key, admit) => {
   switch (key.kind) {
     case "text": return admit(key.value.length);
     case "symbol": return admit(key.declaration.length);
     case "number": {
-      const pay = (work: number) => admit(work) ? null : refusedKey;
+      const pay = (work: number) => admit(work) ? null : key;
       return admitIntegerKey(key.value.numerator, pay) === null && admitIntegerKey(key.value.denominator, pay) === null;
     }
   }
