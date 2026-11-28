@@ -1710,9 +1710,48 @@ function tupleAnnotationOf(scope: CaptureScope, type: Type, annotation: Node | u
   return definition?.type === type && definition.causes.length === 0 ? result : undefined;
 }
 
+function inferredTupleBindingRoot(scope: CaptureScope, occurrence: Node | undefined): "initializer" | "nested" | null {
+  const ast = scope.checked.ast;
+  let operand = occurrence;
+  let declaration = ast.kindName(occurrence) === "KindVariableDeclaration" ? occurrence : ast.parent(occurrence);
+  let path: number[] | null = null;
+  while (declaration !== undefined) {
+    if (isTupleContextWrapper(scope, declaration)) {
+      if (tupleContextOperand(scope, declaration) !== operand) return null;
+    } else if (ast.kindName(declaration) === "KindArrayLiteralExpression") {
+      if (!admit(scope, "edges")) return null;
+      const slots = ast.as.AsArrayLiteralExpression(declaration)?.Elements?.Nodes;
+      if (slots === undefined) return null;
+      let position = 0;
+      for (; position < slots.length; position += 1) {
+        if (!admit(scope, "edges")) return null;
+        if (slots[position] === operand) break;
+      }
+      if (position === slots.length || !admit(scope, "facts", path === null ? 2 : 1)) return null;
+      (path ??= []).push(position);
+    } else break;
+    operand = declaration;
+    declaration = ast.parent(declaration);
+  }
+  const variable = ast.kindName(declaration) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(declaration) : undefined;
+  if (variable === undefined || variable.Type !== undefined || variable.Initializer === undefined
+    || declaration !== occurrence && variable.Initializer !== operand) return null;
+  let pattern = variable.name;
+  for (let depth = (path?.length ?? 0) - 1; depth >= 0; depth -= 1) {
+    if (ast.kindName(pattern) !== "KindArrayBindingPattern" || !admit(scope, "edges")) return null;
+    const ordinal = path?.[depth];
+    const element = ordinal === undefined ? undefined : ast.as.AsBindingPattern(pattern)?.Elements?.Nodes[ordinal];
+    const binding = ast.as.AsBindingElement(element);
+    if (binding === undefined || ast.parent(element) !== pattern
+      || binding.PropertyName !== undefined || binding.Initializer !== undefined || binding.DotDotDotToken !== undefined) return null;
+    pattern = binding.name;
+  }
+  return ast.kindName(pattern) === "KindArrayBindingPattern" ? path === null ? "initializer" : "nested" : null;
+}
+
 function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   originalUse: OriginalTypeUse | null, binding: TupleProjectionUse | ContextualTupleUse | LiteralTupleUse | BindingPatternTuple | null,
-  projection: ProjectedOperandUse | null): RawTypeForm | null {
+  projection: ProjectedOperandUse | null, contextual: boolean): RawTypeForm | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
   const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
@@ -1783,12 +1822,17 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     const occurrence = originalUse === null && binding === null && parent.path === null
       ? admittedTypeUse(scope, parent.root) : undefined;
     if (scope.meter.refusal !== null) return null;
-    const declaration = ast.kindName(occurrence) === "KindVariableDeclaration" ? occurrence : ast.parent(occurrence);
-    const variable = ast.kindName(declaration) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(declaration) : undefined;
-    if (variable === undefined || variable.Type !== undefined || ast.kindName(variable.name) !== "KindArrayBindingPattern"
-      || variable.Initializer === undefined
-      || declaration !== occurrence && variable.Initializer !== occurrence)
+    const qualified = inferredTupleBindingRoot(scope, occurrence);
+    if (scope.meter.refusal !== null) return null;
+    if (qualified === null)
       throw new TypeError("front: a tuple requires its actual authored, projected or inferred destructuring association");
+    if (qualified === "nested" && !contextual) {
+      const literal = occurrence === undefined ? undefined : tupleLiteralExpression(scope, occurrence);
+      if (scope.meter.refusal !== null || !admit(scope, "edges")) return null;
+      literalSlots = ast.as.AsArrayLiteralExpression(literal)?.Elements?.Nodes;
+      if (literalSlots === undefined)
+        throw new TypeError("front: a nested inferred tuple value requires its actual literal operands");
+    }
   }
   const original = binding?.original ?? type;
   if (!admit(scope, "edges")) return null;
@@ -3291,7 +3335,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
   }
   if (shape.isTuple(type)) return captureTuple(scope, type, position, originalUse,
     bindingUse?.kind === "tuple-projection" || bindingUse?.kind === "contextual-tuple" || bindingUse?.kind === "literal-tuple"
-      || bindingUse?.kind === "binding-pattern-tuple" ? bindingUse : null, projection);
+      || bindingUse?.kind === "binding-pattern-tuple" ? bindingUse : null, projection, task.contextual);
   if (symbol !== undefined && interfaceFragments === 1 && interfaceFragment !== undefined) {
     const native = declarations.length === 1 ? undefined : nativeInterfaceDeclarations(scope, shape.getTypeReferenceTarget(type) ?? type);
     if (native === null) return null;
@@ -4383,7 +4427,7 @@ function declaredIndexResult(scope: CaptureScope, task: TypeCapture, type: Type)
   if (declarations !== null) return captureMergedParameter(scope, declarations);
   const argument = indexedTupleArgument(scope, receipt.receiver, syntax.ObjectType, receipt.declaration, type);
   if (scope.meter.refusal !== null) return null;
-  return argument === undefined ? undefined : captureTuple(scope, type, task.position, argument, null, null);
+  return argument === undefined ? undefined : captureTuple(scope, type, task.position, argument, null, null, task.contextual);
 }
 
 function exactNumericUnion(scope: CaptureScope, task: TypeCapture): RawTypeForm | undefined | null {

@@ -3453,7 +3453,8 @@ test("a declared tuple field uses its own authored inventory slot for each reach
   const capture = maximumCapturedEdgesPerModule => captureSingleModule(front, {
     ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedEdgesPerModule },
   }, program, module);
-  const exact = 330;
+  const readonlyIntentRead = 1;
+  const exact = 330 + readonlyIntentRead;
   assert.deepEqual(capture(exact - 1), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedEdgesPerModule", maximum: exact - 1, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } },
@@ -4236,6 +4237,60 @@ test("inferred array destructuring preserves independent native read and context
     }
     assert.deepEqual(raw.types.types[tuple.elements[0].type].form,
       { kind: "available", value: { kind: "scalar", scalar } });
+  }
+});
+
+test("an inferred nested binding qualifies its own contextual tuple through const operands and holes", () => {
+  for (const [initializer, index, second] of [
+    ["[[null, value]]", 0, "boolean"],
+    ["(([[null, true] as const] as const))", 0, true],
+    ["<const>[true, <const>[null, true]]", 1, true],
+  ]) {
+    const pattern = index === 0 ? "[[absent, flag]]" : "[, [absent, flag]]";
+    const { deps, program, module } = openedModule(
+      `export function start(value: boolean): null { const ${pattern} = ${initializer}; return absent; }`);
+    const result = captureSingleModule(front, deps, program, module);
+    assert.equal(result.kind, "ok");
+    const raw = result.value;
+    const declaration = raw.tree.statements.nodes[0].body.statements.nodes[0].declarationList.declarations.nodes[0];
+    assert.equal(declaration.type, null);
+    const literalOf = node => {
+      while (node.kind === "ParenthesizedExpression" || node.kind === "AsExpression" || node.kind === "TypeAssertionExpression")
+        node = node.expression;
+      assert.equal(node.kind, "ArrayLiteralExpression");
+      return node;
+    };
+    const outer = literalOf(declaration.initializer);
+    const inner = literalOf(outer.elements.nodes[index]);
+    const scalarOf = slot => {
+      const row = raw.types.types[slot.type];
+      return row.literal.value?.value ?? row.form.value.scalar;
+    };
+    const forms = node => {
+      const { read, contextual } = raw.checkerViews.find(row => row.node.node === node.id);
+      assert.equal(read.kind, "available");
+      assert.equal(contextual.kind, "available");
+      assert.notEqual(read.value, contextual.value);
+      return [read, contextual].map(view => {
+        const row = raw.types.types[view.value];
+        assert.deepEqual(raw.types.components[row.component].root, { module, node: node.id });
+        assert.equal(row.form.value.kind, "tuple");
+        return row.form.value;
+      });
+    };
+    for (const [position, tuple] of forms(outer).entries()) {
+      const projected = raw.types.types[tuple.elements[index].type];
+      assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[projected.component]), [
+        { kind: "tuple-element", index },
+      ]);
+      if (index === 1) assert.equal(scalarOf(tuple.elements[0]), position === 0 ? true : "any");
+      const nested = projected.form.value;
+      assert.equal(nested.kind, "tuple");
+      assert.deepEqual(nested.elements.map(scalarOf), position === 0 ? ["null", second] : ["any", "any"]);
+    }
+    for (const [position, tuple] of forms(inner).entries()) {
+      assert.deepEqual(tuple.elements.map(scalarOf), position === 0 ? ["null", second] : ["any", "any"]);
+    }
   }
 });
 
