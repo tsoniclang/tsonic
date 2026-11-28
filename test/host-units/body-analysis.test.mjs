@@ -150,7 +150,9 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "projection-effects", "static-calls", "captures", "initialization", "writes", "exits", "array-results"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places",
+  "projection-effects", "static-calls", "captures", "initialization", "writes", "exits", "array-results", "summary-subjects"]
+  .map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));

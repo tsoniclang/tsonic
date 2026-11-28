@@ -85,7 +85,8 @@ const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "
 // The coverage gate: every runtime file of lower-mir at 100% of lines, branches and functions over this bank and the
 // case modules it loads; the type-only contract is not applicable.
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "calls", "bindings", "array-initialization"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
+const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "condition", "calls", "bindings", "array-initialization"]
+  .map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
