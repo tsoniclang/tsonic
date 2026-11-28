@@ -232,7 +232,8 @@ function inspect<Value extends boolean>(): void {
 }
 `;
   const snapshot = front.projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: [{ name: "lib.es5.d.ts", text: front.sdk.barebonesLibContent }] });
+    libraries: [{ name: "lib.es5.d.ts", text: front.sdk.barebonesLibContent
+      + "\ninterface ReadonlyArray<T> { readonly length: number; readonly [index: number]: T; }" }] });
   const { captured } = front.captureModulesOf(snapshot);
   const entry = captured.find(row => row.module === snapshot.entryPoint);
   assert.ok(entry);
