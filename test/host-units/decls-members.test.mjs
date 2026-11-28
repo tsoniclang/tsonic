@@ -427,6 +427,9 @@ test("memberTypeOf opens exactly the original checked getter and setter arms", a
       assert.deepEqual(value.diagnostics[0].site, { kind: "source", origin: expectedOrigin });
       const unopened = new Proxy({}, { get() { assert.fail("A previous resource stop does not reopen any accessor arm."); } });
       assert.strictEqual(declarations.memberTypeOf(limited, unopened).value, value);
+      const unopenedInventory = { ...limited,
+        get types() { return assert.fail("An exhausted member producer cannot reopen the receiver inventory."); } };
+      assert.equal(declarations.membersOf(unopenedInventory, receiver).value === value, true);
     }
   }
   Object.defineProperty(row, "readOrigins", { value: [setterOrigin] });

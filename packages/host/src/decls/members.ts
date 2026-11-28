@@ -180,6 +180,8 @@ function mergedInventory(deps: DeclsDeps, receiver: TyId, term: MergedType, unit
 }
 
 export const membersOf: MembersOf = (deps, receiver) => {
+  const prior = typePublicationRefusalOf(deps.typeWork);
+  if (prior?.kind === "refused") return settle(prior);
   const term = readType(deps.types, receiver);
   const unit: UnitRequest = { query: "membersOf", key: receiver };
   const open = (reason: MemberUnavailableReason): MemberInventory => ({ receiver, members: [], indexes: [], calls: [],
