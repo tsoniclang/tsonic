@@ -3,7 +3,7 @@ import { SignatureFlagsCallChainFlags } from "../types.js";
 import { Node_Expression, Node_Symbol, Node_Type } from "../../ast/ast.js";
 import { AsTypeOperatorNode } from "../../ast/generated/casts.js";
 import { NodeFlagsOptionalChain, SymbolFlagsOptional, SymbolFlagsProperty, SymbolFlagsTransient } from "../../ast/generated/flags.js";
-import { KindIdentifier, KindNonNullExpression, KindParenthesizedExpression, KindParenthesizedType, KindReadonlyKeyword, KindTypeOperator } from "../../ast/generated/kinds.js";
+import { KindCallExpression, KindIdentifier, KindNonNullExpression, KindParenthesizedExpression, KindParenthesizedType, KindReadonlyKeyword, KindTypeOperator } from "../../ast/generated/kinds.js";
 import { IsExpressionNode, IsPartOfTypeNode } from "../../ast/utilities.js";
 import { IsConstructorDeclaration, IsPropertySignatureDeclaration } from "../../ast/generated/predicates.js";
 import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
@@ -37,6 +37,21 @@ function errorOperandSource(checker, operand) {
     if (source !== undefined)
         return "Kind" in source ? source : operand;
     return answer.causes.length === 0 ? undefined : operand;
+}
+export function retainDirectErrorSource(checker, result, cause) {
+    const links = LinkStore_Get(checker.typeNodeLinks, result);
+    links.resolvedType = checker.errorType;
+    links.resolutionFailure = cause;
+}
+export function completedCallErrorAnswer(checker, node, admits) {
+    if (node?.Kind !== KindCallExpression)
+        return undefined;
+    const retained = LinkStore_TryGet(checker.typeNodeLinks, node);
+    if (retained === undefined || retained.resolvedType === undefined || retained.resolvedType !== checker.errorType
+        || retained.resolutionFailure === undefined
+        || retained.declarationFailure !== undefined || retained.grammarFailure !== undefined)
+        return undefined;
+    return withCause(retained.resolvedType, admittedCause(retained.resolutionFailure, admits));
 }
 export function retainErrorOperandSource(checker, result, mode, left, right) {
     if (result === undefined || mode !== CheckModeNormal || checker.flowLoopStack.length !== 0 || left === undefined && right === undefined)

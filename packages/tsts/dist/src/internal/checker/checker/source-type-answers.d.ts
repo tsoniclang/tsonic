@@ -27,6 +27,8 @@ export interface SourceTypeAnswerOutput {
 export type CheckerDiagnosticMembership = (diagnostic: Diagnostic) => boolean;
 export declare function sourceTypeAnswer(checker: Checker | undefined, node: Node | undefined, type: Type | undefined, admits?: CheckerDiagnosticMembership): SourceTypeAnswer | undefined;
 export declare function borrowedSourceTypeAnswer(checker: Checker, anchor: Node, type: Type, admits: CheckerDiagnosticMembership | undefined): SourceTypeAnswer;
+export declare function retainDirectErrorSource(checker: Checker, result: Node, cause: Diagnostic): void;
+export declare function completedCallErrorAnswer(checker: Checker, node: Node | undefined, admits: CheckerDiagnosticMembership | undefined): SourceTypeAnswer | undefined;
 export declare function retainErrorOperandSource(checker: Checker, result: Node | undefined, mode: CheckMode, left: Node | undefined, right?: Node): void;
 export declare function completedRequiredPropertySource(checker: Checker, property: Symbol, type: Type): Node | undefined;
 export declare function completedAnnotationSource(checker: Checker, annotation: Node | undefined, type: Type): Node | undefined;

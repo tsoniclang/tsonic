@@ -83,6 +83,42 @@ test("a refused required child does not hide its module's independent authored a
   }
 });
 
+test("an unknown callee reports its original checker error without replay or a partial Program", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const rejected = "export function read(callee: unknown): boolean { return callee(); }";
+  const independent = "export function other(): boolean { return missing; }";
+  for (const [rows, codes] of [[[rejected, independent], ["TS18046", "TS2304"]],
+    [[independent, rejected], ["TS2304", "TS18046"]]]) {
+    const input = analysisInput(fixture, "sdk-minimal", rows.join("\n"));
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const checked = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+    const original = checked.checkerDiagnostics.find(row => row.code.rendered === "TS18046");
+    assert.ok(original);
+    const fn = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === "read");
+    const call = fn.body.statements.nodes[0].expression;
+    const application = call.tsonic.application;
+    assert.equal(application.kind, "unavailable");
+    assert.equal(application.reason, "checker-error");
+    assert.equal(application.causes.length, 1);
+    const cause = application.causes[0].diagnostic.diagnostic;
+    assert.equal(cause.module, checked.module);
+    assert.equal(checked.checkerDiagnostics[cause.index] === original, true);
+    const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+    assert.equal(typed.kind, "refused");
+    assert.deepEqual(typed.diagnostics.map(row => row.code.rendered), codes);
+    assert.equal(typed.diagnostics.find(row => row.code.rendered === "TS18046") === original, true);
+    const published = analyzeHostProgram(input);
+    assert.equal(published.kind, "refused");
+    assert.equal("value" in published, false);
+    assert.deepEqual(published.diagnostics.map(row => row.code.rendered), codes);
+  }
+});
+
 test("the original Forms refusal and an independent checker error both survive either authored order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
