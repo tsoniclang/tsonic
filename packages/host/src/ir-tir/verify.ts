@@ -72,7 +72,8 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, boundary: 
     : checkedReferenceArgumentViewOf({ ...request, body }, { bodyOf, nodeOf: read, itemOf: item, bindingOf: input.bindingOf,
       typeOf: type => input.types.terms[type], admit: work });
   return { field: (access: PropertyAccessExpression<CheckedPhase>) => fields()?.field(access) ?? null,
-    presence: (operand: HirNode) => fields()?.presence(operand) ?? null, referenceArgument, work, stop: () => stopped, missing: () => missing };
+    presence: (operand: HirNode, access: "read" | "write") => fields()?.presence(operand, access) ?? null,
+    referenceArgument, work, stop: () => stopped, missing: () => missing };
 }
 
 function sameReferenceView<Stop extends object>(actual: ReferenceArgumentView, selected: ReferenceArgumentView,
@@ -106,21 +107,22 @@ function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInp
   const parent = authored === undefined ? undefined : inventory.typedOfSource.get(authored);
   const target = authored?.kind === "BinaryExpression" && authored.right === original
     ? unparenthesizedExpression<CheckedPhase>(authored.left) : null;
-  const witness = target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target"
-    ? fields.field(target) : null;
+  const witness = target === null ? null : fields.presence(target, "write");
   const stopped = fields.stop();
   if (stopped !== null) return stopped;
   const source = input.types.terms[operation.from];
   const { proof } = operation.embedding;
   const step = proof.steps[0];
+  const body = inventory.original?.body;
   if (parent?.kind !== "BinaryExpression" || parent.tsonic.role !== "assignment" || parent.right !== node || parent.id !== authored?.id
-    || witness?.presence?.storage !== operation.to || parent.tsonic.storage !== witness.presence.storage
+    || target === null || body === undefined || witness?.storage !== operation.to || witness.present !== destination.value
+    || parent.tsonic.storage !== witness.storage
     || source?.kind !== "intrinsic" || source.intrinsic !== "absence" || right.conversion.role !== "assignment"
     || operation.embedding.check.kind !== "none" || proof.conclusion !== 0 || proof.steps.length !== 1
     || step?.rule !== "absence" || step.premises.length !== 0 || step.from.path.length !== 0 || step.to.path.length !== 0
-    || !sameSourceReference(step.from.root, { kind: "body", value: { body: witness.occurrence.body, node: node.id } })
-    || !sameSourceReference(step.to.root, { kind: "body", value: witness.occurrence }))
-    emit("operation-type", node, "an absence write to an optional reference requires its actual checked field and qualified conversion");
+    || !sameSourceReference(step.from.root, { kind: "body", value: { body, node: node.id } })
+    || !sameSourceReference(step.to.root, { kind: "body", value: { body, node: target.id } }))
+    emit("operation-type", node, "an absence write to an optional reference requires its actual checked destination and qualified conversion");
   return null;
 }
 
@@ -146,7 +148,7 @@ function checkedComparisonPayload<Stop extends object>(input: TirVerifierInput, 
   }
   if (checked.kind !== "PropertyAccessExpression" && checked.kind !== "Identifier" || checked.tsonic.role !== "value"
     || checked.kind === "Identifier" && checked.tsonic.resolution.kind !== "local") return null;
-  const proof = fields.presence(checked);
+  const proof = fields.presence(checked, "read");
   return proof != null && proof.storage === operands[selected] && proof.present === term.value ? proof.present : null;
 }
 
@@ -1022,7 +1024,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const read = original?.kind === "Identifier" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
       const local = original?.kind === "Identifier" && original.tsonic.role === "value" && original.tsonic.resolution.kind === "local"
         ? original.tsonic.resolution.local : null;
-      const witness = read?.kind === "available" && original !== undefined ? fields.presence(original) : null;
+      const witness = read?.kind === "available" && original !== undefined ? fields.presence(original, "read") : null;
       const stopped = fields.stop();
       if (stopped !== null) return { kind: "resource-stop", stop: stopped };
       if (read?.kind !== "available" || read.value !== narrowing.result || local === null || node.tsonic.resolution.kind !== "local"

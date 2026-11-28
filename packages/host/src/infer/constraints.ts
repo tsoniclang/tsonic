@@ -1399,17 +1399,11 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
     if (checked?.kind !== "available" || checked.value !== selectedStorage)
       return callerDefect(PORT, "a local assignment retains the actual checked storage type");
   }
-  const parameter = parametersOf(walk.generation.parameters, owner).get(reference.local);
-  if (parameter !== undefined) return parameterType(walk.generation, owner, parameter);
-  const { definition, declaration, local } = localBinding(walk.generation.deps, reference);
-  if (local.role === "catch") {
-    if (local.checkerSlot.kind !== "available") return notInferredYet(PORT, "a handler without its actual checked payload carrier", node.origin);
-    return local.checkerSlot.value;
-  }
-  if (name.role === "value" && name.value.views.read.kind === "available" && local.checkerSlot.kind === "available"
-    && name.value.views.read.value !== local.checkerSlot.value) {
+  const sourceSlot = owner.locals[reference.local]?.checkerSlot;
+  if (name.role === "value" && name.value.views.read.kind === "available" && sourceSlot?.kind === "available"
+    && name.value.views.read.value !== sourceSlot.value) {
     const { deps, group } = walk.generation;
-    const type = readType(deps.types, local.checkerSlot.value);
+    const type = readType(deps.types, sourceSlot.value);
     if (type.kind === "optional" && type.value === name.value.views.read.value && readType(deps.types, type.value).kind === "shape") {
       const unit = { query: "solutionOf", key: group.id };
       const setup = admitTypePublicationStep(deps.typeWork, 1, 3);
@@ -1417,11 +1411,18 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
       const witness = checkedSourceObjectFieldsOf(walk.draft.body, {
         bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf,
         typeOf: type => readType(deps.types, type), admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
-      }).presence(node);
+      }).presence(node, "read");
       const stop = admitTypePublicationStep(deps.typeWork, 0);
       if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
-      if (witness?.storage === local.checkerSlot.value && witness.present === type.value) return type.value;
+      if (witness?.storage === sourceSlot.value && witness.present === type.value) return type.value;
     }
+  }
+  const parameter = parametersOf(walk.generation.parameters, owner).get(reference.local);
+  if (parameter !== undefined) return parameterType(walk.generation, owner, parameter);
+  const { definition, declaration, local } = localBinding(walk.generation.deps, reference);
+  if (local.role === "catch") {
+    if (local.checkerSlot.kind !== "available") return notInferredYet(PORT, "a handler without its actual checked payload carrier", node.origin);
+    return local.checkerSlot.value;
   }
   const declared = declaration.tsonic.declaredType;
   if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", node.origin);

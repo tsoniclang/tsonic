@@ -23,7 +23,7 @@ import { checkBorrowedNativeArrayReturn, checkNativeArrayAlternatives, checkNati
 import { nativeInt32Input } from "./fixtures/native-int32-input.mjs";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementWalkthrough, checkSavedExtentReceivers, nativeRefinementInput } from "./fixtures/native-refinement-proofs.mjs";
-import { checkSavedReferencePresence } from "./fixtures/saved-reference-presence.mjs";
+import { checkDeclaredNullableReferenceStorage, checkSavedReferencePresence } from "./fixtures/saved-reference-presence.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
 test("S-1: placed binding and array executions reproduce their facts at their exact limits", async () => {
@@ -2207,6 +2207,7 @@ test("a selected field proof survives a read-only call and records the actual in
 test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
 test("the WT-10 walkthrough combines the counted range and ordered field checks", checkNativeRefinementWalkthrough);
 test("a saved nullable local keeps the actual guarded producer even through a copied capture", checkSavedReferencePresence);
+test("an explicitly declared nullable reference local gets its live value from the actual reaching writes", checkDeclaredNullableReferenceStorage);
 test("the actual WT-10 Body round returns its original refusal at every reached limit cut", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

@@ -477,7 +477,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     const presence = checkedSourceObjectFieldsOf(body, {
       bodyOf: deps.bodyOf, nodeOf: deps.nodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf, typeOf: deps.typeOf,
       admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
-    }).presence(node);
+    }).presence(node, "read");
     const stopped = admitTypePublicationStep(deps.typeWork, 0);
     return stopped ?? (presence?.storage === storage && presence.present === present ? presence : null);
   };

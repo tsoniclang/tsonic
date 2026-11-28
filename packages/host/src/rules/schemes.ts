@@ -397,7 +397,7 @@ export function flowScheme(deps: RulesDeps): FlowContributionScheme {
       if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
       const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component },
         { ...destination.value, component: toEvidence.value.component },
-        value.role, value.occurrence, input.origin, work, input.optionalField);
+        value.role, value.occurrence, input.origin, work, input.optionalTarget);
       return embedding.kind === "refused" ? embedding
         : ok({ bounds: [], decision: { kind: "flow", embedding: embedding.value }, selectedCandidate: null });
     },

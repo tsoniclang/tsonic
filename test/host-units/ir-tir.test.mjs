@@ -13,6 +13,7 @@ import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
 import { syntaxFieldMutations } from "./fixtures/syntax-field-mutations.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { checkDeclaredNullableWriteQualification } from "./fixtures/saved-reference-presence.mjs";
 import { readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 import { checkCallShapedComputedDeclarationName } from "./fixtures/computed-declaration-name.mjs";
@@ -332,6 +333,7 @@ test("authored comma sequences preserve ordered effects and forward only the rig
 test("a selected callable reads the actual initialized module static through its source binding", checkQualifiedStaticRead);
 test("native local coalescing assignment distinguishes absence from false and retains one optional carrier", checkCoalescingAssignment);
 test("Evaluate consumes the selected optional embedding without changing a native payload", checkOptionalEmbedding);
+test("a nullable reference assignment requires the actual checked destination, not a same-carrier formal", checkDeclaredNullableWriteQualification);
 test("labelled native transfers retain their actual lexical targets across nested controls", checkLabelledTransfers);
 test("the authored void operator evaluates its operand once and returns native absence only when used", checkVoidOperand);
 const codecBinding = { kind: "item", value: { owner: ownerId, node: 4 } };

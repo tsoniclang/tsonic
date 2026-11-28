@@ -4088,7 +4088,7 @@ export type CheckedReferenceArgumentViewOf = (site: CheckedReferenceArgumentSite
 export type CheckedSourceObjectFieldReader = (access: PropertyAccessExpression<CheckedPhase>) => SourceObjectField | null;
 export interface CheckedSourceObjectFields {
   readonly field: CheckedSourceObjectFieldReader;
-  readonly presence: (operand: HirNode) => SourceObjectFieldPresence | null;
+  readonly presence: (operand: HirNode, access: "read" | "write") => SourceObjectFieldPresence | null;
   readonly ready: (node: NodeId) => SourceObjectField | null;
 }
 export type CheckedSourceObjectFieldsOf = (body: HirBody, read: CheckedSourceObjectRead) => CheckedSourceObjectFields;

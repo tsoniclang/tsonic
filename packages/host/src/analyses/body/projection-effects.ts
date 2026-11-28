@@ -261,7 +261,8 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       if (node?.kind === "Identifier" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
         const { narrowing, resolution } = node.tsonic;
         if (resolution.kind !== "local" || local === undefined ||
-          !(local.role.kind === "user" && local.mode === "local" || local.role.kind === "capture" && local.mode === "captured-value") ||
+          !(local.role.kind === "parameter" && local.mode === "by-value" || local.role.kind === "user" && local.mode === "local"
+            || local.role.kind === "capture" && local.mode === "captured-value") ||
           local.source?.body !== resolution.local.body || local.source.local !== resolution.local.local ||
           narrowing.source !== local.storage || narrowing.result !== view.storage)
           return bodyFrontier("A narrowed reference local must retain its actual selected storage and checked value.");
@@ -346,14 +347,16 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
           }
           continue;
         }
-        if (!hasWriteOnly || statement.value.kind !== "convert") continue;
+        if (statement.value.kind !== "convert") continue;
+        const selected = statement.value.operation.decision;
+        const operation = selected.kind === "selected" && selected.execution.kind === "pure" && selected.operation.kind === "conversion"
+          && selected.operation.embedding.kind === "conversion" && selected.operation.embedding.conversion === "absence" ? selected.operation : null;
+        if (!hasWriteOnly && operation === null) continue;
         const admission = chargeWork(account, 1);
         if (admission !== null) return admission;
         const local = mir.locals[target.local];
-        const selected = statement.value.operation.decision;
-        const operation = selected.kind === "selected" && selected.execution.kind === "pure" ? selected.operation : null;
-        if (local?.role.kind !== "temporary" || operation?.kind !== "conversion" || operation.embedding.kind !== "conversion"
-          || operation.embedding.conversion !== "absence" || operation.embedding.check.kind !== "none") continue;
+        if (local?.role.kind !== "temporary" || operation?.embedding.kind !== "conversion" ||
+          operation.embedding.check.kind !== "none") continue;
         const paid = chargeWork(account, 2);
         if (paid !== null) return paid;
         const site = source.get(statement.tir.node);
@@ -372,6 +375,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
         if (retention !== null) return retention;
         absenceValues ??= new Map();
         absenceValues.set(local.id, { statement, operand: statement.value.operand });
+        includesAbsence = true;
         continue;
       }
       const admission = chargeWork(account, 2);

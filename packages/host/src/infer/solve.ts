@@ -581,7 +581,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
             }
             if ((field.kind === "PropertyAccessExpression" || field.kind === "Identifier") && field.tsonic.role === "value"
               && (field.kind === "PropertyAccessExpression" || field.tsonic.resolution.kind === "local")) {
-              const presence = deps.sourceFields(item.set.body)?.presence(field);
+              const presence = deps.sourceFields(item.set.body)?.presence(field, "read");
               const stop = admitTypePublicationStep(deps.typeWork, 0);
               if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
               if (presence != null) reference = { operand, at: selected.value, presence };
@@ -599,7 +599,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       if (reached.kind === "literal") return deps.rules.constraints.literal.evaluate({ ...input, constraint: reached.constraint }, work);
       const constraint = reached.constraint;
       const destination = reached.evidence[1]?.value.component;
-      let optionalField = null;
+      let optionalTarget = null;
       if ((constraint.role === "assignment" || constraint.role === "member-write") && destination?.kind === "body"
         && destination.value.body === item.set.body) {
         const stopped = admitTypePublicationStep(deps.typeWork, 0);
@@ -609,15 +609,15 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
           const before = admitTypePublicationStep(deps.typeWork);
           if (before !== null) return refuseTypeConstruction(deps.typeWork, before, source.origin, unit);
           const target = deps.checkedNodeOf(destination);
-          if (target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target") {
-            const field = deps.sourceFields(item.set.body)?.field(target);
-            if (field?.presence != null) optionalField = field;
+          if ((target?.kind === "PropertyAccessExpression" || target?.kind === "Identifier") && target.tsonic.role === "assignment-target") {
+            const presence = deps.sourceFields(item.set.body)?.presence(target, "write");
+            if (presence != null) optionalTarget = { at: destination.value, presence };
           }
           const stop = admitTypePublicationStep(deps.typeWork, 0);
           if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, source.origin, unit);
         }
       }
-      return deps.rules.constraints.flow.evaluate({ ...input, constraint, optionalField }, work);
+      return deps.rules.constraints.flow.evaluate({ ...input, constraint, optionalTarget }, work);
     }
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
       scope: item.reached.scope, typeWork: deps.typeWork, unit, referenceArgument: request => {

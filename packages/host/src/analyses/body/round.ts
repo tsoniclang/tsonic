@@ -137,12 +137,13 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     } else if (place.base.kind !== "local")
       return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
   }
-  const preparedSource = projectedPlaces === null && staticPlaces === null && referenceViews === null ? null : sourceOccurrences(tir, account);
-  if (preparedSource !== null && preparedSource.kind !== "complete") return preparedSource;
+  const requiredSource = projectedPlaces === null && staticPlaces === null && referenceViews === null ? null : sourceOccurrences(tir, account);
+  if (requiredSource !== null && requiredSource.kind !== "complete") return requiredSource;
+  let preparedSource = requiredSource;
   const preparedProjections = preparedSource === null || projectedPlaces === null && referenceViews === null ? null
     : heldProjections(deps, input, preparedSource.value, projectedPlaces ?? [], referenceViews);
   if (preparedProjections !== null && preparedProjections.kind !== "complete") return preparedProjections;
-  const projections = preparedProjections?.value ?? null;
+  let projections = preparedProjections?.value ?? null;
   if (projections?.includesAbsence === true) {
     hasAbsence = true;
     hasOptional = true;
@@ -183,6 +184,24 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         ? "reference-optional" : valueKind(deps, local.storage));
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
+    if (kind === null && local.role.kind === "temporary" && projections === null) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      const storage = deps.typeOf(local.storage);
+      const cut = accountFailure(account);
+      if (cut !== null) return cut;
+      if (storage.kind === "optional") {
+        const ready: ReturnType<typeof sourceOccurrences> = preparedSource ?? sourceOccurrences(tir, account);
+        if (ready.kind !== "complete") return ready;
+        preparedSource = ready;
+        const selected = heldProjections(deps, input, ready.value, [], null);
+        if (selected.kind !== "complete") return selected;
+        projections = selected.value;
+        hasAbsence ||= projections.includesAbsence;
+        hasOptional ||= projections.includesAbsence;
+        if (projections.absenceValues?.has(local.id) === true) kind = "reference-optional";
+      }
+    }
     if (kind === null && local.source !== null && (local.role.kind === "capture" ||
       local.source.body === tir.body && (local.role.kind === "parameter" && local.mode === "by-value" || local.role.kind === "user" && local.mode === "local"))) {
       const formal = deps.sourceObjectHolding(account, local.source, local.storage);

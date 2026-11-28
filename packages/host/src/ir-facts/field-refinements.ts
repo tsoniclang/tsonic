@@ -385,7 +385,8 @@ function savedSlot(mir: MirBody, place: PlaceId, source: TirSyntaxOccurrence): L
   const base = mir.places[place]?.base;
   const local = base?.kind === "local" ? mir.locals[base.local] : undefined;
   const reference = source.tsonic.resolution.local;
-  return local !== undefined && (local.role.kind === "user" && local.mode === "local" || local.role.kind === "capture" && local.mode === "captured-value")
+  return local !== undefined && (local.role.kind === "parameter" && local.mode === "by-value" || local.role.kind === "user" && local.mode === "local"
+    || local.role.kind === "capture" && local.mode === "captured-value")
     && local.source?.body === reference.body
     && local.source.local === reference.local ? local.id : null;
 }

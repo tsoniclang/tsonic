@@ -799,13 +799,16 @@ export interface PaidConstraintScheme<ConstraintKind extends Constraint> {
 export interface FlowContributionScheme {
   readonly enumerate: (input: EnumerationInput<FlowConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<FlowConstraint> & { readonly origin: Origin;
-    readonly optionalField: SourceObjectField | null }, work: RuleWork) => Result<ContributionOutcome>;
+    readonly optionalTarget: QualifiedReferencePresence | null }, work: RuleWork) => Result<ContributionOutcome>;
 }
 
-export interface QualifiedOperatorPresence {
-  readonly operand: 0 | 1;
+export interface QualifiedReferencePresence {
   readonly at: NodeRef;
   readonly presence: SourceObjectFieldPresence;
+}
+
+export interface QualifiedOperatorPresence extends QualifiedReferencePresence {
+  readonly operand: 0 | 1;
 }
 
 export interface OperatorContributionScheme {
