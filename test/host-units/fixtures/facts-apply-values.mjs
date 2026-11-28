@@ -135,4 +135,7 @@ export async function applyValueCases(suite) {
     const original = limits(); flow.refuseAccount(original.account, refusal);
     assert.equal(applyValueOrigins(null, original), refusal);
   });
+
+  const { checkHeldReferenceArgument } = await import("./held-reference-argument.mjs");
+  await suite.test("a copied capture binds its actual root separately from its returned projection", checkHeldReferenceArgument);
 }
