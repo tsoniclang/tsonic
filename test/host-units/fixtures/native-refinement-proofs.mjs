@@ -904,13 +904,27 @@ export async function checkFieldStoreAcrossCall() {
   const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
   const fixture = await loadFrontFixture();
-  for (const mutate of [false, true]) {
+  for (const [label, parameter, argument, effect, field, loop, rebind, extraCall = false] of [
+    ["read-only call", "box: Box", "box", "", null, false, false],
+    ["call writes the guarded field", "box: Box", "box", "box.part.flag = undefined;", "flag", false, false],
+    ["call writes a disjoint field", "box: Box", "box", "box.counter = true;", "counter", false, false],
+    ["a saved destination survives multiple disjoint calls", "part: Part", "box.part", "part.other = true;", "other", false, false, true],
+    ["projected sibling effect in a loop", "part: Part", "box.part", "part.other = true;", "other", true, false],
+    ["projected conflicting effect", "part: Part", "box.part", "part.flag = undefined;", "flag", false, false],
+    ["possibly aliased rebind in a loop", "part: Part", "chosen.part", "part.flag = undefined;", "flag", true, true],
+  ]) {
     const input = analysisInput(fixture, "sdk-minimal", `
-      type Box = { part: { flag: boolean | undefined; other: boolean | undefined } };
-      function effect(box: Box): void { ${mutate ? "box.part.flag = undefined;" : ""} }
-      export function read(box: Box): boolean {
+      type Part = { flag: boolean | undefined; other: boolean | undefined };
+      type Box = { part: Part; counter: boolean };
+      ${extraCall ? "function prepare(box: Box): void { box.counter = true; }" : ""}
+      function effect(${parameter}): void { ${effect} }
+      export function read(box: Box, replacement: Box, iterate: boolean): boolean {
+        ${rebind ? "let chosen: Box = box;" : ""}
         if (box.part.flag !== undefined) {
-          box.part.other = (effect(box), undefined);
+          ${loop ? "while (iterate) {" : ""}
+          ${rebind ? "if (replacement.counter) chosen = replacement;" : ""}
+          ${rebind ? "chosen" : "box"}.part.other = (${extraCall ? "prepare(box), " : ""}effect(${argument}), undefined);
+          ${loop ? "}" : ""}
           return box.part.flag;
         }
         return false;
@@ -920,34 +934,43 @@ export async function checkFieldStoreAcrossCall() {
     assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
     const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
     const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
-    const guard = body.tir.root.statements.nodes[0];
-    const node = guard.thenStatement.statements.nodes[1].expression.id;
-    const [calling] = body.mir.blocks.filter(row => row.terminator.kind === "call");
+    const guard = body.tir.root.statements.nodes.find(row => row.kind === "IfStatement");
+    const node = guard.thenStatement.statements.nodes.at(-1).expression.id;
+    const [calling] = body.mir.blocks.filter(row => row.terminator.kind === "call" && row.terminator.callee.kind === "direct"
+      && row.terminator.callee.resolution.activation.body.includes(";effect];function;0]"));
     const call = calling.terminator;
     assert.equal(call.callee.kind, "direct");
-    const summary = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 1
+    const summary = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === call.arguments.length
       && sameInstance(row.key.execution.instance, call.callee.resolution.activation));
-    const effect = summary.parameters[0].writes;
-    assert.equal(effect.kind, "complete");
-    assert.deepEqual(effect.paths.map(path => summary.arena.projections[path].projection.member.decision.key.value), mutate ? ["flag"] : []);
+    const writes = summary.parameters[0].writes;
+    assert.equal(writes.kind, "complete");
+    assert.deepEqual(writes.paths.map(path => summary.arena.projections[path].projection.member.decision.key.value), field === null ? [] : [field]);
     const [checked] = body.mir.blocks.filter(row => row.terminator.kind === "check");
     assert.equal(checked.terminator.tir.node, node);
     assert.equal(body.mir.places[checked.terminator.place].base.projection.kind, "refined");
     const fieldAt = place => body.mir.places[place].base.projection?.member?.decision.key.value;
-    const saved = calling.statements.find(row => row.kind === "assign" && row.value.kind === "use" && row.value.operand.kind === "place"
-      && fieldAt(row.value.operand.place) === "part");
-    const store = checked.statements.find(row => row.kind === "assign" && fieldAt(row.place) === "other");
-    assert.ok(saved && store);
-    assert.equal(body.mir.places[store.place].base.place, saved.place);
+    const store = body.mir.blocks.flatMap(row => row.statements)
+      .find(row => row.kind === "assign" && fieldAt(row.place) === "other");
+    assert.ok(store);
+    const saving = !extraCall ? calling : body.mir.blocks.find(row => row.terminator.kind === "call"
+      && row.terminator.callee.kind === "direct" && row.terminator.callee.resolution.activation.body.includes(";prepare];function;0]"));
+    if (extraCall) assert.equal(saving.terminator.next, calling.id);
+    const saved = saving.statements.find(row => row.kind === "assign" && row.place === body.mir.places[store.place].base.place);
+    assert.equal(saved?.value.kind, "use");
+    assert.equal(saved.value.operand.kind, "place");
+    assert.equal(fieldAt(saved.value.operand.place), "part");
     const rows = body.facts[0].refinements.refinements;
     const [row] = rows;
     assert.equal(rows.length, 1);
     assert.equal(row.node, node);
     assert.deepEqual(row.guards, [guard.expression.id]);
-    if (mutate) {
+    if (field === "flag") {
       assert.equal(row.kind, "unproven");
       assert.equal(row.reason.kind, "invalidated");
-      assert.equal(row.reason.sites.some(site => site.kind === "call" && site.at.body === call.tir.body && site.at.node === call.tir.node), true);
+      assert.deepEqual(row.reason.sites, [
+        ...(rebind ? [{ kind: "write", at: store.tir }] : []),
+        { kind: "call", at: call.tir },
+      ]);
     } else {
       assert.equal(row.kind, "proven");
     }
@@ -955,16 +978,29 @@ export async function checkFieldStoreAcrossCall() {
     assert.equal(captured.kind, "ok");
     const occurrences = sourceOccurrences(body.tir, createAccount(limits));
     assert.equal(occurrences.kind, "complete");
-    checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, body.mir, 1, {
+    const summaries = new Map();
+    for (const block of body.mir.blocks) {
+      const operation = block.terminator;
+      if (operation.kind !== "call") continue;
+      assert.ok(operation.callee.kind === "body" || operation.callee.kind === "direct");
+      const instance = operation.callee.kind === "body" ? operation.callee.instance : operation.callee.resolution.activation;
+      const provided = operation.callee.kind === "body" ? 0 : operation.arguments.length;
+      const completed = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === provided
+        && sameInstance(row.key.execution.instance, instance));
+      assert.ok(completed);
+      summaries.set(operation, completed);
+    }
+    checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, body.mir, 3, {
       sourceOf: occurrence => occurrences.value.get(occurrence),
       callBindings: { lexical: body.tir.lexicalBindings,
         scopeOf: owner => captured.value.descriptions.get(owner)?.generics ?? null },
       summaryAt: (block, operation) => {
-        assert.equal(block, calling.id);
-        assert.equal(operation === call, true);
-        return { kind: "complete", value: summary };
+        assert.equal(accountFailure(account), null);
+        assert.equal(body.mir.blocks[block].terminator === operation, true);
+        assert.ok(summaries.has(operation));
+        return { kind: "complete", value: summaries.get(operation) };
       },
-    }), rows, mutate ? "call writes the guarded field" : "read-only call before a sibling store");
+    }), rows, label);
   }
 }
 

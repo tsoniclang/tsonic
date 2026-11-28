@@ -7,7 +7,7 @@ import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { FieldRefinementInputs, FieldRefinementsOf, RefinementFact, RefinementInvalidation, Summary } from "./contract.js";
 import type { PlacedCapture, PlacedCaptures } from "./apply-summary.js";
-import { admitPlacedCapture, projectCallFields, refinementMayWrite } from "./apply-summary.js";
+import { admitPlacedCapture, projectCallFields, refinementWriteSteps } from "./apply-summary.js";
 import { admitSelectionIdentity } from "./verification.js";
 import { fieldProjectionIdentityData } from "./verify-relations.js";
 
@@ -20,6 +20,14 @@ interface Field {
 }
 
 type FieldRead = "sample" | "effect-address";
+
+interface FieldAddress {
+  readonly block: MirBlock;
+  readonly place: PlaceId;
+  readonly before: number;
+}
+
+type FieldProofTask<Value> = Generator<FieldAddress, DataflowResult<Value>, Field | null>;
 
 const missing: { readonly kind: "complete"; readonly value: null } = { kind: "complete", value: null };
 const unavailable: { readonly kind: "complete"; readonly value: false } = { kind: "complete", value: false };
@@ -58,8 +66,8 @@ function writesOnEdge(term: MirTerminator, current: number, writes: (place: Plac
   return stopped ?? effectStop ?? overwritten;
 }
 
-function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | null, resolution: FieldRead, useBlock: MirBlock, before: number,
-  copies: ReadonlyMap<LocalId, ReachingCopy> | null, flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
+function* receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | null, resolution: FieldRead, useBlock: MirBlock, before: number,
+  copies: ReadonlyMap<LocalId, ReachingCopy> | null, flow: Flow, account: DataflowAccount): FieldProofTask<boolean> {
   if (copies === null) return available;
   const writes = (block: MirBlock, position: number, place: PlaceId, first: number): DataflowResult<boolean> => {
     const base = mir.places[place]?.base;
@@ -120,8 +128,7 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
             if (lookup !== null) return lookup;
             const summary = effectSummary(flow, block.id, term);
             if (summary.kind !== "complete") return summary;
-            const interference = resolution === "sample" ? appliedWrite(mir, block, term, summary.value, local, path, flow, account, first)
-              : refinementMayWrite(account, summary.value, () => available);
+            const interference = yield* appliedWrite(block, term, summary.value, local, path, flow, account, first);
             if (interference.kind !== "complete") return interference;
             if (interference.value) return unavailable;
           }
@@ -231,8 +238,8 @@ function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: Loc
   return { kind: "complete", value: known };
 }
 
-function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: number, read: FieldRead,
-  flow: Flow, account: DataflowAccount): DataflowResult<Field | null> {
+function* fieldTask(mir: MirBody, block: MirBlock, initial: MirOperand, before: number, read: FieldRead,
+  flow: Flow, account: DataflowAccount): FieldProofTask<Field | null> {
   let operand = initial;
   let position = before;
   let cursor = block;
@@ -276,7 +283,7 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
     if (parameter && !replaced && protectPath === null) return receiver(base.local);
     if (parameter && replaced && current !== null) return known();
     if (parameter || current === null && local?.role.kind === "user" && local.mode === "local") {
-      const stable = receiverCurrent(mir, base.local, protectPath, read, block, before, aliases, flow, account);
+      const stable = yield* receiverCurrent(mir, base.local, protectPath, read, block, before, aliases, flow, account);
       if (stable.kind !== "complete") return stable;
       if (stable.value && (current === null || parameter)) {
         const resolved = receiver(base.local);
@@ -299,6 +306,78 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
     ({ operand, position, block: cursor } = copy.value);
   }
   return known();
+}
+
+function fieldAddressKey(address: FieldAddress): string {
+  return `${address.block.id}:${address.before}:${address.place}`;
+}
+
+function addressTask(mir: MirBody, address: FieldAddress, flow: Flow, account: DataflowAccount): FieldProofTask<Field | null> {
+  return fieldTask(mir, address.block, { kind: "place", place: address.place }, address.before, "effect-address", flow, account);
+}
+
+function resolveFieldAddress(mir: MirBody, initial: FieldAddress, flow: Flow, account: DataflowAccount): DataflowResult<Field | null> {
+  const task = addressTask(mir, initial, flow, account);
+  const opened = task.next(null);
+  if (opened.done) return opened.value;
+  const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+  if (setup !== null) return setup;
+  const root = fieldAddressKey(initial);
+  const active = new Set<string>();
+  active.add(root);
+  const pending: { readonly key: string; readonly task: FieldProofTask<Field | null> }[] = [{ key: root, task }];
+  let address = opened.value;
+  for (;;) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const key = fieldAddressKey(address);
+    let answer: Field | null = null;
+    if (!active.has(key)) {
+      const nested = addressTask(mir, address, flow, account);
+      const first = nested.next(null);
+      if (!first.done) {
+        const retain = chargeResultEntries(account, 3);
+        if (retain !== null) return retain;
+        pending.push({ key, task: nested });
+        active.add(key);
+        address = first.value;
+        continue;
+      }
+      if (first.value.kind !== "complete") return first.value;
+      answer = first.value.value;
+    }
+    for (;;) {
+      const frame = pending.at(-1);
+      if (frame === undefined) return { kind: "complete", value: answer };
+      const resume = chargeWork(account, 1);
+      if (resume !== null) return resume;
+      const step = frame.task.next(answer);
+      if (!step.done) {
+        address = step.value;
+        break;
+      }
+      if (step.value.kind !== "complete") return step.value;
+      answer = step.value.value;
+      pending.pop();
+      active.delete(frame.key);
+    }
+  }
+}
+
+function finishFieldTask<Value>(task: FieldProofTask<Value>, mir: MirBody, flow: Flow, account: DataflowAccount): DataflowResult<Value> {
+  let step = task.next(null);
+  while (!step.done) {
+    const address = resolveFieldAddress(mir, step.value, flow, account);
+    if (address.kind !== "complete") return address;
+    step = task.next(address.value);
+  }
+  return step.value;
+}
+
+function fieldOf(mir: MirBody, block: MirBlock, operand: MirOperand, before: number, read: FieldRead,
+  flow: Flow, account: DataflowAccount): DataflowResult<Field | null> {
+  return read === "effect-address" && operand.kind === "place" ? resolveFieldAddress(mir, { block, before, place: operand.place }, flow, account)
+    : finishFieldTask(fieldTask(mir, block, operand, before, read, flow, account), mir, flow, account);
 }
 
 function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Field, flow: Flow,
@@ -402,10 +481,10 @@ function writesProjectedField(mir: MirBody, block: MirBlock, before: number, pla
   return typeof written === "boolean" ? { kind: "complete", value: written } : written;
 }
 
-function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, receiver: LocalId, path: Field["path"],
-  flow: Flow, account: DataflowAccount, first = 0): DataflowResult<boolean> {
-  return refinementMayWrite(account, summary, (subject, paths, selected) => {
-    let root: ReturnType<typeof fieldOf>;
+function* appliedWrite(block: MirBlock, call: Call, summary: Summary | null, receiver: LocalId, path: Field["path"],
+  flow: Flow, account: DataflowAccount, first = 0): FieldProofTask<boolean> {
+  return yield* refinementWriteSteps<FieldAddress, Field | null>(account, summary, function* (subject, paths, selected) {
+    let operand: MirOperand;
     let view = null;
     if ("slot" in subject) {
       if (subject.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
@@ -415,18 +494,18 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
       if (supplied?.kind !== "value" || supplied.passing !== "by-value"
         || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument") return available;
       view = mapping.kind === "reference-argument" ? mapping.view : null;
-      root = fieldOf(mir, block, supplied.operand, block.statements.length, "effect-address", flow, account);
+      operand = supplied.operand;
     } else {
       if (call.callee.kind !== "body") return available;
       const paid = chargeWork(account, 1);
       if (paid !== null) return paid;
       const supplied = call.callee.captures[subject.index];
       if (supplied === undefined || supplied.capture === null) return available;
-      root = fieldOf(mir, block, { kind: "place", place: supplied.place }, block.statements.length, "effect-address", flow, account);
+      operand = { kind: "place", place: supplied.place };
     }
-    if (root.kind !== "complete") return root;
-    if (root.value === null || root.value.receiver !== receiver) return available;
-    const actual = root.value;
+    if (operand.kind !== "place") return available;
+    const actual = yield { block, place: operand.place, before: block.statements.length };
+    if (actual === null || actual.receiver !== receiver) return available;
     for (let write = 0; write < paths.length; write += 1) {
       const read = chargeWork(account, 1);
       if (read !== null) return read;
@@ -549,7 +628,8 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
       if (term.kind === "call") {
         const summary = effectSummary(flow, predecessor.id, term);
         if (summary.kind !== "complete") return summary;
-        const effect = appliedWrite(mir, predecessor, term, summary.value, field.receiver, field.path, flow, account);
+        const effect = finishFieldTask(appliedWrite(predecessor, term, summary.value, field.receiver, field.path, flow, account),
+          mir, flow, account);
         if (effect.kind !== "complete") return effect;
         effectWrites = effect.value;
       } else if (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"

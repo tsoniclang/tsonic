@@ -165,9 +165,10 @@ export function admitPlacedCapture(captures: Map<PlacedCall, PlacedCapture | nul
   return { kind: "complete", value: admitted };
 }
 
-export function refinementMayWrite(account: DataflowAccount, summary: Summary | null,
-  subjectMayWrite: (subject: ParameterEffect | CaptureEffect, paths: readonly ProjectionPathId[], summary: Summary) => DataflowResult<boolean>,
-): DataflowResult<boolean> {
+export function* refinementWriteSteps<Request, Reply>(account: DataflowAccount, summary: Summary | null,
+  subjectMayWrite: (subject: ParameterEffect | CaptureEffect, paths: readonly ProjectionPathId[], summary: Summary) =>
+    Generator<Request, DataflowResult<boolean>, Reply>,
+): Generator<Request, DataflowResult<boolean>, Reply> {
   const paid = chargeWork(account, 1);
   if (paid !== null) return paid;
   if (summary === null || summary.key.kind !== "body" || summary.suspends || summary.arena.boundaries.length !== 0
@@ -181,7 +182,7 @@ export function refinementMayWrite(account: DataflowAccount, summary: Summary | 
     const writes = capture.writes;
     if (writes.kind === "open") return mayWrite;
     if (writes.paths.length === 0) continue;
-    const observed = subjectMayWrite(capture, writes.paths, summary);
+    const observed = yield* subjectMayWrite(capture, writes.paths, summary);
     if (observed.kind !== "complete" || observed.value) return observed;
   }
   const parameters = summary.parameters;
@@ -193,10 +194,18 @@ export function refinementMayWrite(account: DataflowAccount, summary: Summary | 
     if (writes.kind === "open") return mayWrite;
     const paths = writes.paths;
     if (paths.length === 0) continue;
-    const observed = subjectMayWrite(parameter, paths, summary);
+    const observed = yield* subjectMayWrite(parameter, paths, summary);
     if (observed.kind !== "complete" || observed.value) return observed;
   }
   return noWrite;
+}
+
+export function refinementMayWrite(account: DataflowAccount, summary: Summary | null,
+  subjectMayWrite: (subject: ParameterEffect | CaptureEffect, paths: readonly ProjectionPathId[], summary: Summary) => DataflowResult<boolean>,
+): DataflowResult<boolean> {
+  return refinementWriteSteps<never, never>(account, summary, function* (subject, paths, selected) {
+    return subjectMayWrite(subject, paths, selected);
+  }).next().value;
 }
 
 function grow(limits: SummaryApplicationLimits, entries = 1): DataflowStop | null {
