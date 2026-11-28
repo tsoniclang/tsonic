@@ -211,6 +211,39 @@ export async function checkNativeRefinementWalkthrough() {
   }
 }
 
+export async function checkNativeRefinementRoundCuts() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
+  const { printFacts, printSummary } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const analyze = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  const prepared = await nativeRefinementInput(await loadFrontFixture(), false);
+  let actual = null;
+  try {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
+      const result = analyze(deps, input);
+      if (input.tir.body.includes(";read];function;0]") && input.execution.provided === 3
+        && result.kind === "complete" && result.value.kind === "ok" && "facts" in result.value.value) {
+        actual = { deps, input, pair: result.value.value };
+      }
+      return result;
+    };
+    assert.equal(analyzeHostProgram(prepared).kind, "ok");
+  } finally {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = analyze;
+  }
+  assert.ok(actual);
+  const written = pair => [printFacts(pair.facts), printSummary(pair.summary)];
+  const run = account => {
+    const result = analyze({ ...actual.deps, account }, actual.input);
+    if (result.kind !== "complete") return result;
+    assert.equal(result.value.kind === "ok" && "facts" in result.value.value, true);
+    return { kind: "complete", value: written(result.value.value) };
+  };
+  checkReachedProofCuts(InvocationAccount.stateOf, run, written(actual.pair), "WT-10 actual Body round");
+}
+
 export async function checkOrderedRefinementProofs() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const { analysisInput } = await import("./front/analysis-input.mjs");
