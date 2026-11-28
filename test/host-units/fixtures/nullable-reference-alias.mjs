@@ -16,6 +16,19 @@ export async function checkNullableReferenceAliases() {
       "input: Maybe, flag: boolean", "if (input !== null) return input.flag; return flag;", ["flag"]],
     ["actual inline literal with unified absence", "type Maybe = (({ flag: boolean }) | undefined | (null));",
       "input: Maybe, flag: boolean", "if (input != null) return input.flag; return flag;", ["flag"]],
+    ["nested present union with its own declared field",
+      "type Part = ({ flag: boolean } | null); type Maybe = (Part | undefined);",
+      "input: Maybe, flag: boolean", "if (input != null) return input.flag; return flag;", ["flag"]],
+    ["nested absence and repeated original absence alias",
+      "type Box = { flag: boolean }; type Missing = (null | undefined); type Maybe = ((Missing | Box) | (null | Missing));",
+      "input: { part: Maybe }, flag: boolean",
+      "const saved = input.part; if (saved != null) return saved.flag; return flag;", ["part", "part.flag"]],
+    ["nested named literal with two independently checked absence annotations",
+      "type Empty = null; type Missing = undefined; type Maybe = (({ flag: boolean }) | (Empty | Missing));",
+      "input: Maybe, flag: boolean", "if (input != null) return input.flag; return flag;", ["flag"]],
+    ["two optional branches share the exact present source declaration",
+      "type Box = { flag: boolean }; type First = (Box | null); type Later = (Box | undefined); type Maybe = First | Later;",
+      "input: Maybe, flag: boolean", "if (input != null) return input.flag; return flag;", ["flag"]],
     ["imported alias", 'import type { Maybe } from "./model.js";',
       "input: { part: Maybe }, flag: boolean",
       "let saved: Maybe = input.part; if (flag) saved = null; if (saved != null) return saved.flag; return flag;", ["part", "part.flag"], true],
@@ -56,6 +69,10 @@ export async function checkNullableReferenceAliases() {
 }
 
 export async function checkNullableReferenceAliasQualification() {
+  for (const branching of [false, true]) await checkQualifiedAliasArms(branching);
+}
+
+async function checkQualifiedAliasArms(branching) {
   const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
   const { checkedSourceObjectFieldsOf } = await import("../../../packages/host/dist/ir-hir/index.js");
   const { readType } = await import("../../../packages/host/dist/ir-types/index.js");
@@ -63,8 +80,9 @@ export async function checkNullableReferenceAliasQualification() {
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
     type Box = { flag: boolean };
-    type Selected = ((Box | null));
+    type Selected = ${branching ? "((Box | Missing) | undefined)" : "((Box | null))"};
     type Other = Box | null;
+    ${branching ? "type Missing = (null | undefined); type OtherMissing = null | undefined;" : ""}
     export function read(input: Selected): boolean {
       if (input !== null) return input.flag;
       return false;
@@ -75,8 +93,11 @@ export async function checkNullableReferenceAliasQualification() {
   const source = captured.value;
   const { checked } = source;
   const root = source.modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree;
-  const [box, selected, other] = root.statements.nodes;
+  const [box, selected, other, missing, otherMissing] = root.statements.nodes;
   assert.equal(selected.tsonic.type.value, other.tsonic.type.value);
+  const actualAlias = branching ? missing : selected;
+  const crossedAlias = branching ? otherMissing : other;
+  assert.equal(actualAlias.tsonic.type.value, crossedAlias.tsonic.type.value);
   const body = [...checked.bodies.values()].find(row => row.body.includes(";read];function;0]"));
   const operand = body.root.statements.nodes[0].expression.left;
   const read = (account, crossed = false) => {
@@ -86,7 +107,7 @@ export async function checkNullableReferenceAliasQualification() {
       bodyOf: id => checked.bodies.get(id) ?? null,
       nodeOf: checked.nodeOf,
       itemOf: definition => {
-        if (crossed && definition === selected.tsonic.definition) return other;
+        if (crossed && definition === actualAlias.tsonic.definition) return crossedAlias;
         const reference = checked.declarationSourceOf(definition);
         return reference === null ? null : checked.nodeOf(reference);
       },
@@ -99,7 +120,7 @@ export async function checkNullableReferenceAliasQualification() {
   };
   checkReachedProofCuts(InvocationAccount.stateOf, read, { storage: selected.tsonic.type.value, present: box.tsonic.type.value },
     "actual alias and grouped storage annotation");
-  const group = selected.type;
+  const group = actualAlias.type;
   assert.equal(group.kind, "ParenthesizedType");
   const inner = Object.getOwnPropertyDescriptor(group, "type");
   let active = createAccount(input.limits.dataflow);
@@ -122,12 +143,39 @@ export async function checkNullableReferenceAliasQualification() {
   } finally {
     Object.defineProperty(group, "type", inner);
   }
-  const payload = Object.getOwnPropertyDescriptor(other, "type");
-  Object.defineProperty(other, "type", { configurable: true, enumerable: payload.enumerable,
+  const payload = Object.getOwnPropertyDescriptor(crossedAlias, "type");
+  Object.defineProperty(crossedAlias, "type", { configurable: true, enumerable: payload.enumerable,
     get: () => assert.fail("A same-type alias with a different definition cannot offer its annotation.") });
   try {
     assert.deepEqual(read(createAccount(input.limits.dataflow), true), { kind: "complete", value: null });
   } finally {
-    Object.defineProperty(other, "type", payload);
+    Object.defineProperty(crossedAlias, "type", payload);
+  }
+  if (branching) {
+    assert.equal(inner.value.kind, "UnionType");
+    const arms = inner.value.types.nodes;
+    const first = Object.getOwnPropertyDescriptor(arms, "0");
+    let seen = 0;
+    let readAt;
+    Object.defineProperty(arms, "0", { configurable: true, enumerable: first.enumerable, get() {
+      seen += 1;
+      readAt = { ...InvocationAccount.stateOf(active) };
+      return first.value;
+    } });
+    try {
+      active = createAccount(input.limits.dataflow);
+      assert.equal(read(active).kind, "complete");
+      assert.equal(seen, 1);
+      for (const limits of [{ maximumWork: readAt.work - 1 }, { maximumResultEntries: readAt.entries - 1 }]) {
+        active = createAccount({ ...input.limits.dataflow, ...limits });
+        const stop = read(active);
+        assert.notEqual(stop, null);
+        assert.equal(stop, accountFailure(active));
+        assert.equal(read(active), stop);
+        assert.equal(seen, 1);
+      }
+    } finally {
+      Object.defineProperty(arms, "0", first);
+    }
   }
 }

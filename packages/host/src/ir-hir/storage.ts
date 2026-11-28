@@ -23,7 +23,17 @@ function admittedOperand(node: HirNode, admit: CheckedSourceStorageRead["admit"]
 type ObjectAlias = TypeAliasDeclaration<CheckedPhase>;
 type ObjectAliasReference = Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" | "ImportType" }>;
 type ObjectUnion = Extract<TypeNode<CheckedPhase>, { readonly kind: "UnionType" }>;
-type CompleteObjectAnnotation<Value> = (syntax: TypeLiteral | ObjectUnion, alias: ObjectAlias | null) => Value | null | undefined;
+type AbsenceAnnotation = Extract<TypeNode<CheckedPhase>, { readonly kind: "LiteralType" | "UndefinedKeyword" }>;
+type ObjectAnnotation = TypeLiteral | ObjectUnion | AbsenceAnnotation;
+type CompleteObjectAnnotation<Value> = (syntax: ObjectAnnotation, alias: ObjectAlias | null) => Value | null | undefined;
+
+function absenceAnnotation(node: TypeNode<CheckedPhase>): node is AbsenceAnnotation {
+  return node.kind === "UndefinedKeyword" || node.kind === "LiteralType" && node.literal.kind === "NullKeyword";
+}
+
+function isObjectAnnotation(node: TypeNode<CheckedPhase>): node is ObjectAnnotation {
+  return node.kind === "TypeLiteral" || node.kind === "UnionType" || absenceAnnotation(node);
+}
 
 function isObjectAliasReference(annotation: TypeNode<CheckedPhase>): annotation is ObjectAliasReference {
   return annotation.kind === "TypeReference" || annotation.kind === "ImportType";
@@ -71,11 +81,12 @@ function ordinaryObjectAlias<Value>(definition: DefId, type: TyId, read: Checked
     const alias = itemOf(selected);
     if (alias?.kind !== "TypeAliasDeclaration" || alias.tsonic.definition !== selected || alias.typeParameters !== null
       || alias.tsonic.type.kind !== "available" || alias.tsonic.type.value !== type || !ordinaryObjectRepresentation(alias.tsonic.core)) return null;
-    if (alias.type.parent !== alias.id) return null;
-    const target = transparentAnnotation(alias.type, type, read);
+    const annotation = alias.type;
+    if (annotation.parent !== alias.id) return null;
+    const target = transparentAnnotation(annotation, type, read);
     if (target == null) return target;
     if (!ordinaryObjectRepresentation(target.tsonic.core)) return null;
-    if (target.kind === "TypeLiteral" || target.kind === "UnionType") return complete(target, alias);
+    if (isObjectAnnotation(target)) return complete(target, alias);
     if (!isObjectAliasReference(target)) return null;
     if (!admit(1, 0)) return undefined;
     const next = objectAliasOwner(target, read);
@@ -93,7 +104,7 @@ function objectAnnotation<Value>(annotation: TypeNode<CheckedPhase> | null, type
   if (annotation === null) return null;
   const target = transparentAnnotation(annotation, type, read);
   if (target == null) return target;
-  if (target.kind === "TypeLiteral" || target.kind === "UnionType")
+  if (isObjectAnnotation(target))
     return ordinaryObjectRepresentation(target.tsonic.core) ? complete(target, null) : null;
   if (!isObjectAliasReference(target)) return null;
   if (use === "field" && !read.admit(1, 0)) return undefined;
@@ -278,6 +289,7 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
         const retained = annotation === null ? retain(owner, null, null)
           : objectAnnotation(annotation, type, read, "storage", (syntax, selectedAlias) => {
             if (syntax.kind === "TypeLiteral") return retain(selectedAlias?.tsonic.definition ?? owner, syntax, null);
+            if (syntax.kind !== "UnionType") return null;
             if (!admit(1, 0)) return undefined;
             const value = optionalObjectValue(syntax, selectedAlias, type, read);
             if (value == null) return value;
@@ -334,49 +346,116 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
   const type = declared.value;
   return objectAnnotation(annotation, type, read, "field", (syntax, alias) => {
     if (syntax.kind === "UnionType") return optionalObjectValue(syntax, alias, type, read);
-    if (storage?.kind !== "shape") return null;
+    if (syntax.kind !== "TypeLiteral" || storage?.kind !== "shape") return null;
     return admit(1, 1) ? { type, container: syntax, alias, presence: null } : undefined;
   });
+}
+
+interface OptionalUnionFrame {
+  readonly union: ObjectUnion;
+  readonly arms: ObjectUnion["types"]["nodes"];
+  readonly owner: ObjectAlias | null;
+  readonly allowsPresent: boolean;
+  readonly nextArm: number;
+  readonly sawPresent: boolean;
+  readonly sawAbsence: boolean;
+  readonly active: Set<ObjectUnion>;
+  readonly previous: OptionalUnionFrame | null;
 }
 
 function optionalObjectValue(annotation: ObjectUnion, alias: ObjectAlias | null,
   type: TyId, read: CheckedSourceObjectRead): FieldValue | null | undefined {
   const { typeOf, admit } = read;
-  const arms = annotation.types.nodes;
+  let arms = annotation.types.nodes;
   if (arms.length < 2) return null;
   if (!admit(1, 0)) return undefined;
   const storage = typeOf(type);
   if (storage?.kind !== "optional") return null;
   let present: TypeLiteral | null = null;
   let owner = alias;
-  let absent = false;
-  for (let ordinal = 0; ordinal < arms.length; ordinal += 1) {
+  let sawPresent = false;
+  let sawAbsence = false;
+  let union = annotation;
+  let unionOwner = alias;
+  let allowsPresent = true;
+  let nextArm = 0;
+  let previous: OptionalUnionFrame | null = null;
+  let active: Set<ObjectUnion> | null = null;
+  for (;;) {
+    if (nextArm === arms.length) {
+      if (!sawAbsence || sawPresent !== allowsPresent) return null;
+      if (previous === null) break;
+      if (!admit(1, 0)) return undefined;
+      previous.active.delete(union);
+      sawPresent ||= previous.sawPresent;
+      sawAbsence ||= previous.sawAbsence;
+      ({ union, arms, owner: unionOwner, allowsPresent, nextArm, previous } = previous);
+      continue;
+    }
     if (!admit(1, 0)) return undefined;
-    const offered = arms[ordinal];
-    if (offered === undefined || offered.parent !== annotation.id || offered.tsonic.type.kind !== "available") return null;
-    const arm = transparentAnnotation(offered, offered.tsonic.type.value, read);
+    const offered = arms[nextArm++];
+    if (offered === undefined || offered.parent !== union.id || offered.tsonic.type.kind !== "available") return null;
+    const armType = offered.tsonic.type.value;
+    const arm = transparentAnnotation(offered, armType, read);
     if (arm == null) return arm;
-    if (arm.tsonic.type.kind !== "available") return null;
-    if (arm.kind === "TypeLiteral" || isObjectAliasReference(arm)) {
-      if (present !== null || arm.tsonic.type.value !== storage.value) return null;
+    if (arm.kind === "TypeLiteral" || isObjectAliasReference(arm) && armType === storage.value) {
+      if (!allowsPresent || armType !== storage.value) return null;
       if (!admit(1, 0)) return undefined;
       if (typeOf(storage.value)?.kind !== "shape") return null;
+      let selectedOwner = unionOwner;
       const reached = objectAnnotation(arm, storage.value, read, "field", (syntax, leafAlias) => {
         if (syntax.kind !== "TypeLiteral") return null;
-        owner = leafAlias ?? alias;
+        selectedOwner = leafAlias ?? unionOwner;
         return syntax;
       });
       if (reached == null) return reached;
+      if (present !== null && (present !== reached || owner !== selectedOwner)) return null;
       present = reached;
-    } else {
-      if (arm.kind !== "UndefinedKeyword" && (arm.kind !== "LiteralType" || arm.literal.kind !== "NullKeyword")) return null;
+      owner = selectedOwner;
+      sawPresent = true;
+    } else if (absenceAnnotation(arm)) {
       if (!admit(1, 0)) return undefined;
-      const type = typeOf(arm.tsonic.type.value);
-      if (type?.kind !== "intrinsic" || type.intrinsic !== "absence") return null;
-      absent = true;
+      const native = typeOf(armType);
+      if (native?.kind !== "intrinsic" || native.intrinsic !== "absence") return null;
+      sawAbsence = true;
+    } else if (isObjectAliasReference(arm) || arm.kind === "UnionType") {
+      const allowsNestedPresent = armType === type;
+      if (allowsNestedPresent) {
+        if (!allowsPresent) return null;
+      } else {
+        if (!admit(1, 0)) return undefined;
+        const native = typeOf(armType);
+        if (native?.kind !== "intrinsic" || native.intrinsic !== "absence") return null;
+      }
+      const opened = objectAnnotation<true | Pick<OptionalUnionFrame, "union" | "arms" | "owner">>(arm, armType, read, "field", (syntax, nestedOwner) => {
+        if (syntax.kind !== "UnionType") return !allowsNestedPresent && absenceAnnotation(syntax) ? true : null;
+        if (!admit(1, 0)) return undefined;
+        if (syntax === union || active?.has(syntax) === true) return null;
+        const nestedArms = syntax.types.nodes;
+        if (nestedArms.length < 2) return null;
+        return admit(1, active === null ? 5 : 3) ? { union: syntax, arms: nestedArms, owner: nestedOwner ?? unionOwner } : undefined;
+      });
+      if (opened == null) return opened;
+      if (opened === true) {
+        sawAbsence = true;
+        continue;
+      }
+      if (active === null) {
+        active = new Set();
+        active.add(union);
+      }
+      active.add(opened.union);
+      previous = { union, arms, owner: unionOwner, allowsPresent, nextArm, sawPresent, sawAbsence, active, previous };
+      ({ union, arms, owner: unionOwner } = opened);
+      allowsPresent = allowsNestedPresent;
+      nextArm = 0;
+      sawPresent = false;
+      sawAbsence = false;
+    } else {
+      return null;
     }
   }
-  if (present === null || !absent) return null;
+  if (present === null) return null;
   return admit(1, 2) ? { type: storage.value, container: present, alias: owner,
     presence: { storage: type, present: storage.value } } : undefined;
 }
