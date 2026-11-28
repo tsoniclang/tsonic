@@ -514,6 +514,96 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
   for (const cut of cuts) assert.equal(run(cut - 1), null, `inferred storage work ${cut - 1}`);
 });
 
+test("an authored excluded expression stays checked through its copied image and HIR wire", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
+    'export function checkedOnly(): boolean { import("./main.js"); return true; }');
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const checked = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const expression = module => module.tree.statements.nodes[0].body.statements.nodes[0].expression;
+  const original = expression(checked);
+  assert.equal(original.kind, "ExcludedExpression");
+  assert.equal(original.form, "DynamicImport");
+  const forest = () => {
+    const walked = product.walkSyntaxForest([{ path: "checked chapter", read: () => checked.tree }], {
+      root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+    });
+    assert.equal(walked.kind, "complete");
+    return walked.value;
+  };
+  const hold = value => ({ kind: "copied", value });
+  const copy = syntaxNode => product.copyCheckedModule(checked, forest(), { admit: () => null,
+    syntaxNode, type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+  const stop = { kind: "resource-limit", dimension: "work", maximum: 0 };
+  const refused = copy(node => node === original ? stop : null);
+  assert.deepEqual(Object.keys(refused), ["kind", "stop"]);
+  assert.equal(refused.kind === "refused" && refused.stop === stop, true);
+  const image = copy(() => null);
+  assert.equal(image.kind, "copied");
+  const projected = expression(image.value.module);
+  assert.equal(projected === image.value.syntax.nodeOf(original), true);
+  assert.notEqual(projected, original);
+  const decoded = roundtrip(image.value.module, "actual checked exclusion").value;
+  assert.deepEqual(expression(decoded), projected);
+  assert.equal(image.value.syntax.nodeOf(expression(decoded)), null);
+  assert.equal(product.parseHir(product.printHir(image.value.module).replace('form="DynamicImport"', 'form="CallExpression"')).kind,
+    "invalid-text");
+});
+
+test("checked layout copying preserves the authored selector and every geometry operand", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { create } = layoutInput(await loadFrontFixture());
+  const input = create(`interface Header { payload: boolean }
+    const word = make<boolean>({ stride: 8, fields: [], bytesize: 8, bytealignment: 8, datalayout: Abi });
+    export const fieldInfo = field<Header, boolean>({ bytealignment: 8,
+      select: (record: Header) => record.payload, fieldlayout: word, byteoffset: 8 });`);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const checked = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const readInitializer = (module, name) => module.tree.statements.nodes
+    .find(statement => statement.kind === "VariableStatement" && statement.declarationList.declarations.nodes[0].name.text === name)
+    .declarationList.declarations.nodes[0].initializer;
+  const roles = [["word", "value", ["stride", "bytesize", "bytealignment"]],
+    ["fieldInfo", "field", ["bytealignment", "byteoffset"]]];
+  const roots = [checked.tree, ...checked.bodies.map(body => body.root)];
+  const walk = product.walkSyntaxForest(roots.map(node => ({ path: "checked layout roots", read: () => node })), {
+    root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+  });
+  assert.equal(walk.kind, "complete");
+  const hold = value => ({ kind: "copied", value });
+  const projected = product.copyCheckedModule(checked, walk.value, { admit: () => null, syntaxNode: () => null,
+    type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+  assert.equal(projected.kind, "copied");
+  const decoded = roundtrip(projected.value.module, "authored layout geometry and selector").value;
+  for (const [name, kind, expectedNames] of roles) {
+    const original = readInitializer(checked, name);
+    const mapped = readInitializer(projected.value.module, name);
+    assert.equal(projected.value.syntax.nodeOf(original) === mapped, true, name);
+    const layout = product.checkedLayoutConstructionOf(mapped);
+    assert.equal(layout?.kind, kind, name);
+    assert.notEqual(layout, product.checkedLayoutConstructionOf(original), name);
+    const originalProperties = new Map(original.arguments.nodes[0].properties.nodes.map(property => [property.name.text, property.initializer]));
+    const mappedProperties = new Map(mapped.arguments.nodes[0].properties.nodes.map(property => [property.name.text, property.initializer]));
+    const references = product.checkedLayoutGeometryOperands(layout);
+    assert.equal(references.length, expectedNames.length, name);
+    for (const [index, property] of expectedNames.entries()) {
+      const source = captured.value.checked.nodeOf(references[index]);
+      assert.equal(source === originalProperties.get(property), true, property);
+      assert.equal(projected.value.syntax.nodeOf(source) === mappedProperties.get(property), true, property);
+    }
+    assert.deepEqual(product.checkedLayoutConstructionOf(readInitializer(decoded, name)), layout, name);
+    if (layout.kind === "field") {
+      const selector = originalProperties.get("select");
+      assert.equal(selector.tsonic.role, "layout-selector");
+      assert.equal(captured.value.checked.nodeOf(layout.selector) === selector, true);
+      assert.equal(projected.value.syntax.nodeOf(selector.body) === mappedProperties.get("select").body, true);
+    }
+  }
+});
+
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
   const fixture = await loadFrontFixture();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
