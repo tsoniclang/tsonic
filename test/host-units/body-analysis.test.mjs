@@ -8,8 +8,8 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { add, plus, shaped } from "./fixtures/lower-mir/programs/first.mjs";
 import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
-import { EMPTY_BINDINGS, T, TABLE, bodyId, builders, callee, declareType, def, mapped, native, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
-import { executionKey, sameInstance } from "../../packages/host/dist/ir-types/index.js";
+import { EMPTY_BINDINGS, T, TABLE, bodyId, builders, callee, declareType, def, mapped, native, nativeIndex, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { executionKey, nativeCarrierHoldingOf, sameInstance } from "../../packages/host/dist/ir-types/index.js";
 import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
@@ -18,8 +18,10 @@ import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parse
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
 import { checkActualBodyRoundCuts } from "./fixtures/body-round-cuts.mjs";
+import { checkReachedProofCuts } from "./fixtures/dataflow-cuts.mjs";
 import { checkBorrowedNativeArrayReturn, checkNativeArrayAlternatives, checkNativeArrayFacts, checkPlacedArrayReturn } from "./fixtures/native-array-initialization.mjs";
 import { nativeInt32Input } from "./fixtures/native-int32-input.mjs";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementWalkthrough, checkSavedExtentReceivers, nativeRefinementInput } from "./fixtures/native-refinement-proofs.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
@@ -267,7 +269,8 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, bindingScopeOf: () => null, sourceObjectHolding: () => ({ kind: "complete", value: false }),
     sourceObjectFields: () => ({ kind: "complete", value: () => ({ kind: "complete", value: null }) }),
-    carrierHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
+    carrierHoldingOf: (meter, carrier) => accountFailure(meter) ?? { kind: "complete",
+      value: nativeCarrierHoldingOf(canonical.selectedNativeFacts.carrierHolding, carrier) },
     enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     declaredAt: () => null,
@@ -3049,6 +3052,63 @@ test("authored native scalar array effects retain the checked parameter and reac
     assert.deepEqual(contributions.find(path => path.kind === "element"), { kind: "element" });
     assert.equal(forwarded.facts[0].origins.writes.some(row => row.destination === "element"), false);
   }
+});
+
+test("a selected reference-held fixed array transports its actual read and write effects across a call", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const facts = nativeFactsFixture({ fixedArrayHolding: "by-reference" });
+  const targetName = "body-round.fixed-reference-effects.target";
+  const callerName = "body-round.fixed-reference-effects.caller";
+  const parameters = [["values", "required", T.int32Fixed4], ["position", "required", T.int32]];
+  const targetProgram = shaped(targetName, parameters, T.int32, builder => {
+    const element = (access, index) => builder.element(builder.id("values", 0, T.int32Fixed4), index,
+      nativeIndex(T.int32Fixed4, T.int32, access, facts.fixedArrayIndexFailure, facts));
+    return builder.block(
+      builder.expressionStatement(builder.assign(element("write", builder.num("0", T.int32)), "EqualsToken",
+        builder.num("5", T.int32), T.int32, T.int32)),
+      builder.returns(element("read", builder.id("position", 1, T.int32))));
+  });
+  targetProgram.nativeFacts = facts;
+  const target = fixture(targetProgram);
+  const targetSummary = checkedPair(target, analyzeBodyRound(target.deps, target.input)).summary;
+  const calleeDecision = callee(targetName, targetProgram.tir.signature, [mapped(0, 0), mapped(1, 1)], T.int32);
+  const callerProgram = shaped(callerName, parameters, T.int32, builder => builder.block(builder.returns(builder.call(
+    builder.global("target", targetName, T.unknown),
+    [{ $: "values", ...builder.id("values", 0, T.int32Fixed4) }, { $: "position", ...builder.id("position", 1, T.int32) }],
+    T.int32, at => ({ callee: calleeDecision, receiver: null, arguments: [
+      { kind: "provided", parameter: 0, expression: at("values") }, { kind: "provided", parameter: 1, expression: at("position") },
+    ] })))));
+  callerProgram.nativeFacts = facts;
+  callerProgram.bodyOf = instance => sameInstance(instance, target.execution.instance) ? target.program.tir : null;
+  const caller = fixture(callerProgram);
+  caller.related = [target];
+  caller.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(target.execution));
+    return { value: targetSummary, unit: { request: target.deps.unit, position: { kind: "result" } } };
+  };
+  const pair = checkedPair(caller, analyzeBodyRound(caller.deps, caller.input));
+  for (const summary of [targetSummary, pair.summary]) {
+    const [carrier, scalar] = summary.parameters;
+    assert.equal(carrier.reads.kind, "complete");
+    assert.equal(carrier.writes.kind, "complete");
+    assert.deepEqual(carrier.reads.paths.map(id => summary.arena.projections[id].projection), [{ kind: "element" }]);
+    assert.deepEqual(carrier.writes.paths.map(id => summary.arena.projections[id].projection), [{ kind: "index", constant: 0n }]);
+    assert.deepEqual(scalar.writes, { kind: "complete", paths: [] });
+  }
+  const call = caller.input.mir.blocks.find(row => row.terminator.kind === "call");
+  assert.equal(call.terminator.arguments[0].passing, "by-value");
+  assert.deepEqual(pair.facts.origins.invocations[0].point, { block: call.id, statement: null });
+  checkSignatureStops(caller);
+  const expectedFacts = printFacts(pair.facts);
+  const expectedSummary = printSummary(pair.summary);
+  const run = account => {
+    const answer = analyzeBodyRound({ ...caller.deps, account }, caller.input);
+    if (answer.kind !== "complete") return answer;
+    assert.equal(answer.value.kind, "ok");
+    return { kind: "complete", value: printFacts(answer.value.value.facts) === expectedFacts
+      && printSummary(answer.value.value.summary) === expectedSummary };
+  };
+  checkReachedProofCuts(InvocationAccount.stateOf, run, true, callerName);
 });
 
 test("repeated scalar field reads share a projection but retain separate read occurrences", async () => {

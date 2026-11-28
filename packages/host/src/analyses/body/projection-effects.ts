@@ -656,7 +656,8 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         const carrier = formal === undefined ? null : deps.typeOf(formal.type);
         const stopped = accountFailure(deps.account);
         if (stopped !== null) return stopped;
-        if (path.parent !== null || carrier?.kind !== "array" || formal?.passing !== "by-value" || access === "write" && carrier.readonly)
+        if (path.parent !== null || carrier?.kind !== "array" && carrier?.kind !== "fixed-array" || formal?.passing !== "by-value"
+          || access === "write" && carrier.kind === "array" && carrier.readonly)
           return bodyFrontier("An applied element access requires its actual selected array formal.");
         const kind = valueKind(deps, carrier.element);
         const cut = accountFailure(deps.account);
