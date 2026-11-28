@@ -1030,6 +1030,69 @@ export async function checkFieldStoreAcrossCall() {
   }
 }
 
+export async function checkSavedProjectionWithPlacedCaptures() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Part = { flag: boolean | undefined; other: boolean | undefined };
+    type Box = { part: Part; counter: boolean };
+    function prepare(box: Box): boolean { box.counter = true; return true; }
+    function effect(part: Part, ignored: boolean): void { part.other = true; }
+    export function read(box: Box): boolean {
+      let changed: boolean = false;
+      const placed = (changed = true);
+      const copied = !placed;
+      if (box.part.flag !== undefined) {
+        box.part.other = (effect(box.part, prepare(box)), undefined);
+        return box.part.flag && changed;
+      }
+      return copied;
+    }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual(result.diagnostics, []);
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+  const { mir, facts: [facts] } = body;
+  const operations = mir.blocks.map(row => row.terminator);
+  const captures = operations.flatMap(row => row.kind === "call" && row.callee.kind === "body" ? row.callee.captures : []);
+  assert.deepEqual(captures.map(row => row.capture), ["captured-location", "captured-value"]);
+  const changed = mir.places[captures[0].place].base;
+  assert.equal(changed.kind, "local");
+  const source = mir.locals[changed.local].source;
+  assert.equal(source.body, body.tir.body);
+  assert.equal(body.tir.locals[source.local].name, "changed");
+  assert.deepEqual(facts.arena.cells.map(row => row.role), [{ kind: "local", local: changed.local }]);
+
+  const call = operations.find(row => row.kind === "call" && row.callee.kind === "direct" &&
+    row.callee.resolution.activation.body.includes(";effect];function;0]"));
+  const argument = call.arguments[0];
+  assert.equal(argument.operand.kind, "place");
+  const temporary = argument.operand.place;
+  assert.equal(captures.some(row => row.place === temporary), false);
+  const assignments = mir.blocks.flatMap(block => block.statements.filter(row => row.kind === "assign" && row.place === temporary));
+  assert.equal(assignments.length, 1);
+  assert.equal(assignments[0].value.kind, "use");
+  assert.equal(assignments[0].value.operand.kind, "place");
+  const projection = mir.places[assignments[0].value.operand.place].base;
+  assert.equal(projection.kind, "place");
+  assert.equal(projection.projection.kind, "field");
+  assert.equal(projection.projection.member.decision.key.value, "part");
+  const read = facts.origins.reads.find(row => row.place === temporary);
+  const origins = facts.arena.origins[read.origins];
+  assert.equal(origins.kind, "complete");
+  assert.equal(origins.includesAbsence, false);
+  assert.equal(origins.producers.length, 1);
+  const bound = facts.arena.boundProducers[origins.producers[0]];
+  const producer = facts.arena.producers[bound.producer];
+  assert.equal(producer.kind, "parameter");
+  assert.equal(producer.index, 0);
+  assert.equal(facts.arena.projections[producer.path].projection.member.decision.primary, projection.projection.member.decision.primary);
+  assert.deepEqual(facts.refinements.refinements.map(row => row.kind), ["proven"]);
+}
+
 export async function checkCapturedFieldRefinement() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
