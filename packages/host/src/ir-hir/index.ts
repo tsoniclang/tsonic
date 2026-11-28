@@ -22,8 +22,8 @@ import { orderPragmaArguments as orderPragmas } from "./pragmas.js";
 import { callableEndpointKey as endpointKey, checkedParameterHeadersOf as parameterHeaders, hasOverloadEndpoints as overloadEndpoints, selectedEndpointRoleFaults as roleFaults } from "./endpoints.js";
 import type { CreateModuleBindingViews, IsModuleBindingKind, IsTypeOnlyExportStar, ResolveModuleBinding, ResolveModuleExport } from "./contract.js";
 import { createModuleBindingViews as bindingViews, isModuleBindingKind as bindingKind, isTypeOnlyExportStar as typeOnlyExportStar, resolveModuleBinding as resolveBinding, resolveModuleExport as resolveExport } from "./bindings.js";
-import type { CheckedMemberStorageOf, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedVariableStorageOf, ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
-import { checkedMemberStorageOf as memberStorage, checkedReferenceArgumentViewOf as referenceArgument, checkedSourceBindingFieldOf as bindingField, checkedSourceObjectHoldingOf as objectHolding, checkedSourceObjectFieldsOf as objectFields, checkedVariableStorageOf as checkedStorage,
+import type { CheckedBindingTextKeyOf, CheckedMemberStorageOf, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedVariableStorageOf, ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
+import { checkedBindingTextKeyOf as bindingTextKey, checkedMemberStorageOf as memberStorage, checkedReferenceArgumentViewOf as referenceArgument, checkedSourceBindingFieldOf as bindingField, checkedSourceObjectHoldingOf as objectHolding, checkedSourceObjectFieldsOf as objectFields, checkedVariableStorageOf as checkedStorage,
   readWriteRootStorageOf as readWriteStorage, writableRootStorageOf as writableStorage } from "./storage.js";
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
 import type { CollectInferredStorageSources } from "./contract.js";
@@ -55,6 +55,7 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = re
 export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = objectHolding;
 export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = objectFields;
 export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = bindingField;
+export const checkedBindingTextKeyOf: CheckedBindingTextKeyOf = bindingTextKey;
 export const checkedParameterHeadersOf: CheckedParameterHeadersOf = parameterHeaders;
 export const checkedGroupingFrontierOf: CheckedGroupingFrontierOf = groupingFrontier;
 

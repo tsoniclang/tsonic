@@ -87,7 +87,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
     case "VariableDeclaration": return node.exclamationToken !== null ? "definite-assignment VariableDeclaration"
       : node.name.kind !== "Identifier" && node.initializer === null ? "pattern VariableDeclaration" : null;
     case "BindingElement": return node.dotDotDotToken !== null ? "rest BindingElement"
-      : node.propertyName !== null && node.propertyName.kind !== "Identifier" ? "non-identifier binding property"
+      : node.propertyName !== null && node.propertyName.kind !== "Identifier" && node.propertyName.kind !== "StringLiteral" ? "non-text binding property"
         : node.initializer !== null && node.name?.kind !== "Identifier" ? "default on an unnamed binding" : null;
     case "VariableDeclarationList": return node.flags.includes("AwaitUsing") ? "await using declaration"
       : node.flags.includes("Using") ? "using declaration" : null;
@@ -1493,14 +1493,17 @@ function checkedBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syntax>)
       name = nested.value;
     }
     const property = element.propertyName;
-    if (property !== null && property.kind !== "Identifier")
-      return throwInvariant(invariant("A written binding property retains its actual identifier selector."));
-    const propertyName: Hir.Identifier<Checked> | null = property === null ? null : {
-      ...headerOf(property), kind: "Identifier", text: property.text,
-      tsonic: { core: coreOf(lowering, property.id), role: "property-name",
+    if (property !== null && property.kind !== "Identifier" && property.kind !== "StringLiteral")
+      return throwInvariant(invariant("A written binding property retains its actual static text selector."));
+    let propertyName: Hir.PropertyName<Checked> | null = null;
+    if (property !== null) {
+      const tsonic: Extract<Hir.CheckedName, { readonly role: "property-name" }> = { core: coreOf(lowering, property.id), role: "property-name",
         key: { kind: "available", value: { kind: "text", value: property.text } },
-        origins: { kind: "unavailable", reason: "not-provided", causes: [] } },
-    };
+        origins: { kind: "unavailable", reason: "not-provided", causes: [] } };
+      const header = headerOf(property);
+      propertyName = property.kind === "Identifier" ? { ...header, kind: property.kind, text: property.text, tsonic }
+        : { ...header, kind: property.kind, text: property.text, tsonic, tokenFlags: property.tokenFlags };
+    }
     const initializer = element.initializer === null ? null : expression(lowering, element.initializer);
     if (initializer !== null) {
       const owner = definitionOf(lowering, element.id);

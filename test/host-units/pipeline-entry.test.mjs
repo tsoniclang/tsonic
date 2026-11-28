@@ -185,6 +185,11 @@ test("fixed and empty call spreads keep their authored component and later-value
   }
 });
 
+test("S-1 uses the original literal field key without renaming its destination", async () => {
+  const { checkNamedBindingSelectors } = await import("./fixtures/named-binding-selector.mjs");
+  await checkNamedBindingSelectors();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

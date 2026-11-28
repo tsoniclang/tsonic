@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedBindingTextKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -737,14 +737,10 @@ function objectBindingFits(walk: Walk, pattern: BindingPattern<CheckedPhase>, so
     const reached = admitTypePublicationStep(deps.typeWork);
     if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, pattern.origin, unit);
     const element = present(pattern.elements.nodes[index], "the actual ordered object binding element");
-    const name = element.name;
-    const written = element.propertyName;
-    if (element.dotDotDotToken !== null || name?.kind !== "Identifier" ||
-      written !== null && (written.kind !== "Identifier" || written.tsonic.role !== "property-name"
-        || written.tsonic.key.kind !== "available" || written.tsonic.key.value.kind !== "text"
-        || written.tsonic.key.value.value !== written.text))
+    const selector = checkedBindingTextKeyOf(element);
+    if (selector === null)
       return notInferredYet(PORT, "an object binding without an actual named data-field selector", element.origin);
-    const key: MemberKey = { kind: "text", value: written?.text ?? name.text };
+    const key: MemberKey = { kind: "text", value: selector };
     let low = 0;
     let high = ready.members.length;
     let member: (typeof ready.members)[number] | null = null;

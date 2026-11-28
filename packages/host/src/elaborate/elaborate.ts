@@ -2,7 +2,7 @@ import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, encodeBodyId } from "../ids/index.js";
-import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, PropertyName, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand, TypedBindingElement,
@@ -908,11 +908,15 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (present === null && fit.source !== member.read)
         return callerDefect("a direct member binding requires its actual complete read type", element.origin);
       const authored = element.propertyName;
-      if (authored !== null && (authored.kind !== "Identifier" || authored.tsonic.role !== "property-name"))
+      if (authored !== null && ((authored.kind !== "Identifier" && authored.kind !== "StringLiteral") || authored.tsonic.role !== "property-name"))
         return callerDefect("a binding selector must retain its actual authored field", element.origin);
-      const propertyName: Identifier<TypedPhase> | null = authored === null ? null : {
-        ...header(authored), kind: "Identifier", text: authored.text, tsonic: { role: "property-name", key: member.key },
-      };
+      let propertyName: PropertyName<TypedPhase> | null = null;
+      if (authored !== null) {
+        const tsonic: { readonly role: "property-name"; readonly key: typeof member.key } = { role: "property-name", key: member.key };
+        const source = header(authored);
+        propertyName = authored.kind === "Identifier" ? { ...source, kind: authored.kind, text: authored.text, tsonic }
+          : { ...source, kind: authored.kind, text: authored.text, tsonic, tokenFlags: authored.tokenFlags };
+      }
       let initializer: Expression<TypedPhase> | null = null;
       let initializerBody: BodyId | null = null;
       if (element.initializer !== null) {

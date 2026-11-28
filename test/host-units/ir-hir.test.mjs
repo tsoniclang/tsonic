@@ -328,6 +328,11 @@ test("a placed field write authenticates the receiver's actual outer storage", a
   await checkCapturedFieldRefinement();
 });
 
+test("a static text binding selector retains its original qualified field", async () => {
+  const { checkNamedBindingSelectors } = await import("./fixtures/named-binding-selector.mjs");
+  await checkNamedBindingSelectors();
+});
+
 test("a field binding authenticates its selected field in an actual placed array execution", async () => {
   const { checkPlacedArrayReturn } = await import("./fixtures/native-array-initialization.mjs");
   await checkPlacedArrayReturn();
@@ -1626,7 +1631,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedContextualTupleAssertionOf", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedReferenceArgumentViewOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedBindingTextKeyOf", "checkedContextualTupleAssertionOf", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedReferenceArgumentViewOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveCheckedLayoutAlias", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",

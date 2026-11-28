@@ -1,4 +1,4 @@
-import type { CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
+import type { CheckedBindingTextKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
   HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
 import type { Member, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
@@ -541,16 +541,21 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   return result;
 };
 
+export const checkedBindingTextKeyOf: CheckedBindingTextKeyOf = element => {
+  if (element.name?.kind !== "Identifier" || element.dotDotDotToken !== null) return null;
+  const written = element.propertyName;
+  if (written === null) return element.name.text;
+  if ((written.kind !== "Identifier" && written.kind !== "StringLiteral") || written.tsonic.role !== "property-name") return null;
+  const key = written.tsonic.key;
+  return key.kind === "available" && key.value.kind === "text" && key.value.value === written.text ? key.value.value : null;
+};
+
 export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, element, key, definition, read) => {
   const { nodeOf, itemOf, admit } = read;
   const occurrence = { body: body.body, node: element.id };
-  if (!admit(1, 0) || nodeOf({ kind: "body", value: occurrence }) !== element || element.parent === null
-    || element.name?.kind !== "Identifier" || element.dotDotDotToken !== null || key.kind !== "text") return null;
-  const written = element.propertyName;
-  if (written !== null && (written.kind !== "Identifier" || written.tsonic.role !== "property-name"
-    || written.tsonic.key.kind !== "available" || written.tsonic.key.value.kind !== "text" || written.tsonic.key.value.value !== written.text)) return null;
-  const selector = written?.text ?? element.name.text;
-  if (!admit(key.value.length + selector.length, 0) || key.value !== selector) return null;
+  if (!admit(1, 0) || nodeOf({ kind: "body", value: occurrence }) !== element || element.parent === null || key.kind !== "text") return null;
+  const selector = checkedBindingTextKeyOf(element);
+  if (selector === null || !admit(key.value.length + selector.length, 0) || key.value !== selector) return null;
   const pattern = nodeOf({ kind: "body", value: { body: body.body, node: element.parent } });
   if (pattern?.kind !== "ObjectBindingPattern" || pattern.parent === null || !admit(1, 0)) return null;
   const owner = nodeOf({ kind: "body", value: { body: body.body, node: pattern.parent } });
@@ -560,7 +565,8 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   return sourceObjectHolding((holding, declaration) => {
     if (declaration.type?.kind !== "TypeLiteral" || !admit(1, 0)) return null;
     const field = qualifiedSourceField(holding.declaration, declaration.type, definition, itemOf);
-    if (field?.name.kind !== "Identifier" || !admit(field.name.text.length + key.value.length, 0) || field.name.text !== key.value) return null;
+    if (field === null || (field.name.kind !== "Identifier" && field.name.kind !== "StringLiteral")
+      || !admit(field.name.text.length + key.value.length, 0) || field.name.text !== key.value) return null;
     const value = fieldValue(field, read);
     return value === undefined || !admit(0, 1) ? null
       : { ...holding, occurrence, field: definition, parent: null, requiredReference: value?.presence === null ? value.type : null,
