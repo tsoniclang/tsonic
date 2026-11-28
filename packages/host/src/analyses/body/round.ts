@@ -19,7 +19,7 @@ import { arrayDestination, assignedEntry, selectedCallAt, solveAssigned, stateme
 import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { noCallBoundaries, noCallBoundary, openCallTransport } from "./open-calls.js";
-import { bodyFrontier, inlineTupleSlots, staticCells, readLocal, readSlot, rootSlot } from "./places.js";
+import { bodyFrontier, inlineTupleSlots, staticCells, readSlot, rootSlot } from "./places.js";
 import { projectionEffects as createProjectionEffects, heldProjections, localReferenceCopies, localReferenceCopyKind } from "./projection-effects.js";
 import type { LocalReferenceCopies } from "./projection-effects.js";
 import type { StaticCells } from "./places.js";
@@ -30,7 +30,7 @@ import type { ReferenceRead } from "./value-flow.js";
 import { applyExitContents, collectExitContents, operandOrigins, removeUnchangedContents, solveValueOrigins, transferValue } from "./value-flow.js";
 import { callExitAssigned, cellMustAtExit, initializationError, recordInitializationPoint, recordUninitializedRead, sourceNeedAssigned } from "./initialization.js";
 import type { PlacedInitializationRead, UninitializedRead } from "./initialization.js";
-import { collectCellWrites, recordCaptureWrite, recordCellWrite } from "./writes.js";
+import { collectCellWrites, recordCellWrite } from "./writes.js";
 import { collectRetainedValues, retainCallCaptures, retainValue } from "./exits.js";
 import type { ValueEscape, ValueRetention } from "./exits.js";
 import { projectSummarySubjects } from "./summary-subjects.js";
@@ -892,8 +892,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const storedOrigins = originsOf(place);
         if (typeof storedOrigins !== "number") return storedOrigins;
         if (capture !== undefined) {
-          const retained = recordCaptureWrite(deps, input, readLocal(mir, place), capture.cell, storedOrigins, cellWrites, statement,
-            values.value, admitUnion);
+          const retained = recordCellWrite(deps, capture.cell, storedOrigins, cellWrites, values.value, admitUnion);
           if (retained !== null) return retained;
           const target = chargeResultEntries(account, 1);
           if (target !== null) return target;
@@ -1156,8 +1155,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const local = rootSlot(mir, terminator.destination, storageSlots);
         const capture = capturedLocals.get(local);
         if (capture !== undefined) {
-          const retained = recordCaptureWrite(deps, input, readLocal(mir, { kind: "place", place: terminator.destination }),
-            capture.cell, callResult, cellWrites, terminator, values.value, admitUnion);
+          const retained = recordCellWrite(deps, capture.cell, callResult, cellWrites, values.value, admitUnion);
           if (retained !== null) return retained;
           const target = chargeResultEntries(account, 1);
           if (target !== null) return target;

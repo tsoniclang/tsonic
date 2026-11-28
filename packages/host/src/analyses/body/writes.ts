@@ -1,12 +1,11 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { requirePresent, throwInvariant } from "../../diag/index.js";
-import type { LocalId, OriginsId } from "../../ids/contract.js";
+import type { OriginsId } from "../../ids/contract.js";
 import type { AppliedWrite, Summary, SummaryApplicationInput, SummaryWrite } from "../../ir-facts/contract.js";
 import type { MirSite, MirTerminator } from "../../ir-mir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { callSlotAt } from "./initialization.js";
-import { bodyFrontier } from "./places.js";
 import { joinOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
 
@@ -74,20 +73,6 @@ export function primitiveExitLocals(deps: BodyRoundDeps, input: BodyRoundInput,
     locals.push(local.value);
   }
   return { kind: "complete", value: locals };
-}
-
-export function recordCaptureWrite(deps: BodyRoundDeps, input: BodyRoundInput, local: LocalId, cell: number,
-  value: OriginsId, writes: Map<number, OriginsId>, site: MirSite, values: ValueOrigins, admit: AdmitOrigins): DataflowStop | null {
-  const read = chargeWork(deps.account, 1);
-  if (read !== null) return read;
-  const storage = requirePresent(input.mir.locals[local], { owner: "analyses/body", query: null, origin: site.origin,
-    message: "A captured write retains its actual selected storage." }).storage;
-  const kind = valueKind(deps, storage);
-  const stopped = accountFailure(deps.account);
-  if (stopped !== null) return stopped;
-  if (kind === null)
-    return bodyFrontier("BodyAnalysis requires the actual selected captured content representation.");
-  return recordCellWrite(deps, cell, value, writes, values, admit);
 }
 
 export function recordCellWrite(deps: BodyRoundDeps, cell: number, value: OriginsId, writes: Map<number, OriginsId>,

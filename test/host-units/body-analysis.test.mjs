@@ -197,7 +197,6 @@ let collectCellWrites;
 let primitiveExitLocals;
 let collectExitContents;
 let removeUnchangedContents;
-let recordCaptureWrite;
 let retainValue;
 let retainCallCaptures;
 let collectRetainedValues;
@@ -229,7 +228,7 @@ before(async () => {
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
   ({ cellMustAtExit, callExitAssigned, sourceNeedAssigned, callSlotAt, recordUninitializedRead } =
     await import("../../packages/host/dist/analyses/body/initialization.js"));
-  ({ callWrites, collectCellWrites, primitiveExitLocals, recordCaptureWrite } = await import("../../packages/host/dist/analyses/body/writes.js"));
+  ({ callWrites, collectCellWrites, primitiveExitLocals } = await import("../../packages/host/dist/analyses/body/writes.js"));
   ({ retainValue, retainCallCaptures, collectRetainedValues } = await import("../../packages/host/dist/analyses/body/exits.js"));
 });
 
@@ -2342,6 +2341,77 @@ test("WT-10 retains the earlier local or formal argument when a later operand re
   assert.deepEqual(reached, [["Block", 3], ["Block", 3]]);
 });
 
+test("a placed binding default retains the captured reference at its actual earlier argument read", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Box = { flag: boolean };
+    function choose(value: Box, enabled: boolean): boolean { return value.flag && enabled; }
+    export function read(first: Box, next: Box, input: { value?: boolean }): boolean {
+      const { value = choose(first, (first = next, first.flag)) } = input;
+      return value;
+    }
+  `);
+  const reached = await checkActualBodyRoundCuts(() => {
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const caller = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const placement = caller.mir.blocks.find(row => row.terminator.kind === "call" && row.terminator.callee.kind === "body");
+    assert.ok(placement);
+    const placed = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === placement.terminator.callee.instance.body);
+    assert.ok(placed);
+    const { mir, tir, facts: [facts] } = placed;
+    const block = mir.blocks.find(row => row.terminator.kind === "call" && row.terminator.callee.kind === "direct"
+      && row.terminator.callee.resolution.activation.body.includes(";choose];function;0]"));
+    assert.ok(block);
+    const [earlier] = block.terminator.arguments;
+    assert.equal(earlier.kind, "value");
+    assert.equal(earlier.operand.kind, "place");
+    const base = mir.places[earlier.operand.place].base;
+    assert.equal(base.kind === "local" && mir.locals[base.local].role.kind === "temporary", true);
+    const copied = block.statements.find(row => row.kind === "assign" && row.place === earlier.operand.place);
+    assert.equal(copied?.value.kind, "use");
+    assert.equal(copied.value.operand.kind, "place");
+    const capturedBase = mir.places[copied.value.operand.place].base;
+    assert.equal(capturedBase.kind, "local");
+    const captured = mir.locals[capturedBase.local];
+    assert.equal(captured.role.kind, "capture");
+    assert.equal(captured.mode, "captured-location");
+    assert.deepEqual(captured.source, tir.captures[captured.role.index].local);
+    const replacement = block.statements.find(row => row.kind === "assign" && row.place === copied.value.operand.place);
+    assert.equal(block.statements.indexOf(replacement) > block.statements.indexOf(copied), true);
+    assert.equal(replacement.value.kind, "use");
+    assert.equal(replacement.value.operand.kind, "place");
+    const replacementBase = mir.places[replacement.value.operand.place].base;
+    assert.equal(replacementBase.kind, "local");
+    const next = mir.locals[replacementBase.local];
+    assert.equal(next.role.kind, "capture");
+    assert.notEqual(next.role.index, captured.role.index);
+    const read = facts.origins.reads.find(row => row.place === earlier.operand.place && row.node === copied.tir.node);
+    const origins = facts.arena.origins[read.origins];
+    assert.equal(origins.kind, "complete");
+    assert.equal(origins.includesAbsence, false);
+    assert.deepEqual(origins.producers.map(id => {
+      const producer = facts.arena.producers[facts.arena.boundProducers[id].producer];
+      return [producer.kind, producer.index, producer.path];
+    }), [["capture", captured.role.index, null]]);
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+      && executionKey(row.key.execution) === executionKey(facts.execution));
+    const cell = summary.arena.cells.find(row => row.role.kind === "capture" && row.role.index === captured.role.index);
+    const write = summary.contentsOnReturn.find(row => row.target === cell.id);
+    const returned = summary.arena.origins[write.value];
+    assert.equal(returned.kind, "complete");
+    assert.equal(returned.includesAbsence, false);
+    assert.deepEqual(returned.producers.map(id => {
+      const producer = summary.arena.producers[summary.arena.boundProducers[id].producer];
+      return [producer.kind, producer.index, producer.path];
+    }), [["capture", next.role.index, null]]);
+  }, round => round.tir.body.includes(";read/value];initializer;0]") && round.execution.provided === 0);
+  assert.deepEqual(reached, [["CallExpression", 0]]);
+});
+
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
@@ -4065,9 +4135,6 @@ test("primitive applied-write admission retains precise value, location and orig
     row.id === local ? { ...row, storage: unsupported } : row) } };
   assert.throws(() => primitiveExitLocals({ ...caller.deps, account: createAccount(limits) }, unresolved, call, summary, "return"),
     /actual selected caller-cell write representation/);
-  assert.throws(() => recordCaptureWrite({ ...caller.deps, account: createAccount(limits) }, unresolved, local, 0, 0,
-    new Map(), call, indexedOrigins(caller, [{ id: 0, kind: "complete", producers: [], includesAbsence: false }]), () => null),
-    /actual selected captured content representation/);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
     let complete = false;
     for (let maximum = 0; maximum < 100; maximum += 1) {
