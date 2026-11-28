@@ -2,7 +2,7 @@ import type { DataflowAccount, DataflowResult, GraphOrdering, NaturalLoop } from
 import { chargeResultEntries, chargeWork, graphOfMir, naturalLoops, orderGraph, orderRows, predecessors } from "../dataflow/index.js";
 import type { BlockId, LocalId, LocalRef, NodeId, NodeRef, PlaceId, TyId } from "../ids/contract.js";
 import { admitIntegerKey } from "../ids/index.js";
-import type { BinaryExpression, ElementAccessExpression, Expression, ForStatement, Identifier, PostfixUnaryExpression, PrefixUnaryExpression } from "../ir-hir/contract.js";
+import type { BinaryExpression, ElementAccessExpression, Expression, ForStatement, Identifier } from "../ir-hir/contract.js";
 import type { MirBlock, MirBody, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
@@ -78,11 +78,23 @@ function countedOperand(expression: Expression<TypedPhase> | null, account: Data
   return { kind: "complete", value: selected };
 }
 
-interface CountedSyntax {
+type CountedSyntax = {
   readonly condition: BinaryExpression<TypedPhase>;
   readonly counter: Identifier<TypedPhase>;
-  readonly increment: PrefixUnaryExpression<TypedPhase> | PostfixUnaryExpression<TypedPhase>;
   readonly updated: Identifier<TypedPhase>;
+  readonly stepRead: Identifier<TypedPhase>;
+  readonly calculation: NodeId;
+  readonly commit: NodeId;
+} & ({ readonly kind: "increment" } | {
+  readonly kind: "add";
+  readonly counterSide: "left" | "right";
+  readonly unitType: TyId;
+});
+
+function binaryLoopOperand(node: BinaryExpression<TypedPhase>, side: "left" | "right", account: DataflowAccount):
+  DataflowResult<Expression<TypedPhase> | null> {
+  const paid = chargeWork(account, 1);
+  return paid ?? countedOperand(node[side], account);
 }
 
 export function countedSyntax(node: ForStatement<TypedPhase>, account: DataflowAccount): DataflowResult<CountedSyntax | null> {
@@ -93,15 +105,64 @@ export function countedSyntax(node: ForStatement<TypedPhase>, account: DataflowA
   const step = countedOperand(node.incrementor, account);
   if (step.kind !== "complete") return step;
   const increment = step.value;
-  if ((increment?.kind !== "PrefixUnaryExpression" && increment?.kind !== "PostfixUnaryExpression")
-    || increment.operator !== "PlusPlusToken") return absent;
+  if (increment?.kind !== "PrefixUnaryExpression" && increment?.kind !== "PostfixUnaryExpression" && increment?.kind !== "BinaryExpression") return absent;
+  let operator: "PlusEqualsToken" | "EqualsToken" | null = null;
+  if (increment.kind === "BinaryExpression") {
+    const operatorRead = chargeWork(account, 1);
+    if (operatorRead !== null) return operatorRead;
+    const token = increment.operatorToken.kind;
+    if (token !== "PlusEqualsToken" && token !== "EqualsToken") return absent;
+    operator = token;
+  } else if (increment.operator !== "PlusPlusToken") return absent;
   const counter = countedOperand(condition.left, account);
   if (counter.kind !== "complete") return counter;
   if (counter.value?.kind !== "Identifier") return absent;
-  const updated = countedOperand(increment.operand, account);
+  if (increment.kind !== "BinaryExpression") {
+    const updated = countedOperand(increment.operand, account);
+    if (updated.kind !== "complete") return updated;
+    return updated.value?.kind === "Identifier" ? { kind: "complete", value: { kind: "increment", condition,
+      counter: counter.value, calculation: increment.id, commit: increment.id, updated: updated.value, stepRead: updated.value } } : absent;
+  }
+  const updated = binaryLoopOperand(increment, "left", account);
   if (updated.kind !== "complete") return updated;
-  return updated.value?.kind === "Identifier"
-    ? { kind: "complete", value: { condition, counter: counter.value, increment, updated: updated.value } } : absent;
+  if (updated.value?.kind !== "Identifier") return absent;
+  const right = binaryLoopOperand(increment, "right", account);
+  if (right.kind !== "complete") return right;
+  let calculation = increment.id;
+  let stepRead = updated.value;
+  let counterSide: "left" | "right" = "left";
+  let unit = right.value;
+  if (operator === "EqualsToken") {
+    const binary = right.value;
+    if (binary?.kind !== "BinaryExpression") return absent;
+    const operatorRead = chargeWork(account, 1);
+    if (operatorRead !== null) return operatorRead;
+    if (binary.operatorToken.kind !== "PlusToken") return absent;
+    calculation = binary.id;
+    const leftOperand = binaryLoopOperand(binary, "left", account);
+    if (leftOperand.kind !== "complete") return leftOperand;
+    const left = leftOperand.value;
+    if (left?.kind !== "Identifier" && left?.kind !== "NumericLiteral") return absent;
+    const rightOperand = binaryLoopOperand(binary, "right", account);
+    if (rightOperand.kind !== "complete") return rightOperand;
+    if (left.kind === "Identifier") {
+      stepRead = left;
+      unit = rightOperand.value;
+    } else {
+      if (rightOperand.value?.kind !== "Identifier") return absent;
+      counterSide = "right";
+      stepRead = rightOperand.value;
+      unit = left;
+    }
+  }
+  if (unit?.kind !== "NumericLiteral") return absent;
+  const literalRead = chargeWork(account, 4);
+  if (literalRead !== null) return literalRead;
+  const literal = unit.tsonic;
+  if (literal.role !== "value" || literal.conversion.kind !== "identity" || literal.convertedType !== literal.type || literal.narrowing !== null
+    || literal.value.numerator !== 1n || literal.value.denominator !== 1n || literal.value.negativeZero) return absent;
+  return { kind: "complete", value: { kind: "add", condition, counter: counter.value, updated: updated.value,
+    commit: increment.id, calculation, stepRead, counterSide, unitType: literal.type } };
 }
 
 function reachingAssignment(block: MirBlock, before: number, place: PlaceId, storage: CounterStorage,
@@ -455,7 +516,7 @@ function loopFact(
   const syntax = countedSyntax(node, account);
   if (syntax.kind !== "complete") return syntax;
   if (syntax.value === null) return absent;
-  const { condition, counter: counterRead, increment, updated } = syntax.value;
+  const { condition, counter: counterRead, updated, stepRead } = syntax.value;
   const variable = initializer.declarations.nodes[0];
   if (variable === undefined || !("declaration" in variable.tsonic)) return absent;
   const binding = variable.tsonic.declaration;
@@ -466,7 +527,7 @@ function loopFact(
     return "resolution" in annotation && annotation.resolution.kind === "local"
       && annotation.resolution.local.body === mir.body && annotation.resolution.local.local === binding.local.local;
   };
-  if (!sameCounter(counterRead) || !sameCounter(updated)) return absent;
+  if (!sameCounter(counterRead) || !sameCounter(updated) || stepRead !== updated && !sameCounter(stepRead)) return absent;
   const header = mir.blocks[loop.header];
   const backEdge = loop.backEdges[0];
   const latch = backEdge === undefined ? undefined : mir.blocks[backEdge];
@@ -495,21 +556,42 @@ function loopFact(
   if (boundType !== counter.storage) return absent;
   const step = latch.statements.at(-2);
   const commit = latch.statements.at(-1);
-  if (step?.kind !== "assign" || step.value.kind !== "unary" || step.value.operand.kind !== "place"
-    || commit?.kind !== "assign" || commit.place !== left.place || commit.value.kind !== "use" || commit.value.operand.kind !== "place"
-    || commit.value.operand.place !== step.place || commit.tir.node !== increment.id || step.tir.node !== increment.id) return absent;
-  const incrementDecision = step.value.operation.decision.operation;
-  if (incrementDecision.kind !== "native-operator" || incrementDecision.operator !== "++" || incrementDecision.carrier !== decision.carrier) return absent;
-  if (step.value.operand.place !== left.place) {
+  if (step?.kind !== "assign" || commit?.kind !== "assign" || commit.place !== left.place
+    || commit.value.kind !== "use" || commit.value.operand.kind !== "place" || commit.value.operand.place !== step.place
+    || commit.tir.body !== mir.body || commit.tir.node !== syntax.value.commit
+    || step.tir.body !== mir.body || step.tir.node !== syntax.value.calculation) return absent;
+  let incrementOperand: MirOperand;
+  if (syntax.value.kind === "increment") {
+    if (step.value.kind !== "unary") return absent;
+    const incrementDecision = step.value.operation.decision.operation;
+    if (incrementDecision.kind !== "native-operator" || incrementDecision.operator !== "++" || incrementDecision.carrier !== decision.carrier) return absent;
+    incrementOperand = step.value.operand;
+  } else {
+    const paid = chargeWork(account, 4);
+    if (paid !== null) return paid;
+    if (step.value.kind !== "binary") return absent;
+    const added = step.value.operation.decision;
+    if (added.kind !== "selected" || added.operation.kind !== "native-operator" || added.operation.operator !== "+"
+      || added.operation.carrier !== decision.carrier || added.execution.kind !== "pure" || added.result !== counter.storage
+      || added.operands.length !== 2 || added.operands[0] !== counter.storage || added.operands[1] !== counter.storage
+      || storageOf(commit.value.operand) !== counter.storage || syntax.value.unitType !== counter.storage) return absent;
+    const unit = syntax.value.counterSide === "left" ? step.value.right : step.value.left;
+    const exact = integerConstant(mir, unit, counter.storage, account);
+    if (exact.kind !== "complete") return exact;
+    if (exact.value !== 1n) return absent;
+    incrementOperand = step.value[syntax.value.counterSide];
+  }
+  if (incrementOperand.kind !== "place") return absent;
+  if (incrementOperand.place !== left.place) {
     const before = chargeWork(account, 2);
     if (before !== null) return before;
-    const operand = mir.places[step.value.operand.place];
+    const operand = mir.places[incrementOperand.place];
     const saved = operand?.base.kind === "local" ? mir.locals[operand.base.local] : undefined;
     if (saved?.role.kind !== "temporary" || saved.mode !== "local" || operand?.storage !== counter.storage) return absent;
-    const prior = reachingAssignment(latch, latch.statements.length - 2, step.value.operand.place, storage, account);
+    const prior = reachingAssignment(latch, latch.statements.length - 2, incrementOperand.place, storage, account);
     if (prior.kind !== "complete") return prior;
     const read = prior.value;
-    if (read?.tir.body !== mir.body || read.tir.node !== updated.id || read.value.kind !== "use"
+    if (read?.tir.body !== mir.body || read.tir.node !== stepRead.id || read.value.kind !== "use"
       || read.value.operand.kind !== "place" || read.value.operand.place !== left.place) return absent;
   }
   if (storage.exposedLocals.has(local.id) || storage.exposedSources.has(binding.local.local)) return absent;

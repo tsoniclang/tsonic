@@ -517,7 +517,8 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
     if (statement?.kind !== "ForStatement" || !initialized || selected === null
       || selected.condition.right.id !== loop.bound || !resolvesCounter(selected.counter, counter.tsonic.declaration) ||
       statement.initializer?.kind !== "VariableDeclarationList" || statement.initializer.declarations.nodes.length !== 1 ||
-      statement.initializer.declarations.nodes[0]?.id !== counter.id || !resolvesCounter(selected.updated, counter.tsonic.declaration)) {
+      statement.initializer.declarations.nodes[0]?.id !== counter.id || !resolvesCounter(selected.updated, counter.tsonic.declaration)
+      || selected.stepRead !== selected.updated && !resolvesCounter(selected.stepRead, counter.tsonic.declaration)) {
       { const stop = report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment."); if (stop !== null) return stop; }
       continue;
     }

@@ -494,9 +494,14 @@ export async function checkNativeCountedLoopProofs() {
   const fixture = await loadFrontFixture();
   for (const { start, write, tail = "", minimum, counted, audit, callee = "", declaration = null, nativeInvoke = false,
     step = "++i", bound = "3", receiver = "values", exit = null, afterLoop = false, proven = false,
-    writeChecks = 0, extraParameter = "", writeProjection = null } of [
+    writeChecks = 0, extraParameter = "", writeProjection = null, setup = "", additive = false } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
+    ...["i += 1", "i = i + 1", "i = 1 + i", "(i) += (1)", "i = ((i) + (1))"].map(step => ({
+      start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", proven: true, step, additive: true, audit: "unit-add",
+    })),
+    { start: 0, write: "", minimum: null, counted: false, step: "i += 2", additive: true },
+    { start: 0, write: "", minimum: null, counted: false, setup: "const other = 0;", step: "i = other + 1", additive: true },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
     { start: 0, write: "values = replacement;", minimum: 0n, counted: true },
     { start: 1, write: "", minimum: 1n, counted: true },
@@ -533,7 +538,7 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
     const source = `${callee}
-    export function read(values: boolean[], replacement: boolean[]${extraParameter}): boolean {
+    export function read(values: boolean[], replacement: boolean[]${extraParameter}): boolean {${setup === "" ? "" : `\n      ${setup}`}
       for (${afterLoop ? "var" : "let"} i = ${start}; i < ${bound}; ${step}) { ${write} ${exit ?? `if (${receiver}[i]) return true;`} ${tail} }
       return ${afterLoop ? "values[i]" : "false"};
     }`;
@@ -543,7 +548,7 @@ export async function checkNativeCountedLoopProofs() {
       libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
     if (declaration !== null) snapshot.source.input.packages.modules.find(row => row.path.endsWith("/native.d.ts")).role = "declaration";
     const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
-      integerOverflow: [...(nativeInvoke ? [{ carrier: "int64", operation: "add", result: "int64", law: "abort" }] : []),
+      integerOverflow: [...(nativeInvoke || additive ? [{ carrier: "int64", operation: "add", result: "int64", law: nativeInvoke ? "abort" : "wrap" }] : []),
         { carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
     const result = analyzeHostProgram(operands);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -670,9 +675,9 @@ export async function checkNativeCountedLoopProofs() {
         assert.equal(lookups, admitted ? 1 : 0);
       }
     }
-    if (audit === "counter-copy" || audit === "content-store" || audit === "content-call") {
+    if (audit === "counter-copy" || audit === "content-store" || audit === "content-call" || audit === "unit-add") {
       checkReachedProofCuts(InvocationAccount.stateOf, account => countedLoopsOf(account, selected.mir, facts.execution.provided, proofInput),
-        replay.value, `${audit}: ${write}`);
+        replay.value, `${audit}: ${audit === "unit-add" ? step : write}`);
       continue;
     }
     for (const unavailable of [null, selected.mir]) {
