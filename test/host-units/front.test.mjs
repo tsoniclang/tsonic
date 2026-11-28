@@ -3831,6 +3831,63 @@ test("a rejected nested spread retains its actual candidate and original checker
   assert.equal(typed.diagnostics[0] === original, true);
 });
 
+test("a rejected call does not gain applicability from its complete argument association", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Actual = { flag: boolean; other: boolean };
+    type Formal = { other: boolean; flag: boolean };
+    function choose(input: Formal): boolean { return input.flag; }
+    export function read(input: { part: Actual | null; sibling: Actual | null }): boolean {
+      const saved = input.part;
+      if (input.sibling !== null) return choose(saved);
+      return false;
+    }
+  `);
+  const module = input.snapshot.entryPoint;
+  const capture = maximumCapturedFactsPerModule => {
+    const { deps, program } = fixture.openAndCapture(input.snapshot);
+    return captureSingleModule(front, { ...deps, navigationCapture: {
+      ...deps.navigationCapture, maximumCapturedFactsPerModule,
+    } }, program, module);
+  };
+  const maximum = 1_614;
+  const captured = capture(maximum);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const raw = captured.value;
+  const [call] = raw.calls;
+  assert.equal(call.kind, "conditional-candidates");
+  const [reference] = call.diagnostics;
+  assert.deepEqual(raw.checkerDiagnostics.map(row => row.code.rendered), ["TS2345"]);
+  const [candidate] = raw.types.candidates[call.candidates].candidates;
+  const [obligation] = candidate.constraints;
+  const operand = raw.tree.statements.nodes[3].body.statements.nodes[1].thenStatement.expression.arguments.nodes[0];
+  assert.equal(candidate.arguments.kind, "unavailable", "there is no executable argument binding for this candidate");
+  assert.deepEqual(obligation.site, { module, node: operand.id });
+  assert.equal(obligation.root === reference && obligation.diagnostic === reference, true);
+  assert.equal(candidate.diagnosticCoverage[0].obligations[0] === obligation, true);
+
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const [original] = checked.value.modules.find(row => row.module.module === module).module.checkerDiagnostics;
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "refused");
+  assert.equal("value" in typed, false);
+  assert.equal(typed.diagnostics.length, 1);
+  assert.equal(typed.diagnostics[0] === original, true);
+  assert.deepEqual(analyzeHostProgram(input), { kind: "refused", diagnostics: [original] });
+  assert.deepEqual(capture(maximum - 1), { kind: "refused", diagnostics: [original,
+    resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum: maximum - 1,
+      site: { kind: "file", path: "/project/src/main.ts" },
+      unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } }),
+  ] });
+});
+
 test("nested contextual tuple contributions retain both paid selector edges", async () => {
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");

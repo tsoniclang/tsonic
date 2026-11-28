@@ -11,12 +11,13 @@ export async function checkHeldReferenceArgument() {
   const { accountFailure, chargeWork, chargeResultEntries, createAccount } = await import("../../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
   const fixture = await loadFrontFixture();
-  for (const mode of ["required", "guarded", "parenthesized", "saved", "saved-chain", "saved-rebound"]) {
+  for (const mode of ["required", "guarded", "parenthesized", "saved", "saved-chain", "saved-rebound", "saved-guarded"]) {
     const saved = mode.startsWith("saved");
+    const guardedSave = mode === "saved-guarded";
     const chain = mode === "saved-chain";
     const rebound = mode === "saved-rebound";
     const argument = mode === "parenthesized" ? "(input.part)" : "input.part";
-    const storage = `{ part: Actual${mode === "guarded" ? " | null" : ""}; sibling: Actual }`;
+    const storage = `{ part: Actual${mode === "guarded" || guardedSave ? " | null" : ""}; sibling: Actual }`;
     const input = analysisInput(fixture, "sdk-minimal", `
       type Actual = { flag: boolean; other: boolean };
       type Formal = { other: boolean; flag: boolean };
@@ -24,6 +25,7 @@ export async function checkHeldReferenceArgument() {
       ${rebound ? `type Container = ${storage};` : ""}
       export function read(input: ${chain ? `{ layer: ${storage} }` : rebound ? "Container, other: Container" : storage}): boolean {
         ${mode === "guarded" ? "if (input.part !== null) { return choose(input.part); } return false;"
+          : guardedSave ? "if (input.part !== null) { const saved = input.part; return choose(saved); } return false;"
           : chain ? "const layer = input.layer; const saved = layer.part; return choose(saved);"
           : saved ? `const saved = input.part; ${rebound ? "input = other;" : ""} return choose(saved);`
           : `return choose(${argument});`}
@@ -37,14 +39,15 @@ export async function checkHeldReferenceArgument() {
     const read = module.tree.statements.nodes.at(-1);
     const body = checked.bodies.get(read.tsonic.body);
     const head = body.root.statements.nodes[0];
-    const call = (head.kind === "IfStatement" ? head.thenStatement.statements.nodes[0] : body.root.statements.nodes.at(-1)).expression;
+    const selectedStatements = head.kind === "IfStatement" ? head.thenStatement.statements.nodes : body.root.statements.nodes;
+    const call = selectedStatements.at(-1).expression;
     const authored = call.arguments.nodes[0];
     const projected = authored.kind === "ParenthesizedExpression" ? authored.expression : authored;
     const direct = property => property.tsonic.declaration.definition;
     const container = rebound ? module.tree.statements.nodes[3].type : read.parameters.nodes[0].type;
     const outer = chain ? container.members.nodes[0] : null;
     const [part, sibling] = (outer?.type ?? container).members.nodes.map(direct);
-    const savedDecl = saved ? body.root.statements.nodes[chain ? 1 : 0].declarationList.declarations.nodes[0] : null;
+    const savedDecl = saved ? selectedStatements[chain ? 1 : 0].declarationList.declarations.nodes[0] : null;
     const placed = savedDecl === null ? null : checked.bodies.get(savedDecl.tsonic.initializer);
     const crossedPlaced = placed === null ? null : { ...placed, root: { ...placed.root } };
     const field = (alias, name) => direct(alias.type.members.nodes.find(row => row.name.text === name));
@@ -88,7 +91,11 @@ export async function checkHeldReferenceArgument() {
       const slot = selected.mir.places[invocation.arguments[0].operand.place].base;
       assert.equal(slot.kind, "local");
       assert.deepEqual(selected.mir.locals[slot.local].source, savedDecl.tsonic.declaration.local);
-      assert.equal(selected.mir.places.some(row => row.base.kind === "place" && row.base.projection.kind === "field"), false);
+      assert.equal(selected.mir.places.filter(row => row.base.kind === "place" && row.base.projection.kind === "field").length, guardedSave ? 1 : 0);
+      if (guardedSave) {
+        assert.equal(load.mir.blocks.filter(row => row.terminator.kind === "check").length, 1);
+        assert.deepEqual(load.facts[0].refinements.refinements.map(row => row.kind), ["unproven"]);
+      }
     }
     assert.equal(selected.facts[0].refinements.refinements.some(row => row.kind === "proven"), mode === "guarded");
     const summary = compiled.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.body);

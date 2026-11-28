@@ -131,7 +131,7 @@ test("the application kernel remaps a projected return onto the actual caller fi
   const effects = projectionEffects(deps, new Map([[0, "field"]]), null, projections, () => null, () => null, {
     lexical: caller.tir.lexicalBindings, scopeOf: definition => source.value.descriptions.get(definition)?.generics ?? null,
   });
-  const apply = () => effects.appliedValue(call, summary, formal.index, formal.path, held, origins.value, bound, producers, () => null);
+  const apply = () => effects.appliedValue(call, summary, formal, formal.path, held, origins.value, bound, producers, () => null);
   const image = apply();
   assert.equal(typeof image, "number");
   assert.equal(apply(), image);
@@ -5051,10 +5051,10 @@ test("selected reference-call helpers keep genuine unsupported inputs explicit a
     account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null, null,
     () => assert.fail("The selected reference formal has no projected producer."));
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
-    /non-formal reference binding/);
+    /A selected callee entry value requires its actual argument or capture transport/u);
   assert.throws(() => invoke({ ...operation, arguments: [{ kind: "place", place: 0 }] }), /actual operand/);
   assert.throws(() => invoke(operation, { ...summary, arena: { ...summary.arena,
-    producers: [{ id: 0, kind: "capture", path: null, index: 0 }] } }), /non-formal reference binding/);
+    producers: [{ id: 0, kind: "capture", path: null, index: 0 }] } }), /A selected callee entry value requires its actual argument or capture transport/u);
   for (const role of [{ kind: "capture", index: 0 }, { kind: "parameter", index: 0 }])
     assert.throws(() => invoke(operation, { ...summary, arena: { ...summary.arena,
       cells: [{ id: 0, role, occurrence: { kind: "entry", execution: summary.key.execution, local: 0 }, lifetimes: [] }] } }),

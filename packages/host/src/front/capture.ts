@@ -5476,8 +5476,8 @@ function captureRejectedCall(scope: CaptureScope, invocation: RawNodeRef,
     const original = scope.tables.signatureIds.get(application.signature);
     if (applied === undefined || application.invocation !== call.call || application.kind !== "call" || original === undefined
       || application.class !== undefined || application.receiver !== undefined || application.signatureShape.composite !== undefined
-      || applied !== application.signature && applied.target !== application.signature || candidate.arguments.kind !== "unavailable")
-      throw new TypeError("front: rejected call candidate lacks a supported actual applied signature or argument association");
+      || applied !== application.signature && applied.target !== application.signature)
+      throw new TypeError("front: rejected call candidate lacks its actual applied signature association");
     const signature = rawSignature(scope, applied, invocation, application.kind);
     if (signature === null) return null;
     const callee = requiredCallReference(scope, application.callee.expression);
