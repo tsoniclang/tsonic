@@ -1239,9 +1239,8 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         const contextual = value.value.views.contextual;
         if (aggregate.role !== "layout-quote") {
           const source = own.kind === "available" ? readType(lowering.deps.types, own.value) : null;
-          const selected = contextual.kind === "available" && contextual.value !== null ? readType(lowering.deps.types, contextual.value) : null;
           if (contextual.kind !== "available" || (source?.kind !== "array" && source?.kind !== "tuple")
-            || contextual.value !== null && selected?.kind !== source.kind)
+            || source.kind === "array" && contextual.value !== null && readType(lowering.deps.types, contextual.value).kind !== "array")
             throw new TypeError("front: a runtime array expression requires its own checked construction source and destination.");
         }
         return { kind: "complete", value: { ...headerOf(node), kind: node.kind, multiLine: node.multiLine,

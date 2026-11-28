@@ -1,4 +1,4 @@
-import type { ApplicationSyntaxReceipt, ArrayLiteralExpression, BindingPattern, CheckedContextualTupleAssertionOf, CheckedPhase, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
+import type { ApplicationSyntaxReceipt, ArrayLiteralExpression, BindingElement, BindingName, BindingPattern, CheckedContextualTupleAssertionOf, CheckedPhase, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
   OrdinarySyntaxPhase, ParameterDeclaration, Phase, SyntaxArgumentListReceipt, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
   SyntaxCallArgumentsImage, SyntaxInitializerImage, VisitCheckedInferredTupleProducts, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
@@ -68,7 +68,7 @@ export const visitCheckedInferredTupleProducts: VisitCheckedInferredTupleProduct
   if (start !== null) return start;
   let expression = declaration.initializer;
   let parent = declaration.id;
-  let pattern = name;
+  let pattern: BindingName<CheckedPhase> = name;
   let pending: PendingTupleSlots | null = null;
   for (;;) {
     while (expression !== null) {
@@ -88,6 +88,7 @@ export const visitCheckedInferredTupleProducts: VisitCheckedInferredTupleProduct
           const stopped = visit(expression);
           if (stopped !== null) return stopped;
         }
+        if (pattern.kind !== "ArrayBindingPattern") break;
         const admitted = admit(1, 1);
         if (admitted !== null) return admitted;
         pending = { literal: expression, pattern, operands: expression.elements.nodes, elements: pattern.elements.nodes, outer: pending, index: 0 };
@@ -104,16 +105,17 @@ export const visitCheckedInferredTupleProducts: VisitCheckedInferredTupleProduct
       }
       const reached = admit(1, 0);
       if (reached !== null) return reached;
-      const index = pending.index++;
-      const element = pending.elements[index];
+      const index: number = pending.index++;
+      const element: BindingElement<CheckedPhase> | undefined = pending.elements[index];
       if (element?.kind !== "BindingElement" || element.parent !== pending.pattern.id || element.dotDotDotToken !== null
-        || element.propertyName !== null || element.initializer !== null || element.name?.kind !== "ArrayBindingPattern"
-        || element.name.parent !== element.id) continue;
+        || element.propertyName !== null || element.initializer !== null) continue;
+      const target: BindingName<CheckedPhase> | null = element.name;
+      if ((target?.kind !== "ArrayBindingPattern" && target?.kind !== "Identifier") || target.parent !== element.id) continue;
       const stopped = admit(1, 0);
       if (stopped !== null) return stopped;
       expression = pending.operands[index] ?? null;
       parent = pending.literal.id;
-      pattern = element.name;
+      pattern = target;
       break;
     }
     if (pending === null) return null;

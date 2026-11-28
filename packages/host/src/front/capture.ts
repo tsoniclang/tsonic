@@ -864,7 +864,8 @@ function captureFieldSource(field: PrimitiveFieldSource | null, selected: Type |
   return null;
 }
 
-function tupleBindingAnnotation(scope: CaptureScope, leaf: Node, enclosing: Node, destination: Type): Node | null {
+function tupleBindingSource(scope: CaptureScope, leaf: Node, enclosing: Node, destination: Type,
+  role: "annotation" | "value"): Node | LiteralTupleUse | null {
   const ast = scope.checked.ast;
   if (!admit(scope, "facts")) return null;
   const path: number[] = [];
@@ -894,23 +895,48 @@ function tupleBindingAnnotation(scope: CaptureScope, leaf: Node, enclosing: Node
         : sourceType(scope, { kind: "annotation", node: written });
       if (receiver === undefined || receiver.causes.length !== 0) return null;
       let type = receiver.type;
-      const read = written ?? valueTupleRead(scope, variable.Initializer, receiver);
+      const initializer = written === undefined && role === "value" ? unparenthesizedTupleValue(scope, variable.Initializer) : variable.Initializer;
+      const read = written ?? valueTupleRead(scope, initializer, receiver);
+      if (scope.meter.refusal !== null) return null;
       let annotation = read !== null && "Kind" in read ? read : undefined;
+      let literal = role === "value" && read !== null && !("Kind" in read) && read.kind === "literal-tuple" ? read : null;
+      if (role === "value" && read === null && initializer !== undefined && ast.kindName(initializer) === "KindArrayLiteralExpression"
+        && scope.shape.isTuple(receiver.type)) literal = retainTupleLiteral(scope, initializer, initializer, receiver.type);
       for (let depth = path.length - 1; depth >= 0; depth -= 1) {
-        const source = tupleAnnotationOf(scope, type, annotation);
-        if (source === undefined || !admit(scope, "edges")) return null;
-        const syntax = tupleSyntax(scope, source);
+        const source = literal === null ? tupleAnnotationOf(scope, type, annotation) : undefined;
+        if (source === undefined && literal === null || !admit(scope, "edges")) return null;
+        const syntax = source === undefined ? undefined : tupleSyntax(scope, source);
         const tuple = scope.shape.getTupleInfo(type);
-        if (syntax === undefined || tuple === undefined
-          || syntax.readonly !== tuple.readonly || syntax.elements.length !== tuple.elements.length) return null;
         const selected = path[depth];
-        if (selected === undefined) return null;
+        if (tuple === undefined || selected === undefined) return null;
         const slot = tuple.elements[selected];
-        annotation = syntax.elements[selected];
-        if (slot?.elementKind !== "required" || slot.declaration !== undefined || annotation === undefined) return null;
+        if (slot?.elementKind !== "required" || slot.declaration !== undefined) return null;
+        if (source !== undefined) {
+          if (syntax === undefined || syntax.readonly !== tuple.readonly || syntax.elements.length !== tuple.elements.length) return null;
+          annotation = syntax.elements[selected];
+          if (annotation === undefined) return null;
+        } else if (literal !== null) {
+          if (!admit(scope, "edges")) return null;
+          const elements = ast.as.AsArrayLiteralExpression(literal.expression)?.Elements?.Nodes;
+          if (literal.original !== type || elements?.length !== tuple.elements.length || !admit(scope, "edges")) return null;
+          const operand = elements[selected];
+          if (operand === undefined || ast.parent(operand) !== literal.expression || !scope.shape.isTuple(slot.type)) return null;
+          const value = sourceType(scope, { kind: "expression", node: operand });
+          if (value?.type !== slot.type || value.causes.length !== 0) return null;
+          const unwrapped = unparenthesizedTupleValue(scope, operand);
+          if (unwrapped === undefined) return null;
+          const next = ast.kindName(unwrapped) === "KindArrayLiteralExpression"
+            ? retainTupleLiteral(scope, operand, unwrapped, slot.type) : valueTupleRead(scope, unwrapped, value);
+          annotation = next !== null && "Kind" in next ? next : undefined;
+          literal = next !== null && !("Kind" in next) && next.kind === "literal-tuple" ? next : null;
+          if (annotation === undefined && literal === null) return null;
+        }
         type = slot.type;
       }
-      return type === destination ? annotation ?? null : null;
+      if (type === destination) return annotation ?? literal;
+      if (literal === null || !admit(scope, "edges")
+        || scope.shape.getTypeReferenceTarget(type) !== scope.shape.getTypeReferenceTarget(destination)) return null;
+      return literal;
     }
     if (owner === undefined || ast.kindName(owner) !== "KindBindingElement" || ast.name(owner) !== pattern) return null;
     const parent = ast.parent(owner);
@@ -925,8 +951,8 @@ function primitiveBindingSource(scope: CaptureScope, element: Node, pattern: Nod
   if (!scope.sourcePrimitiveFacts || checked === undefined || checked.causes.length !== 0 || !admit(scope, "edges")) return null;
   const kind = ast.kindName(pattern);
   if (kind === "KindArrayBindingPattern") {
-    const annotation = tupleBindingAnnotation(scope, element, pattern, checked.type);
-    return annotation === null ? null : { annotation, arm: null };
+    const annotation = tupleBindingSource(scope, element, pattern, checked.type, "annotation");
+    return annotation === null || !("Kind" in annotation) ? null : { annotation, arm: null };
   }
   if (kind !== "KindObjectBindingPattern") return null;
   const owner = ast.parent(pattern);
@@ -1799,7 +1825,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
       if (view?.Type !== annotation || scope.tables.tupleLiteralReads?.get(assertion) !== binding)
         return throwInvariant(invariant("A const tuple annotation must retain its actual checked operand proof."));
     }
-    if (literalSlots === undefined || binding.original !== type)
+    if (literalSlots === undefined)
       return throwInvariant(invariant("An executing tuple literal requires its actual checked expression and native result."));
   }
   let source = binding?.kind === "literal-tuple" || binding?.kind === "binding-pattern-tuple" ? undefined
@@ -1858,7 +1884,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     const slot = selected[index];
     const annotation = syntax?.elements[index];
     const role = ast.kindName(annotation);
-    if (before === undefined || slot === undefined ||
+    if (before === undefined || slot === undefined || literalSlots !== undefined && slot.type !== before.type ||
       before.elementKind === "rest" || slot.elementKind !== before.elementKind ||
       before.declaration !== undefined || slot.declaration !== undefined ||
       (slot.elementKind === "variadic" ? role !== "KindRestType"
@@ -4258,6 +4284,20 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
     && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
 }
 
+function symbolTupleRead(scope: CaptureScope, type: Type, symbol: CheckerSymbol, binding: Node | null): Node | LiteralTupleUse | null {
+  const owner = scope.checker.getSymbolValueDeclaration(symbol);
+  if (binding !== null && binding !== owner) return null;
+  const ast = scope.checked.ast;
+  if (owner === undefined || ast.kindName(owner) !== "KindBindingElement" || !scope.shape.isTuple(type))
+    return binding === null ? declaredTupleRead(scope, type, owner) : null;
+  if (!admit(scope, "edges")) return null;
+  const pattern = ast.parent(owner);
+  const name = ast.name(owner);
+  if (pattern === undefined || ast.kindName(pattern) !== "KindArrayBindingPattern" || name === undefined
+    || ast.kindName(name) !== "KindIdentifier" || scope.checker.getSymbolAtLocation(name) !== symbol) return null;
+  return tupleBindingSource(scope, owner, pattern, type, "value");
+}
+
 function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): TupleValueRead | null {
   if (node === undefined || answer === undefined || answer.causes.length !== 0) return null;
   const ast = scope.checked.ast;
@@ -4298,7 +4338,7 @@ function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: Res
   if (!isDeclaredTupleRead(scope, node, answer)) return null;
   const symbol = scope.checker.getSymbolAtLocation(node);
   return symbol !== undefined && admit(scope, "edges")
-    ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(symbol)) : null;
+    ? symbolTupleRead(scope, answer.type, symbol, null) : null;
 }
 
 function selectedTupleRead(scope: CaptureScope, call: ResolvedSourceCallInfo): SignatureTupleRead | null {
@@ -6200,14 +6240,20 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (position === null || !admit(scope, "facts")) break;
       const answer = sourceType(scope, { kind: "expression", node });
       if (scope.meter.refusal !== null) break;
-      const selected = patternName === undefined || parent === undefined ? null : primitiveBindingSource(scope, node, parent, patternName, answer);
+      const tuple = patternName !== undefined && ast.kindName(parent) === "KindArrayBindingPattern"
+        && answer !== undefined && answer.causes.length === 0 && scope.shape.isTuple(answer.type);
+      const tupleSymbol = tuple && admit(scope, "edges") ? scope.checker.getSymbolAtLocation(patternName) : undefined;
+      const tupleUse = tupleSymbol === undefined || answer === undefined ? null : symbolTupleRead(scope, answer.type, tupleSymbol, node);
+      const selected = tuple || patternName === undefined || parent === undefined ? null : primitiveBindingSource(scope, node, parent, patternName, answer);
       const written = kind === "KindVariableDeclaration" ? qualifiedStorageAnnotation(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
-      const read = enqueueRawType(scope, answer, position, selected?.annotation ?? written, selected?.arm ?? null, null);
+      const annotation = tupleUse !== null && "Kind" in tupleUse ? tupleUse : selected?.annotation ?? written;
+      const use = tupleUse !== null && !("Kind" in tupleUse) ? tupleUse : selected?.arm ?? null;
+      const read = enqueueRawType(scope, answer, position, annotation, use, null);
       const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
       const name = patternName ?? ast.name(node);
-      const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
+      const symbol = tuple ? tupleSymbol : name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
       if (!admit(scope, "facts")) break;
@@ -6300,7 +6346,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           || kind === "KindConditionalExpression"))
         sourceRead = valueTupleRead(scope, unparenthesizedTupleValue(scope, node), answer);
       else if (declarationSymbol !== undefined && admit(scope, "edges"))
-        sourceRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
+        sourceRead = symbolTupleRead(scope, answer.type, declarationSymbol, null);
       const authoredRead = sourceRead !== null && "Kind" in sourceRead ? sourceRead : null;
       const shapedRead = sourceRead !== null && !("Kind" in sourceRead) ? sourceRead : null;
       if (scope.meter.refusal !== null) break;

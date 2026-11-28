@@ -524,6 +524,42 @@ test("inferred nested binding constructs the native read tuple rather than the s
   }
 });
 
+test("a named tuple-valued slot keeps the selected value and its actual binding through a read", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function produce(flag: boolean): [[null, boolean]] { return [[null, flag]]; }
+    export function literal(flag: boolean): readonly [null, boolean] {
+      const [, whole] = [flag, [null, flag] as const] as const;
+      return whole;
+    }
+    export function declared(flag: boolean): [null, boolean] {
+      const [whole] = produce(flag);
+      return whole;
+    }
+  `);
+  const nativeFacts = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  for (const [name, ordinal] of [["literal", 1], ["declared", 0]]) {
+    const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    const [statement, returned] = selected.tir.root.statements.nodes;
+    const [binding] = statement.declarationList.declarations.nodes;
+    const { storage, declaration: destination } = binding.name.elements.nodes[ordinal].tsonic;
+    const tuple = result.value.index.types.terms[binding.name.tsonic.storage];
+    assert.equal(tuple.elements[ordinal].type, storage, name);
+    assert.equal(result.value.index.types.terms[storage].readonly, name === "literal", name);
+    assert.equal(returned.expression.tsonic.type, storage, name);
+    assert.equal(destination.kind, "local");
+    assert.equal(selected.tir.locals[destination.local.local].storage, storage, name);
+  }
+});
+
 for (const [form, initializer, operand] of [
   ["written", "([make(flag), true] as readonly [boolean, true])", "slots"],
   ["const", "[make(flag), true] as const", "slots"],
