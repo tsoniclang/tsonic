@@ -1,14 +1,14 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingScope, BindingVector, CategoryEvidence, MemberKey, Signature, TypeTerm } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, CategoryEvidence, Signature, TypeTerm } from "../ir-types/contract.js";
 import type { BindingPattern, CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase, VariableDeclaration } from "../ir-hir/contract.js";
 import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, EqualityConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
+import { admitTypePublicationStep, findMemberByKey, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedBindingTextKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedBindingKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -733,29 +733,17 @@ function objectBindingFits(walk: Walk, pattern: BindingPattern<CheckedPhase>, so
   const ready = readType(deps.types, receiver);
   if (pattern.kind !== "ObjectBindingPattern" || ready.kind !== "shape")
     return notInferredYet(PORT, "an object binding without its actual closed structural receiver", pattern.origin);
+  const admit = (work: number) => admitTypePublicationStep(deps.typeWork, work) === null;
   for (let index = 0; index < pattern.elements.nodes.length; index += 1) {
     const reached = admitTypePublicationStep(deps.typeWork);
     if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, pattern.origin, unit);
     const element = present(pattern.elements.nodes[index], "the actual ordered object binding element");
-    const selector = checkedBindingTextKeyOf(element);
-    if (selector === null)
+    const key = checkedBindingKeyOf(element);
+    if (key === null)
       return notInferredYet(PORT, "an object binding without an actual named data-field selector", element.origin);
-    const key: MemberKey = { kind: "text", value: selector };
-    let low = 0;
-    let high = ready.members.length;
-    let member: (typeof ready.members)[number] | null = null;
-    while (low < high) {
-      const step = admitTypePublicationStep(deps.typeWork);
-      if (step !== null) return refuseTypeConstruction(deps.typeWork, step, element.origin, unit);
-      const middle = low + Math.floor((high - low) / 2);
-      const candidate = present(ready.members[middle], "the actual canonical structural member");
-      const compare = admitTypePublicationStep(deps.typeWork, key.value.length + (candidate.key.kind === "text" ? candidate.key.value.length : 0));
-      if (compare !== null) return refuseTypeConstruction(deps.typeWork, compare, element.origin, unit);
-      const order = compareMemberKeys(candidate.key, key);
-      if (order < 0) low = middle + 1;
-      else if (order > 0) high = middle;
-      else { member = candidate; break; }
-    }
+    const member = findMemberByKey(ready.members, key, admit);
+    const stopped = admitTypePublicationStep(deps.typeWork, 0);
+    if (stopped !== null) return refuseTypeConstruction(deps.typeWork, stopped, element.origin, unit);
     if (member?.kind !== "property" || member.read === null || member.readOrigins.length !== 1
       || member.readOrigins[0]?.kind !== "declared")
       return notInferredYet(PORT, "an object binding without its actual declared data-field read", element.origin);

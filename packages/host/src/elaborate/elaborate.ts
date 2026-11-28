@@ -908,7 +908,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (present === null && fit.source !== member.read)
         return callerDefect("a direct member binding requires its actual complete read type", element.origin);
       const authored = element.propertyName;
-      if (authored !== null && ((authored.kind !== "Identifier" && authored.kind !== "StringLiteral") || authored.tsonic.role !== "property-name"))
+      if (authored !== null && ((authored.kind !== "Identifier" && authored.kind !== "StringLiteral" && authored.kind !== "NumericLiteral")
+        || authored.tsonic.role !== "property-name"))
         return callerDefect("a binding selector must retain its actual authored field", element.origin);
       let propertyName: PropertyName<TypedPhase> | null = null;
       if (authored !== null) {

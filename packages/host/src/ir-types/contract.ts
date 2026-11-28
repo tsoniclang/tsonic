@@ -1,7 +1,7 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef, Origin } from "../ids/contract.js";
 import type { Result, TextParseResult, UnitRequest, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BodyInstance, CategoryEvidence, ConstantReference, ExactRational, Execution, IndexInventoryEntry, LiteralTypeValue, MemberInventoryEntry, MemberKey, MemberStorageSelection, MemberTypes, NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence, TypeProductionRequest } from "./data.js";
-import type { MemberTypeAccess, MemberTypeRequest } from "./data.js";
+import type { Member, MemberTypeAccess, MemberTypeRequest } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { LimitStop, PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
 export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
@@ -14,6 +14,9 @@ export type TypeInterner = TypeArena;
 export type TypePublicationWork = PublicationAccount;
 export type CompareIndexSignatures = (left: IndexInventoryEntry, right: IndexInventoryEntry) => number;
 export type CompareMemberKeys = (left: MemberKey, right: MemberKey) => number;
+export type AdmitMemberKeyEncoding = (value: MemberKey, admit: (work: number) => boolean) => boolean;
+export type CompareAdmittedMemberKeys = (left: MemberKey, right: MemberKey, admit: (work: number) => boolean) => number | null;
+export type FindMemberByKey = (members: readonly Member[], key: MemberKey, admit: (work: number) => boolean) => Member | null;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type NativeCarrierHoldingOf = (facts: readonly NativeCarrierHolding[], carrier: NativeHoldingCarrier) => ReceiverAccess | null;
 export type NativeArrayExtentOf = (facts: readonly NativeArrayExtent[], carrier: NativeArrayCarrier) => NativeIntegerPrimitive | null;

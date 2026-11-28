@@ -862,7 +862,7 @@ export interface RuleTable<State> {
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
   readonly member: (input: MemberInput, storage: BoundSourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
-  readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
+  readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[], work: RuleWork) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput, work: RuleWork) => Result<RuleOutcome<OperationDecision>>;
   readonly candidate: (input: CandidateInput, referenceArgument: ReadReferenceArgument, work: RuleWork) => Result<RuleOutcome<ApplicationDecision>>;

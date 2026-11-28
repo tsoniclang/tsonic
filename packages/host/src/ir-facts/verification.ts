@@ -1,8 +1,8 @@
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingVector, Execution, MemberKey, MemberStorageSelection, TypeBinding } from "../ir-types/contract.js";
-import { artifactBindingsKey } from "../ir-types/index.js";
+import { admitMemberKeyEncoding, artifactBindingsKey } from "../ir-types/index.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type { EscapeTarget, FactsSite, FactsVerificationContext, RelationalOwner } from "./contract.js";
@@ -88,8 +88,7 @@ export function admitOwnerIdentity(owner: RelationalOwner, account: DataflowAcco
 function admitMemberKey(key: MemberKey, account: DataflowAccount): DataflowStop | null {
   const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
   if (work !== null) return work;
-  return key.kind === "text" ? chargeWork(account, key.value.length)
-    : key.kind === "symbol" ? chargeWork(account, key.declaration.length) : null;
+  return admitMemberKeyEncoding(key, count => chargeWork(account, count) === null) ? null : accountFailure(account);
 }
 
 function admitCalleeIdentity(callee: ResolvedCallee | null, account: DataflowAccount): DataflowStop | null {

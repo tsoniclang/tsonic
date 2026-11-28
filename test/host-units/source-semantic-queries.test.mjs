@@ -3066,9 +3066,9 @@ test("a real Query budget refusal abandons the member contribution without resum
     return first;
   } };
   const inputs = { ...program.inputs, inference: { ...program.inputs.inference,
-    rules: { ...original, resumeMember: (state, answers) => {
+    rules: { ...original, resumeMember: (state, answers, work) => {
       resumed += 1;
-      return original.resumeMember(state, answers);
+      return original.resumeMember(state, answers, work);
     }, constraints: { ...original.constraints, member } } } };
   const { queries } = registration.createSourceSemanticQueries(program.base, inputs);
   const proved = new Set();
@@ -3127,9 +3127,10 @@ test("the owning solve resumes the exact member contribution once and rejects cr
   const unread = { get 0() { return assert.fail("an unowned phase must not read a supplied answer"); },
     get length() { return assert.fail("an unowned phase must not read the supplied answer vector"); } };
   const prototypeCopy = value => Object.assign(Object.create(Object.getPrototypeOf(value)), value);
-  assert.throws(() => foreignRules.resumeMember(rulesPause, unread), /actual rule table/);
-  assert.throws(() => rules.resumeMember({ ...rulesPause }, unread), /actual Rules suspension/);
-  assert.throws(() => rules.resumeMember(prototypeCopy(rulesPause), unread), /actual Rules suspension/);
+  const ruleWork = { typeWork: inputs.typeWork, unit };
+  assert.throws(() => foreignRules.resumeMember(rulesPause, unread, ruleWork), /actual rule table/);
+  assert.throws(() => rules.resumeMember({ ...rulesPause }, unread, ruleWork), /actual Rules suspension/);
+  assert.throws(() => rules.resumeMember(prototypeCopy(rulesPause), unread, ruleWork), /actual Rules suspension/);
   assert.throws(() => new rulesPause.constructor({ owner: "rules" }, {}), /actual Rules suspension/);
   assert.equal("resume" in first.paused, false);
   assert.throws(() => wiring.infer.resumeSolveGroup({ ...inputs }, first.paused, unread), /actual solve/);
@@ -3143,7 +3144,7 @@ test("the owning solve resumes the exact member contribution once and rejects cr
   const second = wiring.infer.resumeSolveGroup(inputs, first.paused, [supplied]);
   rulesPause.state = { consumed: false };
   first.paused.suspension.state = { consumed: false };
-  assert.throws(() => rules.resumeMember(rulesPause, unread), /actual rule table/);
+  assert.throws(() => rules.resumeMember(rulesPause, unread, ruleWork), /actual rule table/);
   assert.throws(() => wiring.infer.resumeSolveGroup(inputs, first.paused, unread), /active member contribution once/);
   assert.deepEqual(second.requests, [{ kind: "memberTypeOf", request: { receiver: source.value.receiver, member: 1, access: "read" } }]);
   const wrong = start();
@@ -3190,9 +3191,9 @@ test("successive checked member contributions resume the same solver cursor with
     return rules.constraints.member.evaluate(input);
   } };
   const inputs = { ...program.inputs.inference, rules: { ...rules, constraints: { ...rules.constraints, member },
-    resumeMember: (state, answers) => {
+    resumeMember: (state, answers, work) => {
       order.push(["resume", answers[0].kind]);
-      return rules.resumeMember(state, answers);
+      return rules.resumeMember(state, answers, work);
     } } };
   const generation = wiring.infer.constraintsOf(inputs, group);
   assert.equal(generation.kind, "paused");

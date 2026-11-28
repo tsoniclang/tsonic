@@ -1006,8 +1006,18 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
           || ast.kindName(ast.parent(pattern.element)) !== "KindObjectBindingPattern"
           || property.rootSymbols.length !== 1 || property.rootSymbols[0] !== property.symbol)
           return throwInvariant(invariant("A contextual member requires its original synthetic binding element."));
-        const name = scope.shape.getStringLiteralTypeValue(pattern.keyType);
-        if (name === undefined) throw new TypeError("front: a contextual binding member requires its actual selected text key");
+        const text = scope.shape.getStringLiteralTypeValue(pattern.keyType);
+        let key: RawComputedMemberKey;
+        if (text !== undefined) key = { kind: "text", value: text };
+        else {
+          if (!admit(scope, "edges")) return null;
+          const propertyName = ast.as.AsBindingElement(pattern.element)?.PropertyName;
+          const selected = capturedPropertyKey(scope, propertyName, pattern.keyType);
+          if (scope.meter.refusal !== null) return null;
+          if (selected?.kind !== "numeric" || ast.kindName(propertyName) !== "KindNumericLiteral")
+            throw new TypeError("front: a contextual binding member requires its actual selected static key");
+          key = selected;
+        }
         const occurrence = referenceTo(scope, scope.program, pattern.element);
         if (scope.meter.refusal !== null) return null;
         if (occurrence === null) return throwInvariant(invariant("A contextual member requires its admitted binding occurrence."));
@@ -1038,7 +1048,7 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         if (read === null) return null;
         const write = property.readonly ? null : accessType("write");
         if (!property.readonly && write === null) return null;
-        members.push({ key: { kind: "text", value: name }, name, origins,
+        members.push({ key, name: text ?? property.name, origins,
           declarations: [], getters: [], setters: [], optional: property.optional, readonly: property.readonly,
           read: available(read), write: available(write), readKind: "property" });
         continue;
@@ -6100,7 +6110,12 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         storage.push(selected);
       }
     }
-    if (kind === "KindComputedPropertyName") {
+    let numericBindingKey = false;
+    if (kind === "KindNumericLiteral" && parent !== undefined && ast.kindName(parent) === "KindBindingElement") {
+      if (!admit(scope, "edges")) break;
+      numericBindingKey = ast.as.AsBindingElement(parent)?.PropertyName === node;
+    }
+    if (kind === "KindComputedPropertyName" || numericBindingKey) {
       if (parent !== undefined && (ast.kindName(parent) === "KindPropertySignature" || ast.kindName(parent) === "KindMethodSignature"))
         declarationNameRoot = reference.node;
       if (!admit(scope, "facts")) break;

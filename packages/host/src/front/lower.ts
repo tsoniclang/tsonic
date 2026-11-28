@@ -87,7 +87,8 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
     case "VariableDeclaration": return node.exclamationToken !== null ? "definite-assignment VariableDeclaration"
       : node.name.kind !== "Identifier" && node.initializer === null ? "pattern VariableDeclaration" : null;
     case "BindingElement": return node.dotDotDotToken !== null ? "rest BindingElement"
-      : node.propertyName !== null && node.propertyName.kind !== "Identifier" && node.propertyName.kind !== "StringLiteral" ? "non-text binding property"
+      : node.propertyName !== null && node.propertyName.kind !== "Identifier" && node.propertyName.kind !== "StringLiteral"
+        && node.propertyName.kind !== "NumericLiteral" ? "non-static binding property"
         : node.initializer !== null && node.name?.kind !== "Identifier" ? "default on an unnamed binding" : null;
     case "VariableDeclarationList": return node.flags.includes("AwaitUsing") ? "await using declaration"
       : node.flags.includes("Using") ? "using declaration" : null;
@@ -1493,12 +1494,23 @@ function checkedBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syntax>)
       name = nested.value;
     }
     const property = element.propertyName;
-    if (property !== null && property.kind !== "Identifier" && property.kind !== "StringLiteral")
-      return throwInvariant(invariant("A written binding property retains its actual static text selector."));
+    if (property !== null && property.kind !== "Identifier" && property.kind !== "StringLiteral" && property.kind !== "NumericLiteral")
+      return throwInvariant(invariant("A written binding property retains its actual static selector."));
     let propertyName: Hir.PropertyName<Checked> | null = null;
     if (property !== null) {
+      let key: MemberKey;
+      if (property.kind === "NumericLiteral") {
+        const captured = lowering.propertyNames.get(property.id)?.selected;
+        const source = captured?.kind === "available" ? captured.value : null;
+        if (source?.kind !== "numeric" || source.origin.module !== property.origin.module
+          || source.origin.start !== property.origin.start || source.origin.length !== property.origin.length)
+          return throwInvariant(invariant("A numeric binding property retains its actual selected key and origin."));
+        const selected = lowerMemberKey(lowering, source);
+        if (selected.kind !== "complete") return selected;
+        key = selected.value;
+      } else key = { kind: "text", value: property.text };
       const tsonic: Extract<Hir.CheckedName, { readonly role: "property-name" }> = { core: coreOf(lowering, property.id), role: "property-name",
-        key: { kind: "available", value: { kind: "text", value: property.text } },
+        key: { kind: "available", value: key },
         origins: { kind: "unavailable", reason: "not-provided", causes: [] } };
       const header = headerOf(property);
       propertyName = property.kind === "Identifier" ? { ...header, kind: property.kind, text: property.text, tsonic }

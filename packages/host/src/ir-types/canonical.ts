@@ -1,6 +1,7 @@
-import type { CompareMemberKeys, FixedTypeTerm, TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, Member, IndexSignature, TypeComponent,
+import type { AdmitMemberKeyEncoding, CompareAdmittedMemberKeys, CompareMemberKeys, FindMemberByKey, FixedTypeTerm, TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, Member, IndexSignature, TypeComponent,
   ComponentSelector, SumFamily, TypeProjection } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
+import { admitIntegerKey } from "../ids/index.js";
 import type { LimitStop, TypePublicationWork, PublicationResult } from "./work.js";
 import { chargeCreated, chargeWork, createdLimit, workLimit } from "./work.js";
 import { typeIdentifier, signatureIdentifier, required, compareText, compareIndexSignatures } from "./value.js";
@@ -19,6 +20,41 @@ export function fixedTypeTerm(value: TypeTerm): value is FixedTypeTerm {
 export const compareMemberKeys: CompareMemberKeys = (left, right) =>
   compareText(memberKeyText(left), memberKeyText(right));
 
+const refusedKey = {};
+
+export const admitMemberKeyEncoding: AdmitMemberKeyEncoding = (key, admit) => {
+  switch (key.kind) {
+    case "text": return admit(key.value.length);
+    case "symbol": return admit(key.declaration.length);
+    case "number": {
+      const pay = (work: number) => admit(work) ? null : refusedKey;
+      return admitIntegerKey(key.value.numerator, pay) === null && admitIntegerKey(key.value.denominator, pay) === null;
+    }
+  }
+};
+
+export const compareAdmittedMemberKeys: CompareAdmittedMemberKeys = (left, right, admit) => {
+  const paid = left.kind === "text" && right.kind === "text" ? admit(left.value.length + right.value.length)
+    : admitMemberKeyEncoding(left, admit) && admitMemberKeyEncoding(right, admit);
+  return paid ? compareMemberKeys(left, right) : null;
+};
+
+export const findMemberByKey: FindMemberByKey = (members, key, admit) => {
+  let lower = 0;
+  let upper = members.length;
+  while (lower < upper) {
+    if (!admit(1)) return null;
+    const middle = lower + Math.floor((upper - lower) / 2);
+    const member = members[middle];
+    if (member === undefined) return null;
+    const order = compareAdmittedMemberKeys(member.key, key, admit);
+    if (order === null) return null;
+    if (order === 0) return member;
+    if (order < 0) lower = middle + 1;
+    else upper = middle;
+  }
+  return null;
+};
 function compound<Stop extends LimitStop>(kind: "union" | "intersection", initial: readonly TyId[],
   read: (type: TyId) => TypeTerm | Stop, emit: (value: TypeTerm) => TyId | Stop,
   beforeMember: ((kind: "union" | "intersection", count: number) => Stop | null) | null): TyId | Stop {

@@ -6,7 +6,7 @@ export async function checkNamedBindingSelectors() {
   const { analysisInput } = await import("./front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
   const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
-  const { checkedBindingTextKeyOf, checkedSourceBindingFieldOf } = await import("../../../packages/host/dist/ir-hir/index.js");
+  const { checkedBindingKeyOf, checkedSourceBindingFieldOf } = await import("../../../packages/host/dist/ir-hir/index.js");
   const { parseModuleBodies, printModuleBodies } = await import("../../../packages/host/dist/ir-program/index.js");
   const { accountFailure, chargeResultEntries, chargeWork, createAccount } = await import("../../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
@@ -25,8 +25,9 @@ export async function checkNamedBindingSelectors() {
   const checkedBody = checked.bodies.get(callable.tsonic.body);
   const pattern = checkedBody.root.statements.nodes[0].declarationList.declarations.nodes[0].name;
   const [named, quoted, escaped] = pattern.elements.nodes;
-  assert.deepEqual(pattern.elements.nodes.map(checkedBindingTextKeyOf), ["value", "value", "literal-field"]);
-  assert.equal(checkedBindingTextKeyOf({ ...escaped, propertyName: { ...escaped.propertyName,
+  assert.deepEqual(pattern.elements.nodes.map(checkedBindingKeyOf),
+    ["value", "value", "literal-field"].map(value => ({ kind: "text", value })));
+  assert.equal(checkedBindingKeyOf({ ...escaped, propertyName: { ...escaped.propertyName,
     tsonic: { ...escaped.propertyName.tsonic, key: named.propertyName.tsonic.key } } }), null);
   const [valueField, literalField, sibling] = callable.parameters.nodes[0].type.members.nodes;
   const literalDefinition = literalField.name.tsonic.declaration.definition;

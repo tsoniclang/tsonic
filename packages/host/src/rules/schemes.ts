@@ -3,10 +3,11 @@ import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, BoundSourceObjectField, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  NarrowedRefinement, OperationDecision, OperatorContributionScheme, RuleTable, VariableBound,
+  NarrowedRefinement, OperationDecision, OperatorContributionScheme, RuleTable, RuleWork, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
+import { admitTypePublicationStep, compareAdmittedMemberKeys, compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData,
+  nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -204,7 +205,7 @@ export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source:
       rule: "identity", premises: [] }], conclusion: 0 } };
 }
 
-function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspension, answers: readonly MemberRuleAnswer[]): MemberStep {
+function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspension, answers: readonly MemberRuleAnswer[], work: RuleWork): MemberStep {
   const { phase, origin, destination } = MemberSuspension.consume(owner, paused);
   const answer = answers[0];
   if (phase.kind === "inventory") {
@@ -219,7 +220,14 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
       const middle = lower + Math.floor((upper - lower) / 2);
       const member = inventory.members[middle];
       if (member === undefined) return callerDefect("a receiver inventory must retain every canonical member", origin);
-      const comparison = compareMemberKeys(member.key, phase.key);
+      const comparison = member.key.kind === "number" || phase.key.kind === "number"
+        ? compareAdmittedMemberKeys(member.key, phase.key, units => admitTypePublicationStep(work.typeWork, units) === null)
+        : compareMemberKeys(member.key, phase.key);
+      if (comparison === null) {
+        const stop = admitTypePublicationStep(work.typeWork, 0);
+        if (stop === null) return callerDefect("an unadmitted member key must retain its original stop", origin);
+        return { kind: "done", value: refuseTypeConstruction(work.typeWork, stop, origin, work.unit) };
+      }
       if (comparison < 0) lower = middle + 1;
       else if (comparison > 0) upper = middle;
       else {
@@ -312,7 +320,7 @@ export function memberRules(deps: RulesDeps): Pick<RuleTable<MemberSuspension>, 
 } {
   const owner: MemberOwner = { kind: "member-rules" };
   return { member: (input, storage) => decideMember(deps, owner, input, storage, { kind: "member" }),
-    resumeMember: (paused, answers) => resumeMember(deps, owner, paused, answers), scheme: memberScheme(deps, owner) };
+    resumeMember: (paused, answers, work) => resumeMember(deps, owner, paused, answers, work), scheme: memberScheme(deps, owner) };
 }
 
 function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionScheme<MemberSuspension> {

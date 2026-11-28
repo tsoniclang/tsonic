@@ -295,20 +295,25 @@ export interface TirMemberInventory {
   readonly repeated: boolean;
 }
 
-export const indexMembers = (table: MemberInventory): TirMemberInventory => {
+export const indexMembers = (table: MemberInventory, pay: (key: MemberKey) => boolean): TirMemberInventory | null => {
   const members = new Map<string, { member: MemberInventoryEntry; origins: ReadonlySet<string> }>();
   const accessors = new Map<string, { getter: string | null; setter: string | null }>();
   let repeated = false;
   for (const member of table.members) {
     if (member === undefined) { repeated = true; continue; }
+    if (!pay(member.key)) return null;
     const key = memberKey(member.key);
     if (members.has(key)) repeated = true;
     const origins = new Set<string>();
-    for (const origin of member.origins) if (origin !== undefined) origins.add(memberOriginKey(origin));
+    for (const origin of member.origins) if (origin !== undefined) {
+      if (origin.kind === "mapped" && !pay(origin.key)) return null;
+      origins.add(memberOriginKey(origin));
+    }
     members.set(key, { member, origins });
   }
   for (const accessor of table.accessors) {
     if (accessor === undefined) { repeated = true; continue; }
+    if (accessor.origin.kind === "mapped" && !pay(accessor.origin.key)) return null;
     const key = memberOriginKey(accessor.origin);
     if (accessors.has(key)) repeated = true;
     accessors.set(key, { getter: accessor.getter, setter: accessor.setter });
@@ -321,14 +326,16 @@ const sameEndpoint = (left: HirCallableEndpoint | null, right: HirCallableEndpoi
     left.signature === right.signature && left.body === right.body;
 
 export const verifyMemberDecision = (
-  decision: MemberDecision, node: TirNode, inventory: TirMemberInventory | null, emit: TirOccurrenceEmit,
-): readonly string[] => {
+  decision: MemberDecision, node: TirNode, inventory: TirMemberInventory | null, emit: TirOccurrenceEmit, pay: (key: MemberKey) => boolean,
+): readonly string[] | null => {
+  if (!pay(decision.key)) return null;
   const member = inventory?.members.get(memberKey(decision.key));
   let origins = inventory !== null && !inventory.repeated && member !== undefined && decision.origins.length !== 0;
   const actualOrigins: string[] = [];
   const declared = new Set<string>();
   let sourceOnly = decision.origins.length !== 0;
   if (member !== undefined) for (const origin of decision.origins) {
+    if (origin.kind === "mapped" && !pay(origin.key)) return null;
     const key = memberOriginKey(origin);
     if (!member.origins.has(key)) origins = false;
     actualOrigins.push(key);
@@ -348,10 +355,11 @@ export const verifyMemberDecision = (
 };
 
 export const verifyMemberSelection = (
-  selection: MemberSelection, node: TirNode, inventory: TirMemberInventory | null, emit: TirOccurrenceEmit,
+  selection: MemberSelection, node: TirNode, inventory: TirMemberInventory | null, emit: TirOccurrenceEmit, pay: (key: MemberKey) => boolean,
 ): void => {
   const decision = selection.decision;
-  const actualOrigins = verifyMemberDecision(decision, node, inventory, emit);
+  const actualOrigins = verifyMemberDecision(decision, node, inventory, emit, pay);
+  if (actualOrigins === null) return;
   let activation = true;
   const getter = selection.getter;
   const setter = selection.setter;

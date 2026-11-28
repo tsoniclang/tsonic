@@ -6,8 +6,9 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
   writableRootStorageOf } from "../ir-hir/index.js";
-import type { BindingVerificationInput, BodyInstance, ReferenceArgumentView, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
+import type { BindingVerificationInput, BodyInstance, MemberKey, ReferenceArgumentView, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
+import { admitMemberKeyEncoding, compareAdmittedMemberKeys, isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf,
+  optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
@@ -1273,13 +1274,20 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       : "disposal" in original ? original.disposal[protocol.ordinal] : null;
     verifyProtocolRecord(protocol.value, protocol.node, captured?.kind === "available" ? captured.value : null, input.types, emit);
   }
+  let unadmittedMemberKey: Stop | null = null;
+  const keyWork = (work: number) => {
+    unadmittedMemberKey ??= admit({ kind: "source-field-proof", work, records: 0 });
+    return unadmittedMemberKey === null;
+  };
+  const payNumericKey = (key: MemberKey) => key.kind !== "number" || admitMemberKeyEncoding(key, keyWork);
   for (const member of structure.selectedMembers) {
     const paid = admit({ kind: "member", instance, occurrence: member.occurrence });
     if (paid !== null) return { kind: "resource-stop", stop: paid };
     const table = input.memberTableOf(instance, member.occurrence);
     let members: TirMemberInventory | null = null;
     if (table !== null) {
-      members = indexMembers(table);
+      members = indexMembers(table, payNumericKey);
+      if (unadmittedMemberKey !== null) return { kind: "resource-stop", stop: unadmittedMemberKey };
       const node = member.node;
       const receiver = node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression"
         ? typedValueOf(node.expression) : null;
@@ -1292,6 +1300,14 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     if (member.node.kind === "BindingElement" && binding?.role === "field-binding") {
       const element = member.node;
       const { primary, key, location } = binding.field.decision;
+      const selector = element.propertyName;
+      if (selector?.kind === "NumericLiteral") {
+        const name = selector.tsonic;
+        const agrees = name.role === "property-name" && name.key.kind === "number" && key.kind === "number"
+          && compareAdmittedMemberKeys(name.key, key, keyWork) === 0;
+        if (unadmittedMemberKey !== null) return { kind: "resource-stop", stop: unadmittedMemberKey };
+        if (!agrees) emit("member-origin", element, "a numeric binding selector retains its actual selected member key");
+      }
       let stopped: Stop | null = null;
       const read = (reference: SourceNodeRef) => input.nodeOf(reference);
       const holding = member.occurrence.kind === "selection" && original?.kind === "BindingElement"
@@ -1377,8 +1393,9 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         if (path) emit("access-location", member.node, "reference-held access requires its independently qualified source declarations");
       }
     }
-    if (member.selection === null) verifyMemberDecision(member.decision, member.node, members, emit);
-    else verifyMemberSelection(member.selection, member.node, members, emit);
+    if (member.selection === null) verifyMemberDecision(member.decision, member.node, members, emit, payNumericKey);
+    else verifyMemberSelection(member.selection, member.node, members, emit, payNumericKey);
+    if (unadmittedMemberKey !== null) return { kind: "resource-stop", stop: unadmittedMemberKey };
   }
   return { kind: "complete", violations };
 }

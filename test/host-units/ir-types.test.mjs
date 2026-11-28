@@ -433,7 +433,8 @@ test("a scalar constructor emits one actual operation refusal from its original 
   assert.equal(viewTypes(types).terms.length, 2);
 });
 test("member-key comparison agrees with canonical shape order, including encoded text and numeric identity", async () => {
-  const { compareMemberKeys } = await import("../../packages/host/dist/ir-types/index.js");
+  const { compareMemberKeys, findMemberByKey, createTypePublicationWork, admitTypePublicationStep, typePublicationRefusalOf } =
+    await import("../../packages/host/dist/ir-types/index.js");
   const text = value => ({ kind: "text", value });
   const number = numerator => ({ kind: "number", value: { numerator, denominator: 1n, negativeZero: false } });
   const expected = [number(10n), number(2n), { kind: "symbol", declaration: owner }, text("Z"), text('"')];
@@ -447,7 +448,31 @@ test("member-key comparison agrees with canonical shape order, including encoded
     members: [...expected].reverse().map(key => ({ key, origins: [origin], readOrigins: [origin], writeOrigins: [],
       kind: "property", optional: false, readonly: true, read: value, write: null })),
   });
-  assert.deepEqual(readType(arena, shape).members.map(member => member.key), expected);
+  const members = readType(arena, shape).members;
+  assert.deepEqual(members.map(member => member.key), expected);
+  for (const index of [0, 1, 2, 3, 4]) {
+    const counts = [];
+    const expectedKey = expected[index];
+    assert.equal(findMemberByKey(members, expectedKey, count => { counts.push(count); return true; }) === members[index], true);
+    for (const cap of counts.reduce((cuts, count) => [...cuts, cuts.at(-1) + count], [0])) {
+      const work = createTypePublicationWork({ maximumWork: cap, maximumCreatedRecords: 0 });
+      let stop = null;
+      const selected = findMemberByKey(members, expectedKey, count => {
+        assert.equal(stop, null, "lookup must not ask for another key read after a refusal");
+        stop = admitTypePublicationStep(work, count, 0);
+        return stop === null;
+      });
+      if (cap === counts.reduce((sum, count) => sum + count, 0)) {
+        assert.equal(selected === members[index], true);
+      } else {
+        assert.equal(selected, null);
+        assert.ok(stop);
+        assert.equal(typePublicationRefusalOf(work) === stop, true);
+        assert.equal(admitTypePublicationStep(work, 0, 0) === stop, true);
+      }
+    }
+  }
+  assert.equal(findMemberByKey(members, text("10"), () => true), null);
 });
 test("native presence comparison borrows only the actual optional payload", async () => {
   const { nativeAbsenceComparisonOf } = await import("../../packages/host/dist/ir-types/index.js");

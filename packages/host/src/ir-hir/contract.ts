@@ -4092,7 +4092,7 @@ export interface CheckedSourceObjectFields {
 }
 export type CheckedSourceObjectFieldsOf = (body: HirBody, read: CheckedSourceObjectRead) => CheckedSourceObjectFields;
 
-export type CheckedBindingTextKeyOf = (element: BindingElement<CheckedPhase>) => string | null;
+export type CheckedBindingKeyOf = (element: BindingElement<CheckedPhase>) => MemberKey | null;
 
 export type CheckedSourceBindingFieldOf = (body: HirBody, element: BindingElement<CheckedPhase>, key: MemberKey, field: DefId,
   read: CheckedSourceObjectRead,

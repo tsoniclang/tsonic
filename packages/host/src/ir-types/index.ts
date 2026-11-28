@@ -22,7 +22,8 @@ import type { NativeAbsenceComparisonOf } from "./contract.js";
 import { literalTypeValuesEqual as equalLiterals, nativeAbsenceComparisonOf as absenceComparison, nativeCarrierOf as carrier, optionalValueDomainOf as optionalValueDomain } from "./native-carrier.js";
 import { exactFloat64LiteralFit as exactFloat64, literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
 import { selectorPathKey, typeProductionRequestData as projectTypeProductionRequest } from "./selector-path.js";
-import { compareMemberKeys as compareMembers } from "./canonical.js";
+import { admitMemberKeyEncoding as admitKeyEncoding, compareAdmittedMemberKeys as compareAdmittedMembers, compareMemberKeys as compareMembers, findMemberByKey as findMember } from "./canonical.js";
+import type { AdmitMemberKeyEncoding, CompareAdmittedMemberKeys, FindMemberByKey } from "./contract.js";
 import { compareIndexSignatures as compareIndexes, artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, readBindingVectorKey as readBindingKey, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
   signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, memberTypeRequestData as projectMemberTypeRequest,
@@ -69,6 +70,9 @@ export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;
 export const compareIndexSignatures: CompareIndexSignatures = compareIndexes;
 export const compareMemberKeys: CompareMemberKeys = compareMembers;
+export const admitMemberKeyEncoding: AdmitMemberKeyEncoding = admitKeyEncoding;
+export const compareAdmittedMemberKeys: CompareAdmittedMemberKeys = compareAdmittedMembers;
+export const findMemberByKey: FindMemberByKey = findMember;
 export const verifyBindings: VerifyBindings = verifyBindingVectors;
 export const projectBindingScope: ProjectBindingScope = projectScope;
 export const literalTypeValuesEqual: LiteralTypeValuesEqual = equalLiterals;

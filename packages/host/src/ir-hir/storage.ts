@@ -1,8 +1,8 @@
-import type { CheckedBindingTextKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
+import type { CheckedBindingKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
   HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, PropertyName, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
-import type { Member, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
-import { compareMemberKeys } from "../ir-types/index.js";
+import type { Member, MemberKey, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
+import { compareAdmittedMemberKeys, compareMemberKeys, findMemberByKey } from "../ir-types/index.js";
 import { unparenthesizedExpression } from "./walk.js";
 
 function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
@@ -408,14 +408,15 @@ function referenceSurface(owner: DefId, syntax: TypeLiteral, type: TyId, read: C
 }
 
 function referenceField(surface: ReferenceSurface, member: Member, read: CheckedSourceObjectRead): ReferenceField | null {
-  if (!read.admit(1, 0) || member.kind !== "property" || member.key.kind !== "text" || member.read === null
+  if (!read.admit(1, 0) || member.kind !== "property" || member.key.kind === "symbol" || member.read === null
     || (member.readonly ? member.write !== null : member.write !== member.read)) return null;
   const origin = member.origins[0];
   if (member.origins.length !== 1 || origin?.kind !== "declared" || !directOrigin(member.readOrigins, origin.declaration)
     || (member.readonly ? member.writeOrigins.length !== 0 : !directOrigin(member.writeOrigins, origin.declaration))) return null;
   const field = qualifiedSourceField(surface.owner, surface.syntax, origin.declaration, read.itemOf);
   if (field === null || (field.postfixToken?.kind === "QuestionToken") !== member.optional
-    || !matchesStaticTextPropertyName(field.name, member.key.value, read.admit)) return null;
+    || (member.key.kind === "text" ? !matchesStaticTextPropertyName(field.name, member.key.value, read.admit)
+      : field.name.kind !== "NumericLiteral")) return null;
   const annotation = field.type;
   const declared = field.tsonic.declaredType;
   if (annotation === null || annotation.parent !== field.id || declared.kind !== "available" || declared.value === null
@@ -511,10 +512,9 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
     const argumentMember = frame.caller.members[frame.position];
     const formalMember = frame.formal.members[frame.position];
     frame.position += 1;
-    if (argumentMember?.key.kind !== "text" || formalMember?.key.kind !== "text"
+    if (argumentMember === undefined || formalMember === undefined || argumentMember.key.kind === "symbol" || formalMember.key.kind === "symbol"
       || argumentMember.readonly !== formalMember.readonly || argumentMember.optional !== formalMember.optional
-      || !read.admit(argumentMember.key.value.length + formalMember.key.value.length, 0)
-      || compareMemberKeys(argumentMember.key, formalMember.key) !== 0) return null;
+      || compareAdmittedMemberKeys(argumentMember.key, formalMember.key, work => read.admit(work, 0)) !== 0) return null;
     const source = referenceField(frame.caller, argumentMember, read);
     if (source === null) return null;
     const destination = referenceField(frame.formal, formalMember, read);
@@ -552,21 +552,31 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   return result;
 };
 
-export const checkedBindingTextKeyOf: CheckedBindingTextKeyOf = element => {
-  if (element.name?.kind !== "Identifier" || element.dotDotDotToken !== null) return null;
-  const written = element.propertyName;
-  if (written === null) return element.name.text;
-  if (!isStaticTextPropertyName(written) || written.tsonic.role !== "property-name") return null;
+function checkedWrittenBindingKey(written: PropertyName<CheckedPhase>): MemberKey | null {
+  if ((!isStaticTextPropertyName(written) && written.kind !== "NumericLiteral") || written.tsonic.role !== "property-name") return null;
   const key = written.tsonic.key;
-  return key.kind === "available" && key.value.kind === "text" && key.value.value === written.text ? key.value.value : null;
+  if (key.kind !== "available") return null;
+  return written.kind === "NumericLiteral" ? key.value.kind === "number" ? key.value : null
+    : key.value.kind === "text" && key.value.value === written.text ? key.value : null;
+}
+
+export const checkedBindingKeyOf: CheckedBindingKeyOf = element => {
+  if (element.name?.kind !== "Identifier" || element.dotDotDotToken !== null) return null;
+  return element.propertyName === null ? { kind: "text", value: element.name.text } : checkedWrittenBindingKey(element.propertyName);
 };
 
 export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, element, key, definition, read) => {
   const { nodeOf, itemOf, admit } = read;
   const occurrence = { body: body.body, node: element.id };
-  if (!admit(1, 0) || nodeOf({ kind: "body", value: occurrence }) !== element || element.parent === null || key.kind !== "text") return null;
-  const selector = checkedBindingTextKeyOf(element);
-  if (selector === null || !admit(key.value.length + selector.length, 0) || key.value !== selector) return null;
+  if (!admit(1, 0) || nodeOf({ kind: "body", value: occurrence }) !== element || element.parent === null
+    || element.name?.kind !== "Identifier" || element.dotDotDotToken !== null || key.kind === "symbol") return null;
+  const keyWork = (work: number) => admit(work, 0);
+  if (element.propertyName === null) {
+    if (key.kind !== "text" || !matchesStaticTextPropertyName(element.name, key.value, admit)) return null;
+  } else {
+    const selector = checkedWrittenBindingKey(element.propertyName);
+    if (selector === null || compareAdmittedMemberKeys(key, selector, keyWork) !== 0) return null;
+  }
   const pattern = nodeOf({ kind: "body", value: { body: body.body, node: element.parent } });
   if (pattern?.kind !== "ObjectBindingPattern" || pattern.parent === null || !admit(1, 0)) return null;
   const owner = nodeOf({ kind: "body", value: { body: body.body, node: pattern.parent } });
@@ -576,7 +586,16 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   return sourceObjectHolding((holding, declaration) => {
     if (declaration.type?.kind !== "TypeLiteral" || !admit(1, 0)) return null;
     const field = qualifiedSourceField(holding.declaration, declaration.type, definition, itemOf);
-    if (field === null || !matchesStaticTextPropertyName(field.name, key.value, admit)) return null;
+    if (field === null) return null;
+    if (key.kind === "text") {
+      if (!matchesStaticTextPropertyName(field.name, key.value, admit)) return null;
+    } else {
+      if (field.name.kind !== "NumericLiteral" || !admit(1, 0)) return null;
+      const type = read.typeOf(holding.receiver);
+      const member = type?.kind === "shape" ? findMemberByKey(type.members, key, keyWork) : null;
+      if (member?.kind !== "property" || member.read === null || !directOrigin(member.origins, definition)
+        || !directOrigin(member.readOrigins, definition)) return null;
+    }
     const value = fieldValue(field, read);
     return value === undefined || !admit(0, 1) ? null
       : { ...holding, occurrence, field: definition, parent: null, requiredReference: value?.presence === null ? value.type : null,

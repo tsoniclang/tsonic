@@ -286,7 +286,7 @@ function resumeMember<State>(deps: InferDeps<State>, paused: Extract<InferPaused
     return callerDefect(RESUME, `${answers.length} answers for ${pending.requests.length} requests`);
   const actual = answers.map(answer => answer.kind === "membersOf" || answer.kind === "memberTypeOf" ? answer
     : callerDefect(RESUME, "a member contribution requires its actual member answers"));
-  const next = deps.rules.resumeMember(pending.rule, actual);
+  const next = deps.rules.resumeMember(pending.rule, actual, { typeWork: deps.typeWork, unit: frame.unit });
   const held = actual.find(answer => answer.kind === "membersOf")?.value ?? pending.inventory;
   const item = present(frame.enumerated[pending.index], "the paused atomic contribution");
   if (next.kind === "paused") return pauseMember(frame, next, pending.position, pending.index, item, held);
