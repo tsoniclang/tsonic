@@ -3397,6 +3397,65 @@ test("tuple declaration reads keep the actual authored type, independently of a 
   assert.deepEqual(valueType.form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
 });
 
+test("a declared tuple field uses its own authored inventory slot for each reached access", async () => {
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const source = "export function read(record: { left: [boolean, string]; right: [boolean, string]; "
+    + "readonly nested: readonly [[string, boolean], number] }): boolean { return true; }";
+  const { deps, program, module } = openedModule(source);
+  const capture = maximumCapturedEdgesPerModule => captureSingleModule(front, {
+    ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedEdgesPerModule },
+  }, program, module);
+  const exact = 330;
+  assert.deepEqual(capture(exact - 1), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
+    limit: "front.maximumCapturedEdgesPerModule", maximum: exact - 1, site: { kind: "file", path: "/project/src/main.ts" },
+    unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } },
+  })] });
+  const captured = capture(exact);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const annotation = raw.tree.statements.nodes[0].parameters.nodes[0].type;
+  const sourceType = raw.types.types[raw.annotations.find(row => row.node === annotation.id).type];
+  assert.equal(sourceType.form.value.kind, "structure");
+  const inventory = raw.types.members[sourceType.form.value.inventory];
+  const seen = new Set();
+  const verify = (row, path, slots, readonly) => {
+    const component = raw.types.components[row.component];
+    assert.deepEqual(component.root, { module, node: annotation.id });
+    assert.deepEqual(rawComponentPath(raw.types.components, component), path);
+    assert.equal(row.form.kind, "available");
+    if (typeof slots === "string") {
+      assert.deepEqual(row.form.value, { kind: "scalar", scalar: slots });
+      return;
+    }
+    const tuple = row.form.value;
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, readonly);
+    assert.equal(tuple.elements.length, slots.length);
+    for (const [index, element] of tuple.elements.entries()) {
+      assert.equal(element.kind, "required");
+      verify(raw.types.types[element.type], [...path, { kind: "tuple-element", index }], slots[index], false);
+    }
+  };
+  for (const [field, readonly, slots] of [
+    [annotation.members.nodes[0], false, ["boolean", "string"]],
+    [annotation.members.nodes[1], false, ["boolean", "string"]],
+    [annotation.members.nodes[2], true, [["string", "boolean"], "number"]],
+  ]) {
+    const declaration = { module, node: field.id };
+    const member = inventory.members.find(row => row.declarations[0]?.node === field.id);
+    assert.deepEqual(member.declarations, [declaration]);
+    assert.equal(member.readonly, readonly);
+    if (readonly) assert.equal(member.write.kind === "available" && member.write.value === null, true);
+    for (const access of readonly ? ["read"] : ["read", "write"]) {
+      const type = member[access];
+      assert.equal(type.kind, "available");
+      assert.equal(seen.has(type.value), false);
+      seen.add(type.value);
+      verify(raw.types.types[type.value], [{ kind: "member", declaration, access }], slots, readonly);
+    }
+  }
+});
+
 test("tuple return literals keep the checked slots separate from the actual callable destination", async () => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");

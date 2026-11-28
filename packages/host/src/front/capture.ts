@@ -964,8 +964,9 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     const property = selected.value;
     if (property === null) break;
     if (!admit(scope, "facts")) return null;
-    const readType = (type: Type, step: RawComponentStep, use: BindingUse | null = null, typeSource?: Node): RawTypeId | null =>
-      rawType(scope, () => withoutTypeCause(type, typeSource), appendComponent(scope, parent, step), null, use);
+    const readType = (type: Type, step: RawComponentStep, use: BindingUse | null = null, typeSource?: Node,
+      authored: OriginalTypeUse | null = null): RawTypeId | null =>
+      rawType(scope, () => withoutTypeCause(type, typeSource), appendComponent(scope, parent, step), authored, use);
     if (property.mapped !== undefined) {
       mapped ??= mappedOwner(scope, type, property.mapped.declaration);
       if (mapped === null) return null;
@@ -1052,7 +1053,20 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     const primitive = use === null && header.readKind === "property" ? primitiveFieldSource(scope, property, primary, property.type) : null;
     if (scope.meter.refusal !== null) return null;
     const field = captureFieldSource(primitive, property.type);
-    const read = readType(property.type, step(origin, "read"), use ?? field?.arm ?? null, field?.annotation ?? property.typeSource);
+    let authored: Node | null = null;
+    const syntax = property.typeSource;
+    if (use === null && field === null && header.readKind === "property" && syntax !== undefined
+      && scope.shape.isTuple(property.type)) {
+      if (!admit(scope, "edges")) return null;
+      const ast = scope.checked.ast;
+      if (header.declarations.length === 1 && property.rootSymbols.length === 1 && property.rootSymbols[0] === property.symbol
+        && ast.kindName(primary) === "KindPropertySignature" && ast.typeNode(primary) === syntax) {
+        const annotation = sourceType(scope, { kind: "annotation", node: syntax });
+        if (scope.meter.refusal !== null) return null;
+        if (annotation?.type === property.type && annotation.causes.length === 0) authored = syntax;
+      }
+    }
+    const read = readType(property.type, step(origin, "read"), use ?? field?.arm ?? null, field?.annotation ?? syntax, authored);
     if (read === null) return null;
     let write: RawTypeId | null = null;
     if (!property.readonly) {
@@ -1069,7 +1083,7 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
       } else if (header.getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
       const sameType = setter === undefined && type === property.type;
       write = readType(type, step(declaration, "write"), sameType ? use ?? field?.arm ?? null : null,
-        sameType ? field?.annotation ?? property.typeSource : undefined);
+        sameType ? field?.annotation ?? syntax : undefined, sameType ? authored : null);
       if (write === null) return null;
     }
     members.push({ ...header, read: available(read), write: available(write) });
