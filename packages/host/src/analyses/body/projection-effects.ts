@@ -1,15 +1,17 @@
-import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
+import type { DataflowAccount, DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { BoundProducerId, LocalId, LocalRef, NodeId, OriginsId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
 import { admitIntegerKey, boundProducerId, encodeKey, producerId, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, CallFieldBindings, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData, projectCallFields } from "../../ir-facts/index.js";
-import type { MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirBody, MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import { visitMirControlEdges, visitMirStorageExposures } from "../../ir-mir/index.js";
 import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
 import type { ReferenceArgumentView, SourceObjectField } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
+import { arrayDestination } from "./storage.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
 import { projectOrigins, valueKind } from "./values.js";
 
@@ -20,7 +22,9 @@ type IncomingFamily = "field" | "array";
 type IncomingRole = "parameter" | "capture";
 
 type FieldValue = "scalar" | "scalar-optional" | "reference" | "reference-optional" | "write-only";
-type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } & ScalarProjection;
+type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } &
+  (Exclude<ScalarProjection, { readonly kind: "field" }>
+    | Extract<ScalarProjection, { readonly kind: "field" }> & { readonly sourceReference: boolean });
 type ReceiverProducer = LocalRef | NodeId | PropertyAccessExpression<TypedPhase>;
 
 function sameReceiver(previous: ReceiverProducer, current: ReceiverProducer): boolean {
@@ -35,6 +39,11 @@ interface AbsenceValue {
   readonly operand: MirOperand;
 }
 
+interface ReferenceCopy {
+  readonly statement: Extract<MirStatement, { readonly kind: "assign" }>;
+  readonly value: "reference" | "reference-optional";
+}
+
 export interface HeldProjections {
   readonly references: ReadonlySet<LocalId>;
   readonly places: ReadonlyMap<PlaceId, HeldProjection>;
@@ -42,6 +51,62 @@ export interface HeldProjections {
   readonly absenceValues: ReadonlyMap<LocalId, AbsenceValue> | null;
   readonly refined: ReadonlyMap<PlaceId, LocalId> | null;
   readonly saved: ReadonlyMap<LocalId, PlaceId> | null;
+  readonly copies: ReadonlyMap<LocalId, ReferenceCopy> | null;
+}
+
+function verifyReferenceCopies(body: MirBody, copies: ReadonlyMap<LocalId, ReferenceCopy>, account: DataflowAccount): DataflowStop | null {
+  const copyAt = (initial: PlaceId): DataflowResult<ReferenceCopy | null> => {
+    let place = initial;
+    for (;;) {
+      const base = body.places[place]?.base;
+      if (base?.kind === "local") return { kind: "complete", value: copies.get(base.local) ?? null };
+      if (base?.kind !== "checked" || base.projection.kind !== "refined" || base.place >= place)
+        return { kind: "complete", value: null };
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      place = base.place;
+    }
+  };
+  const exposed = (place: PlaceId): DataflowStop | null => {
+    const copy = copyAt(place);
+    if (copy.kind !== "complete") return copy;
+    return copy.value === null ? null : bodyFrontier("A saved projected value cannot lend its temporary storage.");
+  };
+  for (let position = 0; position < body.blocks.length; position += 1) {
+    const enter = chargeWork(account, 1);
+    if (enter !== null) return enter;
+    const block = body.blocks[position];
+    if (block === undefined) return bodyFrontier("A saved projected value requires its actual dense block inventory.");
+    for (let position = 0; position < block.statements.length; position += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      const statement = block.statements[position];
+      if (statement === undefined) return bodyFrontier("A saved projected value requires its actual dense statement inventory.");
+      const place = statement.kind === "assign" ? statement.place
+        : statement.kind === "array-finish" ? arrayDestination(body, statement.start) : null;
+      if (place === null) continue;
+      const copy = copyAt(place);
+      if (copy.kind !== "complete") return copy;
+      if (copy.value !== null && copy.value.statement !== statement)
+        return bodyFrontier("A saved projected value has only its actual copy as producer.");
+    }
+    let stopped: DataflowStop | null = null;
+    const edges = visitMirControlEdges(block.terminator, {
+      kind: "edges", admit: () => stopped ?? chargeWork(account, 1),
+      visit: (_role, _target, destination) => {
+        if (destination === null) return;
+        const copy = copyAt(destination);
+        if (copy.kind !== "complete") stopped = copy;
+        else if (copy.value !== null) bodyFrontier("A control result cannot replace a saved projected value.");
+      },
+    });
+    const cut = edges ?? stopped;
+    if (cut !== null) return cut;
+  }
+  return visitMirStorageExposures(body, {
+    admit: () => chargeWork(account, 1), address: exposed,
+    capture: value => value.capture === "captured-value" ? null : exposed(value.place),
+  });
 }
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
@@ -116,6 +181,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     const writeOnly = kind !== "primitive" && !optional && member !== null && member.decision.read === null
       && node.kind === "PropertyAccessExpression" && node.tsonic.role === "assignment-target" && node.tsonic.access.kind === "write";
     let value: FieldValue = optional ? "scalar-optional" : writeOnly ? "write-only" : "scalar";
+    let sourceReference = false;
     if (kind !== "primitive" && !optional && !writeOnly) {
       const fieldRead = node.kind === "PropertyAccessExpression" && node.tsonic.role === "value"
         || node.kind === "BindingElement" && node.tsonic.role === "field-binding";
@@ -136,6 +202,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
           || (field.presence?.storage ?? field.requiredReference) !== place.storage)
           return bodyFrontier("A reference field read needs its actual admitted reference-valued declaration.");
         value = field.presence === null ? "reference" : "reference-optional";
+        sourceReference = true;
       }
     }
     hasWriteOnly ||= writeOnly;
@@ -168,7 +235,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       return bodyFrontier("A projected receiver must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
-    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member, value }
+    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member, value, sourceReference }
       : constant !== null ? { holder: holder.id, kind: "index", constant, value: "scalar" }
         : { holder: holder.id, kind: "element", value: "scalar" });
     holders.set(holder.id, receiverSource);
@@ -214,6 +281,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   const assigned = new Set<LocalId>();
   let savedCount = 0;
   let absenceValues: Map<LocalId, AbsenceValue> | null = null;
+  let copies: Map<LocalId, ReferenceCopy> | null = null;
   for (const block of mir.blocks) {
     const blockWork = chargeWork(account, 1);
     if (blockWork !== null) return blockWork;
@@ -242,6 +310,27 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
         continue;
       }
       if (expected === undefined) {
+        if (statement.value.kind === "use" && statement.value.operand.kind === "place") {
+          const operand = statement.value.operand.place;
+          const from = places.get(operand);
+          if (from?.kind === "field" && from.sourceReference && (from.value === "reference" || from.value === "reference-optional")) {
+            const work = chargeWork(account, 1);
+            if (work !== null) return work;
+            const local = mir.locals[target.local];
+            if (local?.role.kind !== "temporary") continue;
+            const read = chargeWork(account, 1);
+            if (read !== null) return read;
+            const original = mir.places[operand];
+            if (local.mode !== "local" || local.storage !== targetPlace.storage || original?.storage !== targetPlace.storage
+              || original.base.kind !== "place" || original.base.tir.body !== tir.body
+              || statement.tir.body !== tir.body || original.base.tir.node !== statement.tir.node || copies?.has(target.local))
+              return bodyFrontier("A saved projected value requires the actual source, carrier and one temporary copy.");
+            const retained = chargeResultEntries(account, copies === null ? 3 : 2);
+            if (retained !== null) return retained;
+            (copies ??= new Map()).set(target.local, { statement, value: from.value });
+          }
+          continue;
+        }
         if (!hasWriteOnly || statement.value.kind !== "convert") continue;
         const admission = chargeWork(account, 1);
         if (admission !== null) return admission;
@@ -322,7 +411,11 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   }
   if (assigned.size - savedCount !== holders.size || savedCount !== (saved?.size ?? 0))
     return bodyFrontier("Every held reference has its actual producer occurrence.");
-  return { kind: "complete", value: { references, places, includesAbsence, absenceValues, refined, saved } };
+  if (copies !== null) {
+    const stopped = verifyReferenceCopies(mir, copies, account);
+    if (stopped !== null) return stopped;
+  }
+  return { kind: "complete", value: { references, places, includesAbsence, absenceValues, refined, saved, copies } };
 }
 
 export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, IncomingFamily> | null,

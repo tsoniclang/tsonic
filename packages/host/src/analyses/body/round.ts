@@ -180,9 +180,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (selected?.role !== "catch" || selected.storage !== local.storage || type.kind !== "intrinsic" || type.intrinsic !== "unknown")
         return bodyFrontier("A caught payload retains its actual typed exception binding and selected storage.");
       kind = "reference";
-    } else kind = projections?.references.has(local.id) === true ? "reference"
-      : projections?.absenceValues?.has(local.id) === true || projections?.saved?.has(local.id) === true
-        ? "reference-optional" : valueKind(deps, local.storage);
+    } else kind = projections?.references.has(local.id) === true ? "reference" : projections?.copies?.get(local.id)?.value
+      ?? (projections?.absenceValues?.has(local.id) === true || projections?.saved?.has(local.id) === true
+        ? "reference-optional" : valueKind(deps, local.storage));
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
     if (kind === null && local.source !== null && (local.role.kind === "capture" ||

@@ -2206,6 +2206,74 @@ test("the actual WT-10 Body round returns its original refusal at every reached 
   assert.deepEqual(reached, [["Block", 3]]);
 });
 
+test("WT-10: a saved field argument keeps its projected Origins across evaluation of the next argument", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Part = { flag: boolean | undefined; other: boolean | undefined };
+    type Box = { part: Part; counter: boolean };
+    function prepare(box: Box): boolean { box.counter = true; return true; }
+    function effect(part: Part, ignored: boolean): void { part.other = true; }
+    export function read(box: Box): boolean {
+      if (box.part.flag !== undefined) {
+        box.part.other = (effect(box.part, prepare(box)), undefined);
+        return box.part.flag;
+      }
+      return false;
+    }
+  `);
+  const reached = await checkActualBodyRoundCuts(() => {
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const callBlock = name => body.mir.blocks.find(({ terminator }) => terminator.kind === "call"
+      && terminator.callee.kind === "direct" && terminator.callee.resolution.activation.body.includes(`;${name}];function;0]`));
+    const prepare = callBlock("prepare");
+    const effect = callBlock("effect");
+    assert.equal(prepare.terminator.next, effect.id);
+    const [argument] = effect.terminator.arguments;
+    assert.equal(argument.kind, "value");
+    assert.equal(argument.passing, "by-value");
+    assert.equal(argument.operand.kind, "place");
+    const saved = argument.operand.place;
+    const copies = body.mir.blocks.flatMap(block => block.statements.filter(row => row.kind === "assign" && row.place === saved));
+    assert.equal(copies.length, 1);
+    const [copy] = copies;
+    assert.equal(prepare.statements.includes(copy), true);
+    assert.equal(copy.value.kind, "use");
+    assert.equal(copy.value.operand.kind, "place");
+    const source = body.mir.places[copy.value.operand.place].base;
+    assert.equal(source.kind, "place");
+    assert.equal(source.projection.kind, "field");
+    assert.equal(source.tir.node, copy.tir.node);
+    const [facts] = body.facts;
+    const reads = facts.origins.reads.filter(row => row.place === saved);
+    assert.equal(reads.length, 1);
+    const [read] = reads;
+    assert.equal(read.node, copy.tir.node);
+    const origins = facts.arena.origins[read.origins];
+    assert.equal(origins.kind, "complete");
+    assert.equal(origins.includesAbsence, false);
+    assert.equal(origins.producers.length, 1);
+    const bound = facts.arena.boundProducers[origins.producers[0]];
+    const producer = facts.arena.producers[bound.producer];
+    assert.equal(producer.kind, "parameter");
+    assert.equal(producer.index, 0);
+    const path = facts.arena.projections[producer.path];
+    assert.equal(path.parent, null);
+    assert.equal(path.projection.kind, "field");
+    assert.equal(path.projection.member.decision.primary, source.projection.member.decision.primary);
+    assert.equal(path.projection.member.decision.key.value, "part");
+    const [refinement] = facts.refinements.refinements;
+    assert.equal(facts.refinements.refinements.length, 1);
+    assert.equal(refinement.kind, "proven");
+    assert.equal(body.mir.blocks.some(({ terminator }) => terminator.kind === "check" && terminator.tir.node === refinement.node), true);
+  }, round => round.tir.body.includes(";read];function;0]") && round.execution.provided === 1);
+  assert.deepEqual(reached, [["Block", 1]]);
+});
+
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
