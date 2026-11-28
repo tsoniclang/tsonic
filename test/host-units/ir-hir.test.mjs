@@ -452,12 +452,19 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
     export function produced(left: Box, right: Box): boolean {
       let held = left;
       held = other(right);
+      keep(held);
       return held.flag;
     }
     export function captured(left: Box, right: Box, input: { value?: boolean }): boolean {
       let held = left;
       const { value = (held = right, held.flag) } = input;
       return value;
+    }
+    export function unresolved(left: Box): boolean {
+      let held = left;
+      missing(held);
+      keep(held);
+      return held.flag;
     }
   `);
   const captured = captureSourceBarrier(input);
@@ -466,7 +473,15 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
   const checked = modules.find(row => row.module.module === input.snapshot.entryPoint).module;
   const bodies = checked.tree.statements.nodes.slice(3);
   const declarations = bodies.map(body => body.body.statements.nodes[0].declarationList.declarations.nodes[0]);
-  const expected = [[0, 1], null, null, null];
+  const expected = [[0, 1], null, null, null, null];
+  const unresolved = bodies[4].body.statements.nodes[1].expression.tsonic.application;
+  assert.equal(unresolved.kind, "unavailable");
+  assert.equal(unresolved.reason, "checker-error");
+  assert.deepEqual(unresolved.causes.map(({ diagnostic }) => {
+    assert.equal(diagnostic.kind, "checker");
+    const { module, index } = diagnostic.diagnostic;
+    return [module, checked.checkerDiagnostics[index].code.rendered];
+  }), [[checked.module, "TS2304"]]);
   assert.deepEqual(declarations.map(node => node.tsonic.inferredTypeBound.value.sources), expected);
   const candidates = declarations.map(node => ({ local: node.tsonic.declaration.local,
     type: node.tsonic.inferredTypeBound.value.type, initializer: node.initializer }));
