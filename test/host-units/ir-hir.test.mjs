@@ -991,10 +991,20 @@ test("HIR checked image preserves qualified nodes and stops before the next actu
     await import("../../packages/host/dist/ir-program/program-values.js");
   const { prepareCoreProjection } = await import("../../packages/host/dist/ir-program/instantiate-phase.js");
   const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const fixture = await loadFrontFixture();
-  const { checked, interner } = fixture.checkedModuleOf(
-    "export function z(value: string): string { return value; } export function a(value: string, flag: boolean): string { return z(value); }");
-  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function z(value: string): string { return value; }
+    export function a(value: string, flag: boolean): string { return z(value); }
+    function pair<T>(value: T): [T, boolean] { return [value, true]; }
+    export function numeric(value: number): [number, boolean] { return pair(value); }
+    export function flag(value: boolean): [boolean, boolean] { return pair(value); }
+  `);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok", JSON.stringify(source.diagnostics));
+  const interner = source.value.types;
+  const checked = source.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
   const publication = fixture.types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 1000000 });
   assert.equal(publication.kind, "complete");
   const rewrite = publicationRewrite(publication.value);
@@ -1070,6 +1080,25 @@ test("HIR checked image preserves qualified nodes and stops before the next actu
     capturedBindings: remap(bindings.capturedBindings), selfBindings: remap(bindings.selfBindings),
   });
   assert.equal(copiedCandidate.conditionalFailure === candidate.conditionalFailure, true);
+  const genericBodies = checked.bodies.filter(body => body.candidateLists.some(list =>
+    list.candidates.some(row => row.contributions.length > 0)));
+  assert.equal(genericBodies.length, 2);
+  let movedContribution = false;
+  for (const body of genericBodies) {
+    const before = body.candidateLists[0].candidates[0].contributions;
+    const after = module.bodies.find(row => row.body === body.body).candidateLists[0].candidates[0].contributions;
+    assert.deepEqual(before.map(row => row.role), ["argument", "context"]);
+    assert.deepEqual(after.map(row => row.component.path.map(step => step.kind)), [["parameter"], ["result", "tuple-element"]]);
+    for (const [position, original] of before.entries()) {
+      assert.equal(original.type.kind, "available");
+      if (rewrite.type(original.type.value) !== original.type.value || original.component.path.some(step =>
+        "signature" in step && rewrite.signature(step.signature) !== step.signature)) movedContribution = true;
+      assert.deepEqual(after[position], { ...original, component: { ...original.component,
+        path: original.component.path.map(step => "signature" in step ? { ...step, signature: rewrite.signature(step.signature) } : step) },
+        type: { kind: "available", value: rewrite.type(original.type.value) } });
+    }
+  }
+  assert.equal(movedContribution, true, "actual generic evidence crosses a nonidentity type or signature mapping");
   assert.deepEqual(syntax.nodeOf(callable).tsonic.signatures.map(row => row.signature),
     callable.tsonic.signatures.map(row => rewrite.signature(row.signature)));
   const view = checkedSourceViews([{ module: checked, nodes }]);
@@ -3652,11 +3681,12 @@ nodes.push(block); return block; }
     ["mutable-capture.ts", 'import type { HirCoreCapture } from "./ir-hir/contract.js"; export function bad(value:HirCoreCapture){ value.flowState={kind:"available",value:null}; }', 2540],
     ["mutable-range.ts", 'import type { TextRange } from "./ir-hir/contract.js"; export function bad(value:TextRange){ value.pos=0; }', 2540],
     ["missing-context.ts", 'import { verifyHir } from "./ir-hir/index.js"; import type { HirModule } from "./ir-hir/contract.js"; export function bad(value:HirModule){ return verifyHir(value); }', 2554],
-    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
-    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
-    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
-    ["missing-body-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
-    ["missing-definition-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,nominalOf:()=>null,nativeArrayAnnotationOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nativeArrayAnnotationOf:()=>null,localExists:()=>false};', 2741],
+    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nativeArrayAnnotationOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
+    ["missing-body-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nativeArrayAnnotationOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-definition-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nativeArrayAnnotationOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-native-array-authority.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
     ["foreign-node-brand.ts", 'import type { NodeId } from "./ids/contract.js"; export const forged:NodeId=0;', 2322],
     ["foreign-host-code-brand.ts", 'import type { HostDiagnosticCode } from "./diag/contract.js"; export const forged:HostDiagnosticCode="HOST_CODE";', 2322],
     ["retired-for-kind-parameter.ts", 'import type { ForInOrOfStatement, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=ForInOrOfStatement<SyntaxPhase,"ForInStatement">;', 2314],
