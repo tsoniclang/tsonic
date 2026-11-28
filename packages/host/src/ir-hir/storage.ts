@@ -4,11 +4,19 @@ import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
 import type { Member, MemberKey, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
 import { compareAdmittedMemberKeys, compareMemberKeys, findMemberByKey } from "../ir-types/index.js";
 import { resolveModuleBindingOn } from "./bindings.js";
-import { unparenthesizedExpression } from "./walk.js";
 
 function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
   return core.provider.kind === "available" && core.provider.value === null && core.markers.kind === "available"
     && core.markers.value.struct === null && core.markers.value.field === null && !core.markers.value.jsString;
+}
+
+function admittedOperand(node: HirNode, admit: CheckedSourceStorageRead["admit"]): HirNode | null {
+  let current = node;
+  while (current.kind === "ParenthesizedExpression") {
+    if (!admit(1, 0)) return null;
+    current = current.expression;
+  }
+  return current;
 }
 
 type SourceObjectDeclaration = Extract<HirNode, { readonly kind: "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "Parameter" | "VariableDeclaration" }>;
@@ -191,8 +199,8 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, decla
         }
         break;
       }
-      const initializer = unparenthesizedExpression<CheckedPhase>(declaration.initializer);
-      if (initializer.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
+      const initializer = admittedOperand(declaration.initializer, admit);
+      if (initializer?.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
         || initializer.tsonic.resolution.local.body !== currentBody.body || initializer.tsonic.resolution.local.local >= current
         || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
       current = initializer.tsonic.resolution.local.local;
@@ -255,10 +263,10 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
   if (annotation === null || annotation.parent !== property.id || declared.kind !== "available" || declared.value === null
     || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== declared.value) return null;
   if (annotation.kind === "TypeLiteral" || isObjectAliasReference(annotation)) {
+    if (typeOf(declared.value)?.kind !== "shape") return null;
+    if (!admit(1, 0)) return undefined;
     const container = fieldContainer(annotation, declared.value, read);
     if (container === null || container === undefined) return container;
-    if (!admit(1, 0)) return undefined;
-    if (typeOf(declared.value)?.kind !== "shape") return null;
     return admit(1, 1) ? { type: declared.value, container, presence: null } : undefined;
   }
   if (annotation.kind !== "UnionType" || annotation.types.nodes.length !== 2) return null;
@@ -273,10 +281,10 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
     if (arm === undefined || arm.parent !== annotation.id || arm.tsonic.type.kind !== "available") return null;
     if (arm.kind === "TypeLiteral" || isObjectAliasReference(arm)) {
       if (present !== null || arm.tsonic.type.value !== storage.value) return null;
-      const container = fieldContainer(arm, storage.value, read);
-      if (container === null || container === undefined) return container;
       if (!admit(1, 0)) return undefined;
       if (typeOf(storage.value)?.kind !== "shape") return null;
+      const container = fieldContainer(arm, storage.value, read);
+      if (container === null || container === undefined) return container;
       present = container;
     } else {
       if (absent || (arm.kind !== "UndefinedKeyword" && (arm.kind !== "LiteralType" || arm.literal.kind !== "NullKeyword"))) return null;
@@ -353,11 +361,8 @@ function sourceObjectFields<Field>(body: HirBody, read: CheckedSourceObjectRead,
       if (visited?.has(current) === true || nodeOf({ kind: "body", value: { body: body.body, node: current.id } }) !== current) return null;
       const declaration = selectedField(current);
       if (declaration === null) return null;
-      let receiver = current.expression;
-      while (receiver.kind === "ParenthesizedExpression") {
-        if (!admit(1, 0)) return null;
-        receiver = receiver.expression;
-      }
+      const receiver = admittedOperand(current.expression, admit);
+      if (receiver === null) return null;
       if (receiver.kind === "PropertyAccessExpression") {
         if (!admit(1, pending === null ? 5 : 3)) return null;
         (visited ??= new Set()).add(current);
@@ -491,13 +496,10 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   if (!read.admit(1, 0) || site.argument.body !== site.body.body || site.endpoint.role !== "api-body"
     || site.endpoint.body === null || site.formal.passing !== "by-value" || site.formal.kind === "rest"
     || !Number.isSafeInteger(site.ordinal) || site.ordinal < 0 || Object.is(site.ordinal, -0)) return null;
-  let argument = read.nodeOf({ kind: "body", value: site.argument });
-  if (argument?.id !== site.argument.node) return null;
-  while (argument.kind === "ParenthesizedExpression") {
-    if (!read.admit(1, 0)) return null;
-    argument = argument.expression;
-  }
-  if (argument.kind !== "Identifier" || argument.tsonic.role !== "value" || argument.tsonic.resolution.kind !== "local"
+  const original = read.nodeOf({ kind: "body", value: site.argument });
+  if (original?.id !== site.argument.node) return null;
+  const argument = admittedOperand(original, read.admit);
+  if (argument?.kind !== "Identifier" || argument.tsonic.role !== "value" || argument.tsonic.resolution.kind !== "local"
     || argument.tsonic.value.views.read.kind !== "available" || argument.tsonic.value.views.read.value !== site.caller
     || !read.admit(1, 0)) return null;
   const caller = sourceObjectHolding((holding, declaration) => holding.receiver === site.caller && declaration.type?.kind === "TypeLiteral"
@@ -625,7 +627,8 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   if (pattern?.kind !== "ObjectBindingPattern" || pattern.parent === null || !admit(1, 0)) return null;
   const owner = nodeOf({ kind: "body", value: { body: body.body, node: pattern.parent } });
   if (owner?.kind !== "VariableDeclaration" || owner.name !== pattern || owner.initializer === null) return null;
-  const receiver = unparenthesizedExpression<CheckedPhase>(owner.initializer);
+  const receiver = admittedOperand(owner.initializer, admit);
+  if (receiver === null) return null;
   const select = (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): SourceObjectField | null => {
     if (!admit(1, 0)) return null;
     const field = qualifiedSourceField(holding.declaration, container, definition, itemOf);

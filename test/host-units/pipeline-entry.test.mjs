@@ -220,6 +220,11 @@ test("S-1 uses object annotations through namespace names and inline import type
   await checkQualifiedTypeHolding();
 });
 
+test("S-1 keeps the actual receiver through paid parentheses in a binding and its alias", async () => {
+  const { checkReceiverWrapperCuts } = await import("./fixtures/receiver-wrapper-cuts.mjs");
+  await checkReceiverWrapperCuts();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

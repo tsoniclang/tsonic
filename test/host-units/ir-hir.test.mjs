@@ -356,6 +356,40 @@ test("qualified type names and type-only import annotations retain each actual c
   await checkQualifiedTypeHolding();
 });
 
+test("each holding wrapper admits its actual operand before reading it", async () => {
+  const { checkReceiverWrapperCuts } = await import("./fixtures/receiver-wrapper-cuts.mjs");
+  await checkReceiverWrapperCuts();
+});
+
+test("a native scalar field does not need its imported annotation binding as object evidence", async () => {
+  const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = await nativeInt32Input(await loadFrontFixture(),
+    "export function read(input: { value: Native }): Native { return input.value; }", true);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { checked, modules, types } = captured.value;
+  const callable = modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree.statements.nodes
+    .find(row => row.kind === "FunctionDeclaration");
+  const body = checked.bodies.get(callable.tsonic.body);
+  const access = body.root.statements.nodes[0].expression;
+  const property = callable.parameters.nodes[0].type.members.nodes[0];
+  assert.equal(property.type.typeName.tsonic.resolution.kind, "binding");
+  assert.deepEqual(readType(types, property.tsonic.declaredType.value), { kind: "primitive", primitive: "int32" });
+  const proof = product.checkedSourceObjectFieldsOf(body, {
+    bodyOf: id => checked.bodies.get(id) ?? null,
+    nodeOf: checked.nodeOf,
+    itemOf: definition => checked.nodeOf(checked.declarationSourceOf(definition)),
+    bindingOf: () => assert.fail("a scalar cannot demand an imported object representation"),
+    typeOf: id => readType(types, id),
+    admit: () => true,
+  }).field(access);
+  assert.equal(proof?.field, property.tsonic.declaration.definition);
+  assert.equal(proof.requiredReference, null);
+  assert.equal(proof.presence, null);
+});
+
 test("a placed field write authenticates the receiver's actual outer storage", async () => {
   const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
   await checkCapturedFieldRefinement();
