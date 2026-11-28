@@ -346,6 +346,11 @@ test("a binding field retains its actual required or guarded enclosing object pl
   await checkHeldFieldBinding();
 });
 
+test("a held field argument qualifies both actual reference declarations before projection", async () => {
+  const { checkHeldReferenceArgument } = await import("./fixtures/held-reference-argument.mjs");
+  await checkHeldReferenceArgument();
+});
+
 test("an imported object holding borrows each actual qualified binding hop before field selection", async () => {
   const { checkImportedObjectHolding } = await import("./fixtures/imported-object-holding.mjs");
   await checkImportedObjectHolding();

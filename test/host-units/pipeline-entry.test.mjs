@@ -210,6 +210,11 @@ test("S-1 binds a field of the one held required or guarded object projection", 
   await checkHeldFieldBinding();
 });
 
+test("WT-10 keeps the actual nested effects of a selected held reference argument", async () => {
+  const { checkHeldReferenceArgument } = await import("./fixtures/held-reference-argument.mjs");
+  await checkHeldReferenceArgument();
+});
+
 test("S-1 binds the actual field through named imports, re-exports and a type-only star", async () => {
   const { checkImportedObjectHolding } = await import("./fixtures/imported-object-holding.mjs");
   await checkImportedObjectHolding();

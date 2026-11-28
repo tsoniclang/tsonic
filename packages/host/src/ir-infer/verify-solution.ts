@@ -72,10 +72,10 @@ function memberReferences(input: InferVerificationInput, member: MemberDecision,
     emit(output, "access-location", site, "location");
 }
 
-function mappingReferences(input: InferVerificationInput, decision: ApplicationDecision, site: InferSite,
-  arguments_: readonly ApplicationArgument[] | null, operandCount: number | null, endpoints: Map<DefId, ReadonlySet<string>>,
-  overloads: Map<DefId, boolean>, bodies: ReadonlyMap<BodyId, BodyTyping>,
+function mappingReferences(context: SolutionContext, decision: ApplicationDecision, site: InferSite,
+  arguments_: readonly ApplicationArgument[] | null, operandCount: number | null,
   output: Violation<InferRule, InferSite>[], applied: SigId): void {
+  const { input, endpoints, overloads, bodies, finalizedType } = context;
   const signature = ordinal(applied) ? input.types.signatures[applied] : undefined;
   if (!actualEndpoint(input, decision.advertised, endpoints) ||
     !actualEndpoint(input, decision.api, endpoints, decision.advertised.declaration))
@@ -102,7 +102,7 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
       emit(output, "parameter-mapping-total", site, "arguments");
     if (parameter.kind === "reference-argument") {
       const source = arguments_?.[parameter.argument];
-      if (source !== undefined && (source.kind !== "value" || source.type !== parameter.view.caller))
+      if (source !== undefined && (source.kind !== "value" || finalizedType(source.type) !== parameter.view.caller))
         emit(output, "parameter-mapping-total", site, "reference-argument");
     }
     if (parameter.kind === "rest") {
@@ -179,6 +179,7 @@ interface SolutionContext {
   readonly endpoints: Map<DefId, ReadonlySet<string>>;
   readonly overloads: Map<DefId, boolean>;
   readonly bodies: ReadonlyMap<BodyId, BodyTyping>;
+  readonly finalizedType: (type: TyId) => TyId | undefined;
 }
 
 function sameNode(left: NodeRef | null, right: NodeRef | null): boolean {
@@ -278,7 +279,7 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
 
 function decisionRecords(context: SolutionContext, record: SolvedConstraint, constraint: OwnedConstraint | undefined,
   output: Violation<InferRule, InferSite>[]): void {
-  const { input, inventory, endpoints, overloads, bodies } = context;
+  const { input, inventory, endpoints } = context;
   const decision = record.decision;
   const site: InferSite = { kind: "constraint", constraint: record.constraint };
   const pending: DecisionWork[] = [];
@@ -357,7 +358,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
     if (task.kind === "proof") proofReferences(task.value, record.constraint, output);
     else if (task.kind === "embedding") {
       if (task.value.kind === "conversion") pending.push({ kind: "proof", value: task.value.proof });
-    } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, overloads, bodies, output, task.applied);
+    } else if (task.kind === "application") mappingReferences(context, task.value, site, task.arguments, task.operandCount, output, task.applied);
     else {
       const operation = task.value.operation;
       const nativeArray = operation.kind === "exact-array-construction";
@@ -542,7 +543,6 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
   const endpoints = new Map<DefId, ReadonlySet<string>>();
   const bodies = new Map<BodyId, BodyTyping>();
   for (const body of solution.bodies) if (!bodies.has(body.body)) bodies.set(body.body, body);
-  const context: SolutionContext = { input, inventory, endpoints, overloads: new Map(), bodies };
   if (solution.group !== input.group.id) emit(output, "group-ownership", groupSite, "solution");
   const published = new Set<number>();
   const finals = new Map<number, TypeEvidence>();
@@ -561,8 +561,9 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     emit(output, "solution-total", { kind: "variable", group: input.group.id, variable }, "variables");
   const finalizedType = (type: TyId): TyId | undefined => {
     const term = input.types.terms[type];
-    return term?.kind === "open" && term.group === input.group.id ? finals.get(term.variable)?.type : type;
+    return term?.kind === "open" ? term.group === input.group.id ? finals.get(term.variable)?.type : undefined : type;
   };
+  const context: SolutionContext = { input, inventory, endpoints, overloads: new Map(), bodies, finalizedType };
   const solved = new Set<string>();
   let previous: SolvedConstraint | null = null;
   for (const record of solution.constraints) {

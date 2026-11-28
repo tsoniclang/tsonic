@@ -398,6 +398,20 @@ function reachedField(field: CheckedField): CheckedField { return field; }
 
 export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => sourceObjectFields(body, read, fieldProof);
 
+function heldObjectOperand<Proof>(body: HirBody, operand: HirNode, read: CheckedSourceObjectRead,
+  select: (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null) => Proof | null): Proof | null {
+  if (operand.kind === "Identifier" && operand.tsonic.role === "value" && operand.tsonic.resolution.kind === "local")
+    return sourceObjectHolding((holding, declaration) => declaration.type?.kind === "TypeLiteral" ? select(holding, declaration.type, null) : null,
+      body, operand.tsonic.resolution.local, read);
+  if (operand.kind !== "PropertyAccessExpression" || operand.tsonic.role !== "value" || !read.admit(1, 3)) return null;
+  const source = sourceObjectFields(body, read, reachedField).field(operand);
+  if (source === null || source.value === null) return null;
+  const view = operand.tsonic.value.views.read;
+  if (view.kind !== "available" || view.value !== source.value.type || !read.admit(0, 1)) return null;
+  const { local, field } = source.proof;
+  return select({ local, declaration: field, receiver: source.value.type }, source.value.container, source.proof);
+}
+
 function qualifiedSourceField(owner: DefId, container: FieldValue["container"], definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
   if (container.kind === "TypeAliasDeclaration") {
     owner = container.tsonic.definition;
@@ -499,12 +513,15 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   const original = read.nodeOf({ kind: "body", value: site.argument });
   if (original?.id !== site.argument.node) return null;
   const argument = admittedOperand(original, read.admit);
-  if (argument?.kind !== "Identifier" || argument.tsonic.role !== "value" || argument.tsonic.resolution.kind !== "local"
+  if (argument?.kind !== "Identifier" && argument?.kind !== "PropertyAccessExpression" || argument.tsonic.role !== "value"
+    || argument.kind === "Identifier" && argument.tsonic.resolution.kind !== "local"
     || argument.tsonic.value.views.read.kind !== "available" || argument.tsonic.value.views.read.value !== site.caller
     || !read.admit(1, 0)) return null;
-  const caller = sourceObjectHolding((holding, declaration) => holding.receiver === site.caller && declaration.type?.kind === "TypeLiteral"
-    ? referenceSurface(holding.declaration, declaration.type, site.caller, read) : null,
-  site.body, argument.tsonic.resolution.local, read);
+  const caller = heldObjectOperand(site.body, argument, read, (holding, container) => {
+    if (holding.receiver !== site.caller) return null;
+    return container.kind === "TypeLiteral" ? referenceSurface(holding.declaration, container, site.caller, read)
+      : referenceSurface(container.tsonic.definition, container.type, site.caller, read);
+  });
   if (caller === null || !read.admit(1, 0)) return null;
   const callable = read.itemOf(site.endpoint.declaration);
   if (callable?.kind !== "FunctionDeclaration" || callable.tsonic.definition !== site.endpoint.declaration
@@ -647,16 +664,7 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
       : { ...holding, occurrence, field: definition, parent, requiredReference: value?.presence === null ? value.type : null,
         presence: value?.presence ?? null };
   };
-  if (receiver.kind === "Identifier" && receiver.tsonic.role === "value" && receiver.tsonic.resolution.kind === "local")
-    return sourceObjectHolding((holding, declaration) => declaration.type?.kind === "TypeLiteral" ? select(holding, declaration.type, null) : null,
-      body, receiver.tsonic.resolution.local, read);
-  if (receiver.kind !== "PropertyAccessExpression" || receiver.tsonic.role !== "value" || !admit(1, 3)) return null;
-  const source = sourceObjectFields(body, read, reachedField).field(receiver);
-  if (source === null || source.value === null) return null;
-  const view = receiver.tsonic.value.views.read;
-  if (view.kind !== "available" || view.value !== source.value.type || !admit(0, 1)) return null;
-  const { local, field } = source.proof;
-  return select({ local, declaration: field, receiver: source.value.type }, source.value.container, source.proof);
+  return heldObjectOperand(body, receiver, read, select);
 };
 
 export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {

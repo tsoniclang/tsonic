@@ -101,15 +101,20 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
       return notDecidedYet("the selected value of an omitted fixed formal", origin);
     }
     const argument = next.value;
+    const referenceShape = argument.component === null && candidate.api.body !== null
+      && readType(deps.types, argument.value.type).kind === "shape" && readType(deps.types, parameter.type).kind === "shape";
+    let needsReferenceProof = false;
     if (checkedArguments !== null && argument.value.type !== parameter.type) {
       const checked = checkedArguments[argument.index];
-      if (checked === undefined || readType(deps.types, checked.type).kind === "open")
+      if (checked === undefined) return notDecidedYet("the actual inferred argument embedding contribution", origin);
+      needsReferenceProof = readType(deps.types, checked.type).kind === "open";
+      if (needsReferenceProof && (!referenceShape || checked.kind !== "value" || checked.occurrence.body !== argument.occurrence.body
+        || checked.occurrence.node !== argument.occurrence.node))
         return notDecidedYet("the actual inferred argument embedding contribution", origin);
     }
     const form = embeddingForm(deps, argument.value.type, parameter.type, work, null);
     if (form !== null && typeof form !== "string") return refuseTypeConstruction(work.typeWork, form, origin, work.unit);
-    if ((form === null || form === "identity") && argument.component === null && candidate.api.body !== null
-      && readType(deps.types, argument.value.type).kind === "shape" && readType(deps.types, parameter.type).kind === "shape") {
+    if ((form === null || form === "identity") && referenceShape) {
       const view = referenceArgument({ argument: argument.occurrence, caller: argument.value.type,
         endpoint: candidate.api, ordinal: index, formal: parameter });
       const cut = admitTypePublicationStep(work.typeWork, 0);
@@ -121,6 +126,7 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
         continue;
       }
     }
+    if (needsReferenceProof) return notDecidedYet("the actual inferred argument embedding contribution", origin);
     if (form === "incompatible-domain" || form === "lossy-numeric") {
       const code = hostDiagnosticCode("TSONIC_NO_APPLICABLE_NATIVE_CANDIDATE");
       return { kind: "refused", diagnostics: [{

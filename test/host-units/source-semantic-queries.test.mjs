@@ -2911,6 +2911,42 @@ test("nested field selection borrows its actual checked predecessor and never cr
   assert.equal(paid.every(([work, records]) => work > 0 || records > 0), true);
 });
 
+test("reference argument mapping verifies the actual finalized source slot, not the raw open type", () => {
+  const program = ready(`
+    function choose(input: Formal): boolean { return input.flag; }
+    export function read(input: { part: Actual }): boolean { return choose(input.part); }
+    type Actual = { flag: boolean; other: boolean };
+    type Formal = { other: boolean; flag: boolean };
+  `);
+  const caller = program.checked.tree.statements.nodes[1];
+  const group = program.inputs.groups.find(row => row.bodies.includes(caller.tsonic.body));
+  const answer = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(answer.kind, "completed", JSON.stringify(answer.diagnostics));
+  const publication = answer.value;
+  const set = publication.constraints.constraints.find(row => row.body === caller.tsonic.body);
+  const callIndex = set.constraints.findIndex(row => row.kind === "call");
+  const source = set.constraints[callIndex].application.arguments[0];
+  const raw = fixture.types.readType(program.interner, source.type);
+  assert.deepEqual([raw.kind, raw.group], ["open", group.id]);
+  const selected = publication.solution.constraints.find(row => row.constraint.body === set.body && row.constraint.index === callIndex);
+  const application = selected.decision.application;
+  const [mapping] = application.parameters;
+  assert.equal(mapping.kind, "reference-argument");
+  assert.equal(mapping.view.caller, publication.solution.variables.find(row => row.variable === raw.variable).value.type);
+  assert.notEqual(mapping.view.caller, mapping.view.formal);
+  const verify = solution => irInfer.verifyInference({
+    ...program.verification(group, publication.constraints, publication), types: fixture.types.viewTypes(program.interner),
+    group, constraints: publication.constraints.constraints, contributions: publication.contributions, solution,
+    placedSignatureOf: body => publication.placed.get(body)?.signature.id ?? null,
+    readySourceField: program.inputs.inference.readySourceField, selectedNativeFacts: program.snapshot.nativeFacts,
+  });
+  assert.deepEqual(verify(publication.solution), []);
+  const crossed = { ...mapping, view: { ...mapping.view, caller: mapping.view.formal } };
+  const failures = verify({ ...publication.solution, constraints: publication.solution.constraints.map(row => row === selected
+    ? { ...row, decision: { ...row.decision, application: { ...application, parameters: [crossed] } } } : row) });
+  assert.deepEqual(failures.map(row => row.rule), ["parameter-mapping-total"]);
+});
+
 test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
   const program = ready("export function read(box:Box):boolean{return box.flag;}export type Box={flag:boolean};\n");
   const source = program.checked.bodies.find(body => body.root.kind === "Block");
