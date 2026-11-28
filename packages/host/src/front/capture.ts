@@ -291,10 +291,17 @@ interface AppliedTupleResult {
   readonly original: Type;
 }
 
-type SignatureTupleRead = Node | AppliedTupleResult;
-type TupleValueRead = SignatureTupleRead | LiteralTupleUse;
+interface AppliedTupleSlot {
+  readonly kind: "projected-operand";
+  readonly role: "binding-tuple-slot";
+  readonly type: Type;
+}
 
-type ProjectedOperandUse = AppliedTupleResult | ({
+type SignatureTupleRead = Node | AppliedTupleResult;
+type TupleBindingRead = Node | LiteralTupleUse | AppliedTupleSlot;
+type TupleValueRead = TupleBindingRead | AppliedTupleResult;
+
+type ProjectedOperandUse = AppliedTupleResult | AppliedTupleSlot | ({
   readonly kind: "projected-operand";
   readonly type: Type;
 } & (
@@ -865,7 +872,7 @@ function captureFieldSource(field: PrimitiveFieldSource | null, selected: Type |
 }
 
 function tupleBindingSource(scope: CaptureScope, leaf: Node, enclosing: Node, destination: Type,
-  role: "annotation" | "value"): Node | LiteralTupleUse | null {
+  role: "annotation" | "value"): TupleBindingRead | null {
   const ast = scope.checked.ast;
   if (!admit(scope, "facts")) return null;
   const path: number[] = [];
@@ -900,11 +907,12 @@ function tupleBindingSource(scope: CaptureScope, leaf: Node, enclosing: Node, de
       if (scope.meter.refusal !== null) return null;
       let annotation = read !== null && "Kind" in read ? read : undefined;
       let literal = role === "value" && read !== null && !("Kind" in read) && read.kind === "literal-tuple" ? read : null;
+      let projected = role === "value" && read !== null && !("Kind" in read) && read.kind === "projected-operand" && read.type === type;
       if (role === "value" && read === null && initializer !== undefined && ast.kindName(initializer) === "KindArrayLiteralExpression"
         && scope.shape.isTuple(receiver.type)) literal = retainTupleLiteral(scope, initializer, initializer, receiver.type);
       for (let depth = path.length - 1; depth >= 0; depth -= 1) {
-        const source = literal === null ? tupleAnnotationOf(scope, type, annotation) : undefined;
-        if (source === undefined && literal === null || !admit(scope, "edges")) return null;
+        const source = literal === null && !projected ? tupleAnnotationOf(scope, type, annotation) : undefined;
+        if (source === undefined && literal === null && !projected || !admit(scope, "edges")) return null;
         const syntax = source === undefined ? undefined : tupleSyntax(scope, source);
         const tuple = scope.shape.getTupleInfo(type);
         const selected = path[depth];
@@ -929,11 +937,15 @@ function tupleBindingSource(scope: CaptureScope, leaf: Node, enclosing: Node, de
             ? retainTupleLiteral(scope, operand, unwrapped, slot.type) : valueTupleRead(scope, unwrapped, value);
           annotation = next !== null && "Kind" in next ? next : undefined;
           literal = next !== null && !("Kind" in next) && next.kind === "literal-tuple" ? next : null;
-          if (annotation === undefined && literal === null) return null;
+          projected = next !== null && !("Kind" in next) && next.kind === "projected-operand" && next.type === slot.type;
+          if (annotation === undefined && literal === null && !projected) return null;
         }
         type = slot.type;
       }
-      if (type === destination) return annotation ?? literal;
+      if (type === destination) {
+        if (!projected) return annotation ?? literal;
+        return admit(scope, "facts") ? { kind: "projected-operand", role: "binding-tuple-slot", type } : null;
+      }
       if (literal === null || !admit(scope, "edges")
         || scope.shape.getTypeReferenceTarget(type) !== scope.shape.getTypeReferenceTarget(destination)) return null;
       return literal;
@@ -1781,7 +1793,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
   const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
-    || projection?.role === "receiver-tuple-result" || projection?.role === "applied-tuple-result"
+    || projection?.role === "receiver-tuple-result" || projection?.role === "applied-tuple-result" || projection?.role === "binding-tuple-slot"
     || projection?.role === "tuple-element" || projection?.role === "spread-tuple-element"
     || projection?.role === "spread-element-view" || projection?.role === "spread-union-member";
   const prefix = parent.path?.prefix;
@@ -1789,6 +1801,7 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     || (projection.role === "receiver-tuple-result" ? parent.path?.step.kind !== "result" || prefix !== null
       : projection.role === "applied-tuple-result" ? parent.path !== null && (prefix !== null
         || parent.path.step.kind !== "result" && parent.path.step.kind !== "argument-place")
+      : projection.role === "binding-tuple-slot" ? parent.path !== null
       : projection.role === "indexed-tuple-object" ? parent.path?.step.kind !== "projection-source"
       : projection.role === "tuple-element" || projection.role === "spread-union-member" ? parent.root !== projection.parent.root
         || prefix !== (projection.parent.path === null ? null : projection.parent.id)
@@ -4284,7 +4297,7 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
     && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
 }
 
-function symbolTupleRead(scope: CaptureScope, type: Type, symbol: CheckerSymbol, binding: Node | null): Node | LiteralTupleUse | null {
+function symbolTupleRead(scope: CaptureScope, type: Type, symbol: CheckerSymbol, binding: Node | null): TupleBindingRead | null {
   const owner = scope.checker.getSymbolValueDeclaration(symbol);
   if (binding !== null && binding !== owner) return null;
   const ast = scope.checked.ast;

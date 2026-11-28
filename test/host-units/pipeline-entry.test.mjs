@@ -529,12 +529,17 @@ test("a named tuple-valued slot keeps the selected value and its actual binding 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `
     function produce(flag: boolean): [[null, boolean]] { return [[null, flag]]; }
+    function applied<T>(value: T): [[null, T]] { return [[null, value]]; }
     export function literal(flag: boolean): readonly [null, boolean] {
       const [, whole] = [flag, [null, flag] as const] as const;
       return whole;
     }
     export function declared(flag: boolean): [null, boolean] {
       const [whole] = produce(flag);
+      return whole;
+    }
+    export function selectedGeneric(flag: boolean): [null, boolean] {
+      const [whole] = applied(flag);
       return whole;
     }
   `);
@@ -545,7 +550,7 @@ test("a named tuple-valued slot keeps the selected value and its actual binding 
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
   const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
-  for (const [name, ordinal] of [["literal", 1], ["declared", 0]]) {
+  for (const [name, ordinal] of [["literal", 1], ["declared", 0], ["selectedGeneric", 0]]) {
     const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
     const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
     const [statement, returned] = selected.tir.root.statements.nodes;
