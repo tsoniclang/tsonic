@@ -323,6 +323,16 @@ test("checked by-value reference views pair actual field declarations and native
   }
 });
 
+test("a placed field write authenticates the receiver's actual outer storage", async () => {
+  const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
+  await checkCapturedFieldRefinement();
+});
+
+test("a field binding authenticates its selected field in an actual placed array execution", async () => {
+  const { checkPlacedArrayReturn } = await import("./fixtures/native-array-initialization.mjs");
+  await checkPlacedArrayReturn();
+});
+
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
   const fixture = await loadFrontFixture();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
