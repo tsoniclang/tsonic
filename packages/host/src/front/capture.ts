@@ -6323,15 +6323,16 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       }
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
+    let annotation: RawTypeId | null = null;
     if (heritage || kind !== "KindTemplateLiteralTypeSpan" && typeNodeKinds.includes(kind.replace(/^Kind/u, ""))) {
       let literal: LiteralTupleUse | null = null;
       if (kind === "KindTypeReference" && parent !== undefined && ast.isConstAssertion(parent) && tupleAssertion(scope, parent)?.Type === node) {
         if (!admit(scope, "edges")) break;
         literal = scope.tables.tupleLiteralReads?.get(parent) ?? null;
       }
-      const type = captureAuthoredAnnotation(scope, node, reference, undefined, literal);
-      if (type === null || !admit(scope, "facts")) break;
-      annotations.push({ node: reference.node, type });
+      annotation = captureAuthoredAnnotation(scope, node, reference, undefined, literal);
+      if (annotation === null || !admit(scope, "facts")) break;
+      annotations.push({ node: reference.node, type: annotation });
     }
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);
@@ -6373,6 +6374,25 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     }
     captureFacts(scope);
     if (scope.meter.refusal !== null) break;
+    if (kind === "KindTypeOperator" && annotation !== null) {
+      if (!admit(scope, "edges")) break;
+      const operator = scope.syntaxOf(reference.node);
+      if (operator?.kind === "TypeOperator" && operator.operator === "ReadonlyKeyword" && operator.type.kind === "ArrayType") {
+        if (!admit(scope, "edges")) break;
+        const form = scope.tables.types[annotation]?.form;
+        if (form?.kind === "available" && (form.value.kind === "declared" || form.value.kind === "merged-interface-dependency")
+          && form.value.nativeArrayReadonly === false) {
+          if (!admit(scope, "facts")) break;
+          const code = hostDiagnosticCode("TSONIC_READONLY_ARRAY_DECLARATION_REQUIRED");
+          return { kind: "refused", diagnostics: captureRefusal({
+            code: { kind: "host", name: code, rendered: code }, source: "front", severity: "error",
+            site: { kind: "source", origin: operator.origin },
+            message: "A readonly array annotation requires a readonly array declaration in the selected libraries.",
+            evidence: [], arguments: [], related: [], fix: null,
+          }, checkerDiagnostics) };
+        }
+      }
+    }
     const invalidSelector = failedSelection ? scope.fieldSelectors?.get(reference.node) : undefined;
     if (invalidSelector !== undefined) {
       unavailableLayoutSelector(scope, invalidSelector);

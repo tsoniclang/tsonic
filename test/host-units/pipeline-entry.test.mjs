@@ -1515,6 +1515,8 @@ test("installed ES2024 publishes a qualified scalar indexed write and read withi
   };
   const actual = evidence(installed.result, input);
   assert.deepEqual(actual, evidence(analyzeHostProgram(smaller), smaller));
+  const minimal = analysisInput(fixture, "sdk-minimal", source);
+  assert.deepEqual(actual, evidence(analyzeHostProgram(minimal), minimal));
   assert.deepEqual(actual.decisions.map(({ node, ...decision }) => decision), [
     { text: "0", carrier: "array", holding: "by-reference", key: "int64", read: null, write: "bool", failure: "unwind", writeCheck: "before-value" },
     { text: "1", carrier: "array", holding: "by-reference", key: "int64", read: "bool", write: null, failure: "unwind", writeCheck: null },

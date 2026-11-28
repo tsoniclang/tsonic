@@ -210,7 +210,7 @@ test("an indexed tuple retains the written slot of the actually selected declare
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const fixture = await loadFrontFixture();
-  const input = analysisInput(fixture, "sdk-minimal", `
+  const input = analysisInput(fixture, "es5", `
     interface Matrix<Key, Value> { [index: number]: Value; }
     interface Matrix<Key, Value> { marker: Key; }
     export type Equal<A, B> = Matrix<readonly [A, B], readonly [A, B]>[number];
@@ -276,7 +276,7 @@ test("a tuple value read and its written return context keep independent qualifi
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const input = analysisInput(fixture, "sdk-minimal", `
+  const input = analysisInput(fixture, "es5", `
     export function retained<Key, Value>(value: readonly [Key, Value]): (readonly [Key, Value]) {
       return value;
     }

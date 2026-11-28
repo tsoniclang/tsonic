@@ -5,6 +5,7 @@ export function analysisInput(fixture, library, source = "export function add(a:
   const snapshot = fixture.projectSnapshot({
     sourceFiles: { "main.ts": source },
     libraries: library === "es2024" ? fixture.bundled()
+      : library === "es5" ? fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"])
       : [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
   const extensions = fixture.front.createCheckerExtensions([]);

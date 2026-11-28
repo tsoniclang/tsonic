@@ -576,7 +576,7 @@ test("Raw property conditionals distinguish the original authored branches from 
       "main.ts": `import type { Select } from "./aliases.js";
         export declare function pick<Actual, Count>(value: Actual, count: Count): Select<Actual, Count>;`,
     },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
   });
   const moduleOf = name => snapshot.source.input.packages.modules.find(row => row.path === `/project/src/${name}.ts`).id;
   const main = moduleOf("main");
@@ -756,7 +756,7 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
 
 test("Raw capture keeps the authored infer binder distinct from the conditional's outer type parameter", async () => {
   const fixture = await loadFrontFixture();
-  const input = analysisInput(fixture, "sdk-minimal",
+  const input = analysisInput(fixture, "es5",
     "export type Elem<Outer> = Outer extends readonly (infer Inner)[] ? Inner : never;"
       + "export type Match = Elem<readonly boolean[]>; export type NoMatch = Elem<true>;");
   const { deps, program } = fixture.openAndCapture(input.snapshot);
@@ -783,6 +783,24 @@ test("Raw capture keeps the authored infer binder distinct from the conditional'
   assert.deepEqual(annotation(no.type).form.value, { kind: "scalar", scalar: "never" });
 });
 
+test("a readonly array annotation needs its actual readonly declaration", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Values = readonly boolean[];";
+  const missing = analysisInput(fixture, "sdk-minimal", source);
+  const refused = analyzeHostProgram(missing);
+  assert.equal(refused.kind, "refused");
+  assert.deepEqual(refused.diagnostics.map(({ code, source, site }) => [code.rendered, source, site.kind]), [
+    ["TSONIC_READONLY_ARRAY_DECLARATION_REQUIRED", "front", "source"],
+  ]);
+  const [diagnostic] = refused.diagnostics;
+  assert.equal(diagnostic.site.origin.module, missing.snapshot.entryPoint);
+  assert.equal(source.slice(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length), "readonly boolean[]");
+  const complete = analyzeHostProgram(analysisInput(fixture, "es5", source));
+  assert.equal(complete.kind, "ok");
+  assert.deepEqual(complete.diagnostics, []);
+});
+
 test("Stage 3 retains an authored infer binder while closed checker answers cross every barrier", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -790,7 +808,7 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
   const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
   const { createSourceSemanticDatabase } = await import("../../packages/host/dist/pipeline/semantic-queries.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
-  const input = analysisInput(fixture, "sdk-minimal",
+  const input = analysisInput(fixture, "es5",
     "export type Elem<Outer> = Outer extends readonly (infer Inner)[] ? Inner : never;"
       + "export type Yes = Elem<readonly boolean[]>; export type No = Elem<true>;");
   const checked = captureSourceBarrier(input);
@@ -889,7 +907,7 @@ test("independent multiple infer binders and a closed checker answer cross Progr
 test("a checked mapped tuple key retains its own native narrowing through Types publication", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const input = analysisInput(fixture, "sdk-minimal", `
+  const input = analysisInput(fixture, "es5", `
     export type Resolve<Values extends readonly unknown[]> = { [Key in keyof Values]: Values[Key] };
   `);
   const result = captureSourceBarrier(input);
@@ -972,7 +990,7 @@ test("a written indexed operator can be the exact child of a conditional alias a
 test("same-spelled conditional parameters keep their own definitions across true and false arms", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const input = analysisInput(fixture, "sdk-minimal",
+  const input = analysisInput(fixture, "es5",
     "export type Element<Item> = Item extends readonly (infer Item)[] ? Item : Item;"
       + "export type Match = Element<readonly boolean[]>; export type Miss = Element<string>;");
   const result = analyzeHostProgram(input);
