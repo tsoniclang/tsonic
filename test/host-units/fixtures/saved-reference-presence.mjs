@@ -56,7 +56,11 @@ export async function checkSavedReferencePresence() {
     assert.deepEqual(summary.parameters[0].reads.paths.map(path), [["part"], ["part", "flag"]], label);
     assert.deepEqual(summary.parameters[1].reads.paths, [], label);
   }
+}
 
+export async function checkSavedReferenceQualification() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
   const { typeSourceBarrier } = await import("../../../packages/host/dist/pipeline/typed-barrier.js");
   const { checkedSourceObjectFieldsOf, indexSyntaxTree } = await import("../../../packages/host/dist/ir-hir/index.js");
@@ -66,7 +70,7 @@ export async function checkSavedReferencePresence() {
   const { accountFailure, chargeWork, chargeResultEntries, createAccount } = await import("../../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
   const { checkReachedProofCuts } = await import("./dataflow-cuts.mjs");
-  const input = analysisInput(fixture, "sdk-minimal", `
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
     type Box = { flag: boolean };
     export function read(input: { part: Box | null; sibling: Box | null }): boolean {
       const saved = input.part;

@@ -400,6 +400,11 @@ test("a placed field write authenticates the receiver's actual outer storage", a
   await checkCapturedFieldRefinement();
 });
 
+test("a saved nullable field read qualifies the actual bound local and preserves original proof cuts", async () => {
+  const { checkSavedReferenceQualification } = await import("./fixtures/saved-reference-presence.mjs");
+  await checkSavedReferenceQualification();
+});
+
 test("a static text binding selector retains its original qualified field", async () => {
   const { checkNamedBindingSelectors } = await import("./fixtures/named-binding-selector.mjs");
   await checkNamedBindingSelectors();

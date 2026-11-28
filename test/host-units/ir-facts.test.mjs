@@ -14,7 +14,9 @@ import { parseSources, readImportGraph } from "../architecture/host/import-graph
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
-import { checkCapturedFieldRefinement, checkCopiedFieldSampleTiming, checkDisjunctiveFieldProofs, checkFieldStoreAcrossCall, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkOrderedRefinementProofs, checkParenthesizedCountedProofs, checkRefinementClaimRoles, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkCopiedFieldSampleTiming, checkDisjunctiveFieldProofs, checkFieldStoreAcrossCall,
+  checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkOrderedRefinementProofs, checkParenthesizedCountedProofs,
+  checkRefinementClaimRoles, checkSavedExtentReceivers, checkSavedLocalRefinementGuard } from "./fixtures/native-refinement-proofs.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-guard", "counted-loops", "field-refinements"];
@@ -61,6 +63,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await suite.test("counted-loop facts use the actual saved array, not the source slot or a previous iteration", checkSavedExtentReceivers);
   await suite.test("a selected field proof survives a read-only call and records the actual interfering write call", checkNativeFieldRefinement);
   await suite.test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
+  await suite.test("an actual sibling guard cannot prove presence of the saved nullable local", checkSavedLocalRefinementGuard);
   await suite.test("copied receivers distinguish older field samples from later field invalidations", checkCopiedFieldSampleTiming);
   await suite.test("an ordered field store uses its saved receiver across the actual call effect", checkFieldStoreAcrossCall);
   await suite.test("Facts and Summary transport the actual captured value of a placed string field default", async () => {

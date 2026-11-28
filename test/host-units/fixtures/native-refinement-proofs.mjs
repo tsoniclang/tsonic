@@ -28,6 +28,32 @@ async function auditRefinementClaims(input, select, change, rule) {
   }
 }
 
+export async function checkSavedLocalRefinementGuard() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Box = { flag: boolean };
+    export function read(input: { part: Box | null; sibling: Box | null }): boolean {
+      const saved = input.part;
+      const peer = input.sibling;
+      if (peer !== null) {
+        if (saved !== null) return saved.flag;
+      }
+      return false;
+    }
+  `);
+  assert.equal(analyzeHostProgram(input).kind, "ok");
+  await auditRefinementClaims(input, body => body.tir.body.includes(";read];function;0]"), (rows, body) => {
+    assert.equal(rows.length, 1);
+    const [proof] = rows;
+    assert.equal(proof.kind, "proven");
+    const peerGuard = body.tir.root.statements.nodes[2].expression.id;
+    assert.equal(proof.guards.includes(peerGuard), false);
+    return [{ ...proof, guards: [peerGuard] }];
+  }, "field-refinement-proof-exact");
+}
+
 export async function checkRefinementClaimRoles() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const { analysisInput } = await import("./front/analysis-input.mjs");
