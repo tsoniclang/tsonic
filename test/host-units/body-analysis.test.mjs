@@ -6300,14 +6300,14 @@ test("unwritten statement operands emit only their genuine initialization error 
   }
 });
 
-test("inline tuple views borrow their actual initialized root and pay each reached place before reading it", async () => {
+for (const first of ["boolean", "null"]) test(`inline tuple views with ${first} borrow their actual root and pay before reading each place`, async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { inlineTupleSlots } = await import("../../packages/host/dist/analyses/body/places.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
-    "export function start(pair: [boolean, boolean]): boolean { const [first, second] = pair; return second; }");
+    `export function start(pair: [${first}, boolean]): boolean { const [first, second] = pair; return second; }`);
   const native = input.snapshot.nativeFacts;
   const completed = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
     nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
@@ -6318,7 +6318,12 @@ test("inline tuple views borrow their actual initialized root and pay each reach
   assert.equal(projected.length, 2);
   const parent = body.mir.places[projected[0].base.place];
   assert.equal(parent.base.kind, "local");
-  const roots = new Set([parent.base.local]);
+  const absence = first === "null";
+  if (absence) assert.deepEqual(completed.value.index.types.terms[projected[0].storage],
+    { kind: "intrinsic", intrinsic: "absence" });
+  const roots = new Map([[parent.base.local, absence ? new Set([projected[0].storage]) : null]]);
+  const work = absence ? 10 : 8;
+  const entries = absence ? 4 : 3;
   const run = (maximumWork, maximumResultEntries, rows = projected, admitted = roots) => {
     const account = createAccount({ maximumWork, maximumResultEntries });
     const reads = [];
@@ -6329,22 +6334,27 @@ test("inline tuple views borrow their actual initialized root and pay each reach
     const result = inlineTupleSlots(deps, { tir: body.tir, mir: body.mir }, lazy, admitted);
     return { account, result, reads };
   };
-  const exact = run(8, 3);
+  const exact = run(work, entries);
   assert.equal(exact.result.kind, "complete");
-  assert.deepEqual([...exact.result.value], projected.map(place => [place.id, parent.base.local]));
+  assert.deepEqual([...exact.result.value], projected.map((place, index) => [place.id,
+    absence && index === 0 ? { kind: "absence", root: parent.base.local } : parent.base.local]));
   assert.deepEqual(exact.reads, [0, 1]);
   const paid = InvocationAccount.stateOf(exact.account);
-  assert.deepEqual([paid.work, paid.entries], [8, 3]);
-  for (const [work, entries, prefix] of [[2, 3, []], [3, 3, [0]], [6, 3, [0]], [7, 3, [0, 1]],
-    [8, 0, []], [8, 1, [0]], [8, 2, [0, 1]]]) {
-    const stopped = run(work, entries);
+  assert.deepEqual([paid.work, paid.entries], [work, entries]);
+  const cuts = absence
+    ? [[2, entries, []], [3, entries, [0]], [7, entries, [0]], [8, entries, [0, 1]],
+      [work, 0, []], [work, 1, [0]], [work, 2, [0]], [work, 3, [0, 1]]]
+    : [[2, entries, []], [3, entries, [0]], [6, entries, [0]], [7, entries, [0, 1]],
+      [work, 0, []], [work, 1, [0]], [work, 2, [0, 1]]];
+  for (const [maximumWork, maximumEntries, prefix] of cuts) {
+    const stopped = run(maximumWork, maximumEntries);
     assert.equal(stopped.result, accountFailure(stopped.account));
     assert.deepEqual(stopped.reads, prefix);
     assert.equal("value" in stopped.result, false);
   }
-  assert.throws(() => run(8, 3, projected, new Set()), /actual proven inline parent/);
+  assert.throws(() => run(work, entries, projected, new Map()), /actual proven inline parent/);
   const crossed = { ...projected[0], base: { ...projected[0].base, projection: { kind: "element", index: 2 } } };
-  assert.throws(() => run(8, 3, [crossed, projected[1]]), /actual required native slot/);
+  assert.throws(() => run(work, entries, [crossed, projected[1]]), /actual required native slot/);
 });
 
 test("ready relation frontiers never fabricate projection, capture, absence or guard evidence", () => {

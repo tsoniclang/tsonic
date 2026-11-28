@@ -420,6 +420,13 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
         const paid = chargeWork(account, 2);
         if (paid !== null) return paid;
         const site = source.get(statement.tir.node);
+        if (site?.kind === "CallExpression" && statement.value.operand.kind === "place") {
+          const proofWork = chargeWork(account, 1);
+          if (proofWork !== null) return proofWork;
+          const proof = operation.embedding.proof;
+          const step = proof.steps[proof.conclusion];
+          if (step?.from.path[0]?.kind === "tuple-element" && step.to.path[0]?.kind === "parameter") continue;
+        }
         const phase = site?.tsonic;
         const conversion = phase !== undefined && phase !== null && "conversion" in phase ? phase.conversion : null;
         const checked = conversion?.kind === "convert" ? conversion.operation.decision.operation : null;

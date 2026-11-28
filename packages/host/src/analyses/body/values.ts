@@ -103,37 +103,64 @@ function mergeReferences<Reference extends number>(left: readonly Reference[], r
 
 type Tuple = Extract<TypeTerm, { readonly kind: "tuple" }>;
 
-function originFreeTuple(deps: BodyRoundDeps, type: TyId, tuple: Tuple, read: (type: TyId) => TypeTerm | null): boolean {
+interface OriginFreeProduct {
+  readonly absentSlots: ReadonlySet<TyId> | null;
+}
+
+type ValueKind = "primitive" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | OriginFreeProduct | null;
+
+const scalarProduct: OriginFreeProduct = { absentSlots: null };
+
+export function isOriginFreeProduct(kind: ValueKind): kind is OriginFreeProduct {
+  return kind !== null && typeof kind === "object";
+}
+
+function originFreeTuple(deps: BodyRoundDeps, type: TyId, tuple: Tuple, read: (type: TyId) => TypeTerm | null): OriginFreeProduct | null {
   const { account } = deps;
   const holding = deps.carrierHoldingOf(account, "tuple");
-  if (holding.kind !== "complete" || holding.value !== "in-place") return false;
-  if (chargeWork(account, 1) !== null || chargeResultEntries(account, 4) !== null) return false;
+  if (holding.kind !== "complete" || holding.value !== "in-place") return null;
+  if (chargeWork(account, 1) !== null || chargeResultEntries(account, 4) !== null) return null;
   const seen = new Map<TyId, "open" | "closed">([[type, "open"]]);
   const stack = [{ type, tuple, slot: 0 }];
+  let absentSlots: Set<TyId> | null = null;
   for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
-    if (chargeWork(account, 1) !== null) return false;
+    if (chargeWork(account, 1) !== null) return null;
     if (frame.slot === frame.tuple.elements.length) {
       seen.set(frame.type, "closed");
       stack.pop();
       continue;
     }
     const element = frame.tuple.elements[frame.slot++];
-    if (element?.kind !== "required") return false;
+    if (element?.kind !== "required") return null;
     const selected = nativeCarrierOf(deps.types, element.type, read);
-    if (selected.kind === "resource-stop") return false;
+    if (selected.kind === "resource-stop") return null;
     if (selected.kind === "primitive") continue;
     const prior = seen.get(selected.type);
-    if (prior === "open") return false;
+    if (prior === "open") return null;
     if (prior === "closed") continue;
     const child = read(selected.type);
-    if (child?.kind !== "tuple" || chargeResultEntries(account, 2) !== null) return false;
+    if (child?.kind === "intrinsic" && child.intrinsic === "absence") {
+      if (absentSlots === null) {
+        if (chargeResultEntries(account, 3) !== null) return null;
+        absentSlots = new Set<TyId>();
+        absentSlots.add(element.type);
+      } else {
+        if (chargeWork(account, 1) !== null) return null;
+        if (!absentSlots.has(element.type)) {
+          if (chargeResultEntries(account, 1) !== null) return null;
+          absentSlots.add(element.type);
+        }
+      }
+      continue;
+    }
+    if (child?.kind !== "tuple" || chargeResultEntries(account, 2) !== null) return null;
     seen.set(selected.type, "open");
     stack.push({ type: selected.type, tuple: child, slot: 0 });
   }
-  return true;
+  return absentSlots === null ? scalarProduct : { absentSlots };
 }
 
-export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "origin-free-product" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | null {
+export function valueKind(deps: BodyRoundDeps, type: TyId): ValueKind {
   const read = (current: TyId) => {
     if (chargeWork(deps.account, 1) !== null) return null;
     const term = deps.typeOf(current);
@@ -152,7 +179,7 @@ export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "origi
     const holding = deps.carrierHoldingOf(deps.account, term.kind);
     return holding.kind === "complete" && holding.value === "by-reference" ? "array-reference" : null;
   }
-  if (term.kind === "tuple") return originFreeTuple(deps, selected.type, term, read) ? "origin-free-product" : null;
+  if (term.kind === "tuple") return originFreeTuple(deps, selected.type, term, read);
   return term.kind === "string" ? "reference"
     : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
 }

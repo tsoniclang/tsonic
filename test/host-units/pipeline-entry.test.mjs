@@ -433,6 +433,58 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   }
 });
 
+test("native tuple absence belongs to its actual projected value, not the product or its sibling", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function optional(value: boolean | null, tail: boolean): boolean { return tail; }
+    function exact(value: null, tail: boolean): boolean { return tail; }
+    export function mixed(record: { flag: boolean }): boolean { return optional(...([null, record.flag] as const)); }
+    export function identity(flag: boolean): boolean { return exact(...([null, flag] as const)); }
+    export function supplied(pair: readonly [null, boolean]): boolean { return optional(...pair); }
+    export function leaf(pair: readonly [readonly [null, boolean], boolean]): null {
+      const [[absent, flag], other] = pair; return absent;
+    }
+    export function whole(flag: boolean): readonly [null, boolean] { return [null, flag] as const; }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  const bodyOf = name => {
+    const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    return chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+  };
+  for (const name of ["mixed", "identity", "supplied"]) {
+    const body = bodyOf(name);
+    const call = body.tir.root.statements.nodes[0].expression;
+    const [spread] = call.arguments.nodes;
+    const facts = body.facts[0];
+    const alternative = facts.origins.invocations.find(row => row.node === call.id).alternatives[0];
+    assert.deepEqual(alternative.arguments.map(({ parameterIndex, authoredIndex, actual, projection }) => [
+      parameterIndex, authoredIndex, facts.arena.origins[actual].includesAbsence, facts.arena.projections[projection].projection,
+    ]), [[0, 0, true, { kind: "index", constant: 0n }], [1, 0, false, { kind: "index", constant: 1n }]]);
+    const conversion = body.mir.blocks.flatMap(row => row.statements).find(row => row.kind === "assign" && row.value.kind === "convert");
+    if (name === "identity") assert.equal(conversion, undefined);
+    else {
+      const place = body.mir.places[conversion.value.operand.place];
+      assert.deepEqual(place.base.projection, { kind: "element", index: 0 });
+      assert.equal(place.base.tir.node, spread.id);
+      assert.equal(conversion.value.operation.decision.operation.embedding.conversion, "absence");
+    }
+  }
+  for (const [name, expected] of [["leaf", true], ["whole", false]]) {
+    const body = bodyOf(name);
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.tir.body);
+    assert.equal(summary.returns, true);
+    const origins = summary.arena.origins[summary.result];
+    assert.deepEqual([origins.producers, origins.includesAbsence], [[], expected]);
+  }
+});
+
 for (const [form, initializer, operand] of [
   ["written", "([make(flag), true] as readonly [boolean, true])", "slots"],
   ["const", "[make(flag), true] as const", "slots"],

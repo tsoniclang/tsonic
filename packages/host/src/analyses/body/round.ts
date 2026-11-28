@@ -1,7 +1,7 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { BlockId, BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
+import type { BlockId, BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId, TyId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
 import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ProjectionPath, ReadOriginsFact, RefinementFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, countedLoopsOf, fieldRefinementsOf } from "../../ir-facts/index.js";
@@ -22,10 +22,10 @@ import { noCallBoundaries, noCallBoundary, openCallTransport } from "./open-call
 import { bodyFrontier, inlineTupleSlots, staticCells, readSlot, rootSlot } from "./places.js";
 import { projectionEffects as createProjectionEffects, heldProjections, localReferenceCopies, localReferenceCopyKind } from "./projection-effects.js";
 import type { LocalReferenceCopies } from "./projection-effects.js";
-import type { StaticCells } from "./places.js";
+import type { StaticCells, StorageSlot } from "./places.js";
 import { staticCallInventory } from "./static-calls.js";
 import type { StaticCalleeCells, StaticCallInventory } from "./static-calls.js";
-import { appliedOrigins, joinOrigins, presentOrigins, valueKind, valueOrigins } from "./values.js";
+import { appliedOrigins, isOriginFreeProduct, joinOrigins, presentOrigins, valueKind, valueOrigins } from "./values.js";
 import type { ReferenceRead } from "./value-flow.js";
 import { applyExitContents, collectExitContents, operandOrigins, removeUnchangedContents, solveValueOrigins, transferValue } from "./value-flow.js";
 import { callExitAssigned, cellMustAtExit, initializationError, recordInitializationPoint, recordUninitializedRead, sourceNeedAssigned } from "./initialization.js";
@@ -158,7 +158,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let referenceCaptures: Set<number> | null = null;
   let arrayLocals: Set<LocalId> | null = null;
   let objectValues: Map<LocalId, "reference" | "reference-optional"> | null = null;
-  let inlineRoots: Set<LocalId> | null = null;
+  let inlineRoots: Map<number, ReadonlySet<TyId> | null> | null = null;
   let copiedLocals: LocalReferenceCopies | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
@@ -256,11 +256,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       arrayLocals.add(local.id);
     }
     if (kind === null) return bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
-    if (kind === "origin-free-product" && inlinePlaces !== null) {
+    if (isOriginFreeProduct(kind) && inlinePlaces !== null) {
       const retained = chargeResultEntries(account, inlineRoots === null ? 2 : 1);
       if (retained !== null) return retained;
-      inlineRoots ??= new Set();
-      inlineRoots.add(local.id);
+      inlineRoots ??= new Map();
+      inlineRoots.set(local.id, kind.absentSlots);
+      hasAbsence ||= kind.absentSlots !== null;
     }
     if (kind === "primitive-optional" || kind === "reference-optional") {
       if (local.role.kind === "receiver")
@@ -287,7 +288,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       parameterOrigins[local.role.index] = origins;
     } else if (local.role.kind === "receiver") receiverOrigins = origins;
   }
-  let localViewSlots: Map<PlaceId, number> | null = null;
+  let localViewSlots: Map<PlaceId, StorageSlot> | null = null;
   if (inlinePlaces !== null) {
     if (inlineRoots === null) return bodyFrontier("A tuple projection requires its actual proven inline parent and local root.");
     const slots = inlineTupleSlots(deps, input, inlinePlaces, inlineRoots);
@@ -315,8 +316,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (kind === "absence") {
         const retain = chargeResultEntries(account, staticAbsence === null ? 2 : 1);
         if (retain !== null) return retain;
-        const slot = requirePresent(statics.slots.get(place.id), { owner: "analyses/body", query: null,
-          origin: place.origin, message: "A static absence cell retains its actual solver slot." });
+        const slot = rootSlot(mir, place.id, statics.slots);
         staticAbsence ??= new Set();
         staticAbsence.add(slot);
         hasAbsence = true;
@@ -544,7 +544,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const elements = valueKind(deps, type.element);
       const kindStop = accountFailure(account);
       if (kindStop !== null) return kindStop;
-      if (elements !== "primitive" && elements !== "origin-free-product")
+      if (elements !== "primitive" && !isOriginFreeProduct(elements))
         return bodyFrontier("A native array with reference elements requires its actual element retention relation.");
       const growth = bounded("maximumOriginAlternatives", 1) ?? admitRelations(3, 3) ?? chargeResultEntries(account, 6);
       if (growth !== null) return growth;
@@ -693,7 +693,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const node = witness.id;
     const projection = projections?.places.get(operand.place);
     if (projection?.value === "write-only") return bodyFrontier("A write-only field place cannot supply a value operand.");
-    const local = projection?.holder ?? readSlot(mir, operand.place, storageSlots);
+    const slot = projection?.holder ?? readSlot(mir, operand.place, storageSlots);
+    const local = typeof slot === "number" ? slot : slot.root;
     const present = assigned.written.has(local);
     const unavailable = !present && !absorbTaint(assigned, local);
     const cell = unavailable ? capturedLocals.get(local)?.cell ?? staticCell(local) : null;

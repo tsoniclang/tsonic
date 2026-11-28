@@ -15,7 +15,7 @@ import { bodyFrontier, readSlot, rootSlot } from "./places.js";
 import type { StorageSlots } from "./places.js";
 import type { HeldProjections } from "./projection-effects.js";
 import { arrayDestination, cleanupTarget, selectedCallAt } from "./storage.js";
-import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
+import { appliedOrigins, isOriginFreeProduct, joinOrigins, valueKind } from "./values.js";
 import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
 import { noCallBoundary } from "./open-calls.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
@@ -242,6 +242,7 @@ export type ReferenceRead = (place: PlaceId, state: readonly OriginsId[]) => Ori
 
 export function operandOrigins(input: BodyRoundInput, constants: readonly OriginsId[], state: readonly OriginsId[], operand: MirOperand,
   slots: StorageSlots, fields: HeldProjections | null, reference: ReferenceRead | null): OriginsId | DataflowStop {
+  let origins: OriginsId | undefined;
   if (operand.kind === "place") {
     const projection = fields?.places.get(operand.place);
     if (projection !== undefined) {
@@ -254,8 +255,12 @@ export function operandOrigins(input: BodyRoundInput, constants: readonly Origin
       return reference === null ? bodyFrontier("A checked field requires its actual saved reference reader.") : reference(operand.place, state);
     const base = input.mir.places[operand.place]?.base;
     if (base?.kind === "checked" && base.projection.kind === "refined") return originsId(0);
+    const slot = readSlot(input.mir, operand.place, slots);
+    origins = typeof slot === "number" ? state[slot] : originsId(1);
+  } else {
+    origins = constants[operand.constant];
   }
-  return requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[readSlot(input.mir, operand.place, slots)],
+  return requirePresent(origins,
     { owner: "analyses/body", query: null, origin: null, message: "An executing operand retains its actual value-flow Origins." });
 }
 
@@ -293,7 +298,7 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
       const kind = valueKind(deps, storage.storage);
       const stopped = accountFailure(deps.account);
       if (stopped !== null) return stopped;
-      if (statement.value.kind === "aggregate" && (statement.value.aggregate.kind !== "tuple" || kind !== "origin-free-product"))
+      if (statement.value.kind === "aggregate" && (statement.value.aggregate.kind !== "tuple" || !isOriginFreeProduct(kind)))
         return bodyFrontier("A constructed product needs its actual selected content and Origins proof.");
       if (kind === "reference" || kind === "array-reference") return bodyFrontier("BodyAnalysis requires the actual selected reference operation value producer.");
       if (kind === "primitive-optional" || kind === "reference-optional") {

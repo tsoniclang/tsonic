@@ -14,10 +14,11 @@ export function bodyFrontier(message: string): never {
   return throwInvariant({ owner: "analyses/body", query: null, origin: null, message });
 }
 
-export type StorageSlots = ReadonlyMap<PlaceId, number> | null;
+export type StorageSlot = number | { readonly kind: "absence"; readonly root: number };
+export type StorageSlots = ReadonlyMap<PlaceId, StorageSlot> | null;
 
 export interface StaticCells {
-  readonly slots: ReadonlyMap<PlaceId, number>;
+  readonly slots: ReadonlyMap<PlaceId, StorageSlot>;
   readonly cells: readonly LogicalCellRow[];
   readonly external: ReadonlySet<PlaceId>;
 }
@@ -30,11 +31,11 @@ export function rootSlot(body: MirBody, place: PlaceId, slots: StorageSlots): nu
     if (parent?.kind === "local") return parent.local;
   }
   const slot = base?.kind === "static" ? slots?.get(place) : undefined;
-  if (slot === undefined) return bodyFrontier("A root place requires its actual selected logical-cell binding.");
+  if (typeof slot !== "number") return bodyFrontier("A root place requires its actual selected logical-cell binding.");
   return slot;
 }
 
-export function readSlot(body: MirBody, place: PlaceId, slots: StorageSlots): number {
+export function readSlot(body: MirBody, place: PlaceId, slots: StorageSlots): StorageSlot {
   const base = body.places[place]?.base;
   if (base?.kind === "place" && base.projection.kind === "element") {
     const root = slots?.get(place);
@@ -45,12 +46,12 @@ export function readSlot(body: MirBody, place: PlaceId, slots: StorageSlots): nu
 }
 
 export function inlineTupleSlots(deps: BodyRoundDeps, input: BodyRoundInput, projections: readonly MirPlace[],
-  roots: ReadonlySet<LocalId>): DataflowResult<Map<PlaceId, number>> {
+  roots: ReadonlyMap<number, ReadonlySet<TyId> | null>): DataflowResult<Map<PlaceId, StorageSlot>> {
   const { account } = deps;
   const { mir, tir } = input;
   const start = chargeResultEntries(account, 1);
   if (start !== null) return start;
-  const slots = new Map<PlaceId, number>();
+  const slots = new Map<PlaceId, StorageSlot>();
   for (let position = 0; position < projections.length; position += 1) {
     const work = chargeWork(account, 3);
     if (work !== null) return work;
@@ -60,8 +61,9 @@ export function inlineTupleSlots(deps: BodyRoundDeps, input: BodyRoundInput, pro
       || base.place >= place.id || slots.has(place.id))
       return bodyFrontier("A tuple projection retains its own occurrence and preceding typed parent.");
     const parent = mir.places[base.place];
-    const root = parent?.base.kind === "local" && roots.has(parent.base.local) ? parent.base.local : slots.get(base.place);
-    if (parent?.id !== base.place || root === undefined)
+    const root = parent?.base.kind === "local" ? parent.base.local : slots.get(base.place);
+    const absence = typeof root === "number" ? roots.get(root) : undefined;
+    if (parent?.id !== base.place || typeof root !== "number" || absence === undefined)
       return bodyFrontier("A tuple projection requires its actual proven inline parent and local root.");
     const type = deps.typeOf(parent.storage);
     const stopped = accountFailure(account);
@@ -74,15 +76,20 @@ export function inlineTupleSlots(deps: BodyRoundDeps, input: BodyRoundInput, pro
     const slot = type.elements[index];
     if (slot?.kind !== "required" || slot.type !== place.storage)
       return bodyFrontier("A tuple projection requires its actual required native slot.");
-    const retain = chargeResultEntries(account, 1);
+    if (absence !== null) {
+      const proof = chargeWork(account, 1);
+      if (proof !== null) return proof;
+    }
+    const absent = absence?.has(slot.type) === true;
+    const retain = chargeResultEntries(account, absent ? 2 : 1);
     if (retain !== null) return retain;
-    slots.set(place.id, root);
+    slots.set(place.id, absent ? { kind: "absence", root } : root);
   }
   return { kind: "complete", value: slots };
 }
 
 export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, locationCaptureCount: number,
-  preparedSlots: Map<PlaceId, number> | null):
+  preparedSlots: Map<PlaceId, StorageSlot> | null):
   DataflowResult<StaticCells> {
   const { mir, tir } = input;
   const { account } = deps;
@@ -177,7 +184,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
     return left.declaration.owner < right.declaration.owner ? -1 : 1;
   }, account);
   if (ordered.kind !== "complete") return ordered;
-  const slots = preparedSlots ?? new Map<PlaceId, number>();
+  const slots = preparedSlots ?? new Map<PlaceId, StorageSlot>();
   const cells: LogicalCellRow[] = [];
   for (const row of ordered.value) {
     const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
