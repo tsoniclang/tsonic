@@ -109,7 +109,7 @@ export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: Da
       return fail("A replayed candidate must retain the independently selected result and declaration.");
     const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] },
       request => checkedReferenceArgumentViewOf({ ...request, body: checked }, {
-        bodyOf, nodeOf: deps.nodeOf, itemOf: deps.itemOf, typeOf: deps.typeOf,
+        bodyOf, nodeOf: deps.nodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf, typeOf: deps.typeOf,
         admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
       }),
       { typeWork: deps.typeWork, unit });

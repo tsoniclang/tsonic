@@ -210,6 +210,11 @@ test("S-1 binds a field of the one held required or guarded object projection", 
   await checkHeldFieldBinding();
 });
 
+test("S-1 binds the actual field through named imports, re-exports and a type-only star", async () => {
+  const { checkImportedObjectHolding } = await import("./fixtures/imported-object-holding.mjs");
+  await checkImportedObjectHolding();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -3161,7 +3166,7 @@ test("an immutable ordinary object alias reads the field of the original referen
     let remaining = cap;
     let read = 0;
     const proof = checkedSourceObjectFieldsOf(body, {
-      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: reference => {
+      bodyOf: id => checked.bodies.get(id) ?? null, bindingOf: captured.value.bindingOf, nodeOf: reference => {
         read += 1;
         return checked.nodeOf(reference);
       }, itemOf, typeOf: scalar, admit: work => {
@@ -3183,7 +3188,7 @@ test("an immutable ordinary object alias reads the field of the original referen
   const openChecked = openCapture.value.checked;
   const openBody = openChecked.bodies.get(caller.instance.body);
   assert.equal(checkedSourceObjectFieldsOf(openBody, {
-    bodyOf: id => openChecked.bodies.get(id) ?? null, nodeOf: openChecked.nodeOf,
+    bodyOf: id => openChecked.bodies.get(id) ?? null, nodeOf: openChecked.nodeOf, bindingOf: openCapture.value.bindingOf,
     itemOf: definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), typeOf: scalar, admit: () => true,
   }).field(openBody.root.statements.nodes.at(-1).expression), null);
 });

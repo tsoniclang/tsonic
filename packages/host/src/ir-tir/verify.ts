@@ -63,12 +63,14 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, boundary: 
     if (body === undefined) return null;
     if (reader === null) {
       if (!work(1, 3)) return null;
-      reader = checkedSourceObjectFieldsOf(body, { bodyOf, nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work }).field;
+      reader = checkedSourceObjectFieldsOf(body, { bodyOf, nodeOf: read, itemOf: item, bindingOf: input.bindingOf,
+        typeOf: type => input.types.terms[type], admit: work }).field;
     }
     return reader(access);
   };
   const referenceArgument = (request: ReferenceArgumentRequest) => body === undefined ? null
-    : checkedReferenceArgumentViewOf({ ...request, body }, { bodyOf, nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work });
+    : checkedReferenceArgumentViewOf({ ...request, body }, { bodyOf, nodeOf: read, itemOf: item, bindingOf: input.bindingOf,
+      typeOf: type => input.types.terms[type], admit: work });
   return { field, referenceArgument, work, stop: () => stopped, missing: () => missing };
 }
 
@@ -1313,7 +1315,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const holding = member.occurrence.kind === "selection" && original?.kind === "BindingElement"
         && inventory.original !== undefined && primary !== null
         ? checkedSourceBindingFieldOf(inventory.original, original, key, primary, {
-          bodyOf: id => boundary.bodies.get(id) ?? null, nodeOf: read,
+          bodyOf: id => boundary.bodies.get(id) ?? null, nodeOf: read, bindingOf: input.bindingOf,
           itemOf: definition => {
             stopped ??= admit({ kind: "source-declaration", definition });
             if (stopped !== null) return null;

@@ -45,7 +45,7 @@ export async function checkHeldFieldBinding() {
     const sourceField = callable.parameters.nodes[0].type.members.nodes[0].name.tsonic.declaration.definition;
     const prove = (account, field = actualField) => {
       const proof = checkedSourceBindingFieldOf(body, element, element.propertyName.tsonic.key.value, field, {
-        bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf,
+        bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, bindingOf: captured.value.bindingOf,
         itemOf: id => {
           const occurrence = checked.declarationSourceOf(id);
           return occurrence === null ? null : checked.nodeOf(occurrence);

@@ -43,7 +43,7 @@ export async function checkLiteralFieldCall(kind = "text") {
     endpoint, ordinal: 0, formal: readSignature(types, endpoint.signature).parameters[0] };
   const qualify = (account, crossed = false) => {
     const result = checkedReferenceArgumentViewOf(site, {
-      bodyOf: id => source.bodies.get(id) ?? null, nodeOf: source.nodeOf,
+      bodyOf: id => source.bodies.get(id) ?? null, nodeOf: source.nodeOf, bindingOf: checked.value.bindingOf,
       itemOf: id => {
         const reference = source.declarationSourceOf(crossed && id === callerField ? calleeField : id);
         return reference === null ? null : source.nodeOf(reference);
@@ -61,7 +61,7 @@ export async function checkLiteralFieldCall(kind = "text") {
     const element = callee.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[0];
     const prove = (account, definition = calleeField, actualKey = key) => {
       const result = checkedSourceBindingFieldOf(callee, element, actualKey, definition, {
-        bodyOf: id => source.bodies.get(id) ?? null, nodeOf: source.nodeOf,
+        bodyOf: id => source.bodies.get(id) ?? null, nodeOf: source.nodeOf, bindingOf: checked.value.bindingOf,
         itemOf: id => {
           const occurrence = source.declarationSourceOf(id);
           return occurrence === null ? null : source.nodeOf(occurrence);

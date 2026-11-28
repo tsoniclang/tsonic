@@ -34,7 +34,7 @@ export async function checkNamedBindingSelectors() {
   const siblingDefinition = sibling.name.tsonic.declaration.definition;
   const prove = (account, element, definition) => {
     const proof = checkedSourceBindingFieldOf(checkedBody, element, escaped.propertyName.tsonic.key.value, definition, {
-      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf,
+      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, bindingOf: captured.value.bindingOf,
       itemOf: id => {
         const occurrence = checked.declarationSourceOf(id);
         return occurrence === null ? null : checked.nodeOf(occurrence);

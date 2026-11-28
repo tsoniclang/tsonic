@@ -4304,12 +4304,13 @@ test("an inline object annotation earns the same source holding as an authored a
     const body = checked.bodies.find(row => row.root === callable.body);
     const nodes = hir.indexSyntaxTree(checked.tree);
     const domain = checkedSourceViews([{ module: checked, nodes }]);
+    const bindingViews = hir.createModuleBindingViews([checked.bindings]);
     const itemOf = definition => domain.nodeOf({ kind: "item", value: {
       owner: definition, node: checked.items.find(item => item.definition === definition).node,
     } });
     const actual = callable.body.statements.nodes[0].expression;
     const fields = items => hir.checkedSourceObjectFieldsOf(body, {
-      bodyOf: id => domain.bodies.get(id) ?? null, nodeOf: domain.nodeOf, itemOf: items,
+      bodyOf: id => domain.bodies.get(id) ?? null, nodeOf: domain.nodeOf, itemOf: items, bindingOf: bindingViews.bindingOf,
       typeOf: type => readType(interner, type), admit: () => true,
     });
     const selected = fields(itemOf).field(actual);

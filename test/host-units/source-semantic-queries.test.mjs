@@ -2792,6 +2792,7 @@ test("object binding reads the actual ordered members and keeps optional absence
   }
   const check = (element, key, field, admit = () => true) => checkedSourceBindingFieldOf(body, element, key, field, {
     bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, itemOf: program.inputs.inference.itemOf,
+    bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => fixture.types.readType(program.interner, type), admit,
   });
   const right = decl.name.elements.nodes[1];
@@ -2810,7 +2811,7 @@ test("an absence write uses its actual checked ordinary reference field", () => 
   const input = program.inputs.inference;
   const readType = type => fixture.types.readType(program.interner, type);
   const prove = (access, typeOf = readType, admit = () => true, nodeOf = program.domain.nodeOf) =>
-    fixture.hir.checkedSourceObjectFieldsOf(body, { bodyOf: input.hirBody, nodeOf, itemOf: input.itemOf, typeOf, admit }).field(access);
+    fixture.hir.checkedSourceObjectFieldsOf(body, { bodyOf: input.hirBody, nodeOf, itemOf: input.itemOf, bindingOf: input.bindingOf, typeOf, admit }).field(access);
   const proof = prove(target);
   assert.ok(proof);
   const occurrence = node => ({ kind: "body", value: { body: body.body, node: node.id } });
@@ -2856,7 +2857,7 @@ test("nested field selection borrows its actual checked predecessor and never cr
   const requests = [];
   const paid = [];
   let beforeLeaf = -1;
-  const readers = { bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, typeOf };
+  const readers = { bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf, typeOf };
   const fields = fixture.hir.checkedSourceObjectFieldsOf(body, {
     ...readers, itemOf: definition => {
       if (definition === expectedField) beforeLeaf = paid.length - 1;
@@ -2976,6 +2977,7 @@ test("actual selected member constraints retain their checked origins and distin
   const { checkedSourceObjectFieldsOf } = await import("../../packages/host/dist/ir-hir/index.js");
   const storage = checkedSourceObjectFieldsOf(source, {
     bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, itemOf: program.inputs.inference.itemOf,
+    bindingOf: program.inputs.inference.bindingOf,
     typeOf: () => assert.fail("a scalar field has no object domain to open"), admit: () => true,
   }).field(access);
   assert.equal(storage?.receiver, member.receiver);

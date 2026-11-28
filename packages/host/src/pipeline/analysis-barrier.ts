@@ -375,6 +375,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
             if (localRead !== null) return localRead;
             const formal = checkedSourceObjectHoldingOf(body, local, {
               bodyOf: id => sources.bodies.get(id) ?? null,
+              bindingOf: source.bindingOf,
               nodeOf: reference => {
                 const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
                 return chargeWork(account, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
@@ -396,7 +397,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
               return chargeWork(meter, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
             };
             const fields = checkedSourceObjectFieldsOf(body, {
-              bodyOf: id => sources.bodies.get(id) ?? null, nodeOf,
+              bodyOf: id => sources.bodies.get(id) ?? null, nodeOf, bindingOf: source.bindingOf,
               itemOf: definition => {
                 if (chargeWork(meter, 12 + definition.length) !== null) return null;
                 const reference = sources.declarationSourceOf(definition);

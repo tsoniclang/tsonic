@@ -4056,7 +4056,7 @@ export type CheckedMemberStorageOf = (access: PropertyAccessExpression<CheckedPh
   { readonly read: TyId | null; readonly write: TyId } | null;
 export type CheckedVariableStorageOf = (declaration: VariableDeclaration<CheckedPhase>) => TyId | null;
 
-export interface CheckedSourceStorageRead {
+export interface CheckedSourceStorageRead extends HirBindingViews {
   readonly bodyOf: (body: BodyId) => HirBody | null;
   readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
   readonly itemOf: (definition: DefId) => HirNode | null;

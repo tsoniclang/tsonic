@@ -3,6 +3,7 @@ import type { CheckedBindingKeyOf, CheckedMemberStorageOf, CheckedPhase, Checked
 import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
 import type { Member, MemberKey, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
 import { compareAdmittedMemberKeys, compareMemberKeys, findMemberByKey } from "../ir-types/index.js";
+import { resolveModuleBindingOn } from "./bindings.js";
 import { unparenthesizedExpression } from "./walk.js";
 
 function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
@@ -13,10 +14,23 @@ function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
 type SourceObjectDeclaration = Extract<HirNode, { readonly kind: "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "Parameter" | "VariableDeclaration" }>;
 type ObjectAlias = TypeAliasDeclaration<CheckedPhase, "TypeAliasDeclaration"> & { readonly type: TypeLiteral };
 
-function objectAliasOwners(annotation: Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" }>): readonly DefId[] | null {
+function objectAliasOwner(annotation: Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" }>,
+  read: CheckedSourceStorageRead): DefId | null | undefined {
   if (annotation.typeArguments !== null) return null;
-  const owners = annotation.tsonic.referencedDefinitions;
-  return owners.length === 1 ? owners : null;
+  const name = annotation.typeName;
+  if (name.parent !== annotation.id || name.tsonic.role !== "type-name") return null;
+  const resolution = name.tsonic.resolution;
+  const recorded = annotation.tsonic.referencedDefinitions;
+  if (resolution.kind === "declarations")
+    return resolution.definitions.length === 1 && recorded.length === 1 && recorded[0] === resolution.definitions[0]
+      ? resolution.definitions[0] : null;
+  if (resolution.kind !== "binding" || recorded.length !== 0) return null;
+  const occurrence = resolution.occurrence;
+  const reached = resolveModuleBindingOn(read, occurrence, (work, records) => read.admit(work, records) ? null : occurrence);
+  if (!("target" in reached)) return undefined;
+  const target = reached.target;
+  return target.kind === "available" && target.value.kind === "declarations" && target.value.definitions.length === 1
+    ? target.value.definitions[0] : null;
 }
 
 function hasObjectLiteral(alias: TypeAliasDeclaration<CheckedPhase>): alias is ObjectAlias {
@@ -37,8 +51,8 @@ function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceS
     if (hasObjectLiteral(alias)) return alias;
     if (target.kind !== "TypeReference") return null;
     if (!admit(1, 0)) return undefined;
-    const next = objectAliasOwners(target)?.[0];
-    if (next === undefined) return null;
+    const next = objectAliasOwner(target, read);
+    if (next == null) return next;
     if (!admit(1 + selected.length, followed === null ? 2 : 1)) return undefined;
     (followed ??= new Set()).add(selected);
     if (!admit(6 + next.length, 0)) return undefined;
@@ -52,8 +66,8 @@ function ordinaryObjectDeclaration(declaration: SourceObjectDeclaration, annotat
   if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
   if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? declaration : null;
   if (annotation.kind !== "TypeReference") return null;
-  const definition = objectAliasOwners(annotation)?.[0];
-  if (definition === undefined) return null;
+  const definition = objectAliasOwner(annotation, read);
+  if (definition == null) return null;
   return ordinaryObjectAlias(definition, type, read) ?? null;
 }
 
@@ -221,11 +235,9 @@ interface FieldValue {
 function fieldContainer(annotation: TypeNode<CheckedPhase>, type: TyId, read: CheckedSourceObjectRead): FieldValue["container"] | null | undefined {
   if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? annotation : null;
   if (annotation.kind !== "TypeReference") return null;
-  const owners = objectAliasOwners(annotation);
-  if (owners === null) return null;
   if (!read.admit(1, 0)) return undefined;
-  const definition = owners[0];
-  if (definition === undefined) return null;
+  const definition = objectAliasOwner(annotation, read);
+  if (definition == null) return definition;
   if (!read.admit(6 + definition.length, 0)) return undefined;
   return ordinaryObjectAlias(definition, type, read);
 }

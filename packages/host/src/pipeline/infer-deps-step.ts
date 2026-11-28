@@ -32,7 +32,7 @@ export function inferDepsOf(run: InferenceRun): InferDeps<MemberRuleContinuation
     if (previous !== undefined) return previous.field;
     if (admitTypePublicationStep(run.typeWork, 0, readers === null ? 5 : 4) !== null) return null;
     const selected = checkedSourceObjectFieldsOf(run.hirBody(body), {
-      bodyOf: run.hirBody, nodeOf: run.checkedNodeOf, itemOf: run.itemOf,
+      bodyOf: run.hirBody, nodeOf: run.checkedNodeOf, itemOf: run.itemOf, bindingOf: run.bindingOf,
       typeOf: type => readType(run.rules.types, type), admit: (work, records) => admitTypePublicationStep(run.typeWork, work, records) === null,
     });
     (readers ??= new Map()).set(body, selected);

@@ -78,7 +78,8 @@ test("a mutable reference holds only its actual closed source declarations and s
     assert.equal(reassignment.expression.right.tsonic.resolution.local.local, sources[1]);
     assert.equal(box.tsonic.definition === twin.tsonic.definition, false);
     const scalar = () => assert.fail("A scalar field annotation has no object value to open.");
-    const storage = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, itemOf, typeOf: scalar, admit: () => true };
+    const storage = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, itemOf,
+      bindingOf: captured.value.bindingOf, typeOf: scalar, admit: () => true };
     if (sourceType === "Twin") {
       assert.equal(product.checkedSourceObjectFieldsOf(body, storage).field(read), null);
       continue;
@@ -140,7 +141,7 @@ test("a named field receiver preserves its own alias and the field that supplied
     const childType = child.tsonic.type.value;
     const childIdentity = child.tsonic.definition;
     const itemOf = definition => checked.nodeOf(checked.declarationSourceOf(definition));
-    const reader = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf,
+    const reader = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, bindingOf: captured.value.bindingOf,
       itemOf, typeOf: type => readType(types, type), admit: () => true };
     const proof = product.checkedSourceObjectFieldsOf(body, reader).field(access);
     assert.ok(proof);
@@ -221,6 +222,7 @@ test("named by-value views revisit siblings but do not unroll a recursive ancest
     const view = product.checkedReferenceArgumentViewOf({ body, argument: { body: body.body, node: argument.id },
       caller, endpoint, ordinal: 0, formal }, {
       bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, typeOf: type => readType(types, type),
+      bindingOf: captured.value.bindingOf,
       itemOf: key => { reached.push(key); return checked.nodeOf(checked.declarationSourceOf(key)); }, admit: () => true,
     });
     const callerFlag = member(callerAlias, 0);
@@ -269,6 +271,7 @@ test("checked by-value reference views pair actual field declarations and native
     const reads = [];
     const reader = (admit, collect) => ({
       bodyOf: id => checked.bodies.get(id) ?? null,
+      bindingOf: captured.value.bindingOf,
       nodeOf: reference => { collect("node", reference.value.node); return checked.nodeOf(reference); },
       itemOf: definition => { collect("item", definition); const actual = checked.declarationSourceOf(definition); return actual === null ? null : checked.nodeOf(actual); },
       typeOf: type => { collect("type", type); return readType(types, type); },
@@ -341,6 +344,11 @@ test("checked object alias chains preserve the actual terminal declaration and p
 test("a binding field retains its actual required or guarded enclosing object place", async () => {
   const { checkHeldFieldBinding } = await import("./fixtures/held-field-binding.mjs");
   await checkHeldFieldBinding();
+});
+
+test("an imported object holding borrows each actual qualified binding hop before field selection", async () => {
+  const { checkImportedObjectHolding } = await import("./fixtures/imported-object-holding.mjs");
+  await checkImportedObjectHolding();
 });
 
 test("a placed field write authenticates the receiver's actual outer storage", async () => {

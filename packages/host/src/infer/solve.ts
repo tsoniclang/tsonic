@@ -525,7 +525,8 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
         ? deps.sourceFields(item.set.body)?.(node) ?? null
         : node?.kind === "BindingElement" && original?.kind === "declared" && constraint.access === "read"
           ? checkedSourceBindingFieldOf(deps.hirBody(item.set.body), node, constraint.key, original.declaration, {
-            bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, typeOf: type => readType(deps.types, type), admit,
+            bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf,
+            typeOf: type => readType(deps.types, type), admit,
           })
           : null;
       const stop = admitTypePublicationStep(deps.typeWork, 0);
@@ -621,7 +622,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       scope: item.reached.scope, typeWork: deps.typeWork, unit, referenceArgument: request => {
         if (admitTypePublicationStep(deps.typeWork) !== null) return null;
         return checkedReferenceArgumentViewOf({ ...request, body: deps.hirBody(item.set.body) }, {
-          bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, typeOf: type => readType(deps.types, type),
+          bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf, typeOf: type => readType(deps.types, type),
           admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
         });
       } });

@@ -47,7 +47,7 @@ export async function checkObjectAliasHolding() {
   const element = body.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[0];
   const prove = (account, observe = () => {}, crossed = false) => {
     const proof = checkedSourceBindingFieldOf(body, element, element.propertyName.tsonic.key.value, targetField, {
-      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf,
+      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, bindingOf: captured.value.bindingOf,
       itemOf: definition => {
         observe(definition, InvocationAccount.stateOf(account).work);
         const source = checked.declarationSourceOf(crossed && definition === target.tsonic.definition ? decoy.tsonic.definition : definition);

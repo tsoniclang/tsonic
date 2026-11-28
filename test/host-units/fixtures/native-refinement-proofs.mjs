@@ -1060,7 +1060,7 @@ export async function checkCapturedFieldRefinement() {
       const owned = domain.bodies.get(call.callee.instance.body);
       const access = owned.root.expression.left.left;
       const reads = { nodeOf: domain.nodeOf, itemOf: definition => domain.nodeOf(domain.declarationSourceOf(definition)),
-        typeOf: type => readType(captured.value.types, type) };
+        typeOf: type => readType(captured.value.types, type), bindingOf: captured.value.bindingOf };
       let work = 0;
       let lookup = null;
       const holding = checkedSourceObjectFieldsOf(owned, { ...reads, admit: units => { work += units; return true; }, bodyOf: id => {

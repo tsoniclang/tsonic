@@ -1,6 +1,7 @@
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { CreateModuleBindingViews, HirModuleBinding, IsModuleBindingKind, IsTypeOnlyExportStar, ResolveModuleBinding, ResolveModuleExport } from "./contract.js";
+import type { HirBindingResolution, HirBindingViews } from "./binding-data.js";
 
 export const isModuleBindingKind: IsModuleBindingKind = (kind, hasName) => {
   switch (kind) {
@@ -48,16 +49,28 @@ export const createModuleBindingViews: CreateModuleBindingViews = tables => {
   } };
 };
 
-export const resolveModuleBinding: ResolveModuleBinding = (views, occurrence) => {
+export function resolveModuleBindingOn<Stop extends object>(views: HirBindingViews, occurrence: SourceNodeRef,
+  admit: (work: number, records: number) => Stop | null): HirBindingResolution | Stop {
+  const setup = admit(1, 3);
+  if (setup !== null) return setup;
   const items = new Map<DefId, Set<NodeId>>();
   const bodies = new Map<BodyId, Set<NodeId>>();
   const aliases: SourceNodeRef[] = [];
   let current = occurrence;
   for (;;) {
+    const owner = current.kind === "item" ? current.value.owner : current.value.body;
+    const read = admit(6 + owner.length, 0);
+    if (read !== null) return read;
     const node = current.value.node;
     validOccurrence(current);
     const known = current.kind === "item" ? items.get(current.value.owner) : bodies.get(current.value.body);
-    if (known?.has(node)) return { target: { kind: "unavailable", reason: "incomplete-association", causes: [] }, aliases, cycle: current };
+    if (known?.has(node)) {
+      const finish = admit(1, 3);
+      if (finish !== null) return finish;
+      return { target: { kind: "unavailable", reason: "incomplete-association", causes: [] }, aliases, cycle: current };
+    }
+    const retain = admit(1, known === undefined ? 4 : 2);
+    if (retain !== null) return retain;
     const entry = views.bindingOf(current);
     if (entry === null) return fail("A binding hop must name an actual ready nearest-target row.");
     if (entry.occurrence.kind !== current.kind || entry.occurrence.value.node !== node ||
@@ -70,11 +83,23 @@ export const resolveModuleBinding: ResolveModuleBinding = (views, occurrence) =>
       else bodies.set(current.value.body, nodes);
     } else known.add(node);
     aliases.push(entry.occurrence);
-    if (entry.target.kind === "unavailable") return { target: entry.target, aliases, cycle: null };
-    if (entry.target.value.kind !== "binding") return { target: { kind: "available", value: entry.target.value }, aliases, cycle: null };
-    current = entry.target.value.occurrence;
+    const target = entry.target;
+    if (target.kind === "unavailable") {
+      const finish = admit(1, 1);
+      if (finish !== null) return finish;
+      return { target, aliases, cycle: null };
+    }
+    if (target.value.kind !== "binding") {
+      const finish = admit(1, 2);
+      if (finish !== null) return finish;
+      return { target: { kind: "available", value: target.value }, aliases, cycle: null };
+    }
+    current = target.value.occurrence;
   }
-};
+}
+
+const resolvedView = (): null => null;
+export const resolveModuleBinding: ResolveModuleBinding = (views, occurrence) => resolveModuleBindingOn<never>(views, occurrence, resolvedView);
 
 export const resolveModuleExport: ResolveModuleExport = (views, entry) => {
   if (entry.target.kind === "declarations") return { target: { kind: "available", value: entry.target }, aliases: [], cycle: null };
