@@ -765,21 +765,25 @@ test("authored MIR: static and absence reads preserve their record budget and na
 });
 
 /** The findings of the complete MIR verifier for a lowered graph. A refusal for resources is not a list of findings and fails the case. */
-const verified = (mir, program) => {
-  const outcome = verifyMir(mir, verificationContext(program));
+const verified = (mir, program, context = verificationContext(program)) => {
+  const outcome = verifyMir(mir, context);
   assert.equal(outcome.kind, "complete");
   return outcome.violations;
+};
+const withAbsenceFailure = (program, failure) => {
+  const context = verificationContext(program);
+  return { ...context, selectedNativeFacts: { ...context.selectedNativeFacts, absentAccessFailure: failure } };
 };
 /**
  * Lowers one typed body and requires an accepted result with no diagnostic (section 7 part 7: the box originates one
  * diagnostic, the size limit). Section 7 part 2 has the verifier run at the handoff from lowering: every graph this
  * bank accepts is also a graph the complete MIR verifier accepts (R1 E-5).
  */
-const lower = (program, internal = [], limits = null) => {
+const lower = (program, internal = [], limits = null, context = verificationContext(program)) => {
   const result = lowerToMir(limits === null ? deps : { ...deps, limits }, program.tir, internal);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(verified(result.value, program).map(violation => `${violation.rule} at ${JSON.stringify(violation.site)}`), []);
+  assert.deepEqual(verified(result.value, program, context).map(violation => `${violation.rule} at ${JSON.stringify(violation.site)}`), []);
   return result.value;
 };
 /** The predicate of a defect raised by lower-mir through Diag: an Error whose cause names the owner (R1 section 4). */
@@ -1068,8 +1072,8 @@ const savedStaticField = (mir, program, block, label = "field") => {
   assert.deepEqual(saved[0].value, { kind: "use", operand: { kind: "place", place: staticProjection(mir, program, label) } });
   return saved[0];
 };
-const lowerAtBounds = (program, records) => {
-  const mir = lower(program);
+const lowerAtBounds = (program, records, context = verificationContext(program)) => {
+  const mir = lower(program, [], null, context);
   assert.equal(mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
     + mir.blocks.reduce((total, block) => total + block.statements.length, 0), records);
   for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1) {
@@ -1195,7 +1199,7 @@ test("selected static field: no-write failure preserves the earlier read, not th
       b => b.block(b.returns(compareBool(b, selectedStaticField(b), b.sequence(
         narrowingNode(b, name, b.nonNull(b.id("optional", 0, optionalBool), T.bool, null), optionalBool, T.bool, failure),
         b.id("expected", 1, T.bool), T.bool)))));
-    const mir = lowerAtBounds(program, 17);
+    const mir = lowerAtBounds(program, 17, withAbsenceFailure(program, failure));
     const [entry, continuation] = mir.blocks;
     const saved = savedStaticField(mir, program, entry);
     assert.deepEqual([entry.terminator.kind, entry.terminator.tir.node, entry.terminator.unwind.kind, entry.terminator.next],
@@ -1261,7 +1265,7 @@ test("selected static field: a check consumes its own option once, with a save o
       expression.tsonic.narrowing = { kind: "narrowed", source: optionalBool, result: T.bool, failure: "abort", proof };
       return b.block(b.returns(form === "return" ? expression : b.sequence(expression, b.id("expected", 0, T.bool), T.bool)));
     });
-    const mir = lowerAtBounds(program, records);
+    const mir = lowerAtBounds(program, records, withAbsenceFailure(program, "abort"));
     const [entry, continuation] = mir.blocks;
     const fieldPlace = staticProjection(mir, program);
     const check = entry.terminator;
@@ -4167,8 +4171,11 @@ test("selected narrowed values check their actual place once with the supplied f
         : b.nonNull(form === "constant" ? b.num("1", T.optInt32) : b.id("x", 0, T.optInt32), T.int32, null);
       return b.block(b.returns(narrowingNode(b, name, node, T.optInt32, T.int32, failure)));
     });
-    const mir = lower(program);
+    const mir = lower(program, [], null, withAbsenceFailure(program, failure));
     const checked = mir.places.at(-1);
+    const crossed = withAbsenceFailure(program, failure === "abort" ? "unwind" : "abort");
+    assert.ok(verified(mir, program, crossed).some(violation => violation.rule === "projection-type"
+      && violation.site.kind === "place" && violation.site.place === checked.id), name);
     assert.deepEqual([checked.storage, checked.base.kind, checked.base.projection, checked.base.tir],
       [T.int32, "checked", { kind: "refined" }, program.nodeRef("narrowed")]);
     assert.deepEqual([mir.blocks[0].terminator.kind, mir.blocks[0].terminator.place, mir.blocks[0].terminator.unwind],
@@ -4193,7 +4200,7 @@ test("a selected narrowing precedes its conversion and an exposed refined read i
   const converted = shaped(convertedName, [["x", "required", T.optInt32]], T.literalInt64, b => b.block(b.returns(
     convertingNode(b, convertedName, narrowingNode(b, convertedName, b.id("x", 0, T.int32), T.optInt32, T.int32, "abort"),
       T.int32, T.literalInt64, EXECUTIONS.unwinds, "native"))));
-  const convertedMir = lower(converted);
+  const convertedMir = lower(converted, [], null, withAbsenceFailure(converted, "abort"));
   assert.deepEqual(convertedMir.blocks.map(block => block.terminator.kind), ["check", "invoke", "return"]);
   assert.deepEqual(convertedMir.blocks[1].terminator.operands, [{ kind: "place", place: 1 }]);
   assert.equal(convertedMir.locals.at(-1).storage, T.literalInt64);
