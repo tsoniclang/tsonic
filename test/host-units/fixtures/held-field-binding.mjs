@@ -54,9 +54,9 @@ export async function checkHeldFieldBinding() {
         admit: (work, entries) => (chargeWork(account, work) ?? chargeResultEntries(account, entries)) === null,
       });
       return accountFailure(account) ?? { kind: "complete", value: proof === null ? null
-        : [proof.occurrence.node, proof.field, proof.parent?.occurrence.node, proof.parent?.field] };
+        : [proof.occurrence.node, proof.field, proof.declaration, proof.parent?.occurrence.node, proof.parent?.field] };
     };
-    checkReachedProofCuts(InvocationAccount.stateOf, prove, [element.id, actualField, receiver.id, sourceField],
+    checkReachedProofCuts(InvocationAccount.stateOf, prove, [element.id, actualField, sourceField, receiver.id, sourceField],
       guardedCase ? "guarded held field binding" : "required held field binding");
     for (const crossed of [oppositeField, fieldOf(child, 1)]) {
       assert.deepEqual(prove(createAccount(input.limits.dataflow), crossed), { kind: "complete", value: null });

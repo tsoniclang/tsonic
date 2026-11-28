@@ -55,11 +55,12 @@ test("a mutable reference holds only its actual closed source declarations and s
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  for (const sourceType of ["Box", "Twin"]) {
+  for (const [sourceType, byValueCall] of [["Box", false], ["Twin", false], ["Box", true]]) {
     const source = `type Box = { flag:boolean }; type Twin = { flag:boolean };
       export function read(first:Box, second:${sourceType}, value:boolean):boolean {
-        let alias = first; alias = second; alias.flag = value; return alias.flag;
-      }`;
+        let alias = first; alias = second; ${byValueCall ? "observe(alias);" : ""} alias.flag = value; return alias.flag;
+      }
+      ${byValueCall ? "function observe(box: Box): boolean { return box.flag; }" : ""}`;
     const input = analysisInput(fixture, "sdk-minimal", source);
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
@@ -67,7 +68,10 @@ test("a mutable reference holds only its actual closed source declarations and s
     const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
     const [box, twin, callable] = module.tree.statements.nodes;
     const body = checked.bodies.get(callable.tsonic.body);
-    const [ , reassignment, write, returned ] = body.root.statements.nodes;
+    const statements = body.root.statements.nodes;
+    const reassignment = statements[1];
+    const write = statements.at(-2);
+    const returned = statements.at(-1);
     const place = write.expression.left;
     const read = returned.expression;
     const local = read.expression.tsonic.resolution.local;
@@ -76,6 +80,11 @@ test("a mutable reference holds only its actual closed source declarations and s
     const bound = checked.nodeOf(slot.declaration).tsonic.inferredTypeBound;
     const sources = body.params.slice(0, 2).map(formal => formal.local);
     assert.equal(reassignment.expression.right.tsonic.resolution.local.local, sources[1]);
+    if (byValueCall) {
+      const call = statements[2].expression;
+      assert.equal(call.kind, "CallExpression");
+      assert.equal(call.arguments.nodes[0].tsonic.resolution.local.local, local.local);
+    }
     assert.equal(box.tsonic.definition === twin.tsonic.definition, false);
     const scalar = () => assert.fail("A scalar field annotation has no object value to open.");
     const storage = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, itemOf,

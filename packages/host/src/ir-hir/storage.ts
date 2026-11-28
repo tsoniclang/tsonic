@@ -406,12 +406,27 @@ interface CheckedField {
   readonly value: FieldValue | null;
 }
 
+type ObjectOperandSelection<Proof> = (holding: SourceObjectHolding, memberOwner: DefId,
+  container: TypeLiteral, parent: SourceObjectField | null) => Proof | null;
+
+function fieldHolding(source: CheckedField, value: FieldValue, admit: CheckedSourceObjectRead["admit"]): SourceObjectHolding | null {
+  const payload = source.access.tsonic;
+  if (payload.role !== "value" || payload.value.views.read.kind !== "available"
+    || payload.value.views.read.value !== value.type || !admit(0, 1)) return null;
+  return { local: source.proof.local, declaration: source.proof.field, receiver: value.type };
+}
+
+function fieldMemberOwner(value: FieldValue, holding: SourceObjectHolding): DefId {
+  return value.alias?.tsonic.definition ?? holding.declaration;
+}
+
 function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
   const { nodeOf, itemOf, admit } = read;
   let fields: Map<NodeId, CheckedField> | null = null;
-  const select = (reached: ReachedField, holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): CheckedField | null => {
+  const select = (reached: ReachedField, holding: SourceObjectHolding, memberOwner: DefId,
+    container: TypeLiteral, parent: SourceObjectField | null): CheckedField | null => {
     if (!admit(1, 0)) return null;
-    const property = qualifiedSourceField(holding.declaration, container, reached.declaration, itemOf);
+    const property = qualifiedSourceField(memberOwner, container, reached.declaration, itemOf);
     if (property === null) return null;
     const value = fieldValue(property, read);
     if (value === undefined) return null;
@@ -436,13 +451,10 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
       while (ready !== null && pending !== null && pending.length !== 0) {
         if (!admit(1, 0)) return null;
         const next = pending.pop();
-        if (next === undefined || ready.value === null) return null;
-        const payload = current.tsonic;
-        if (payload.role !== "value" || payload.value.views.read.kind !== "available" || payload.value.views.read.value !== ready.value.type) return null;
-        const { local, field } = ready.proof;
-        if (!admit(0, 1)) return null;
-        ready = select(next, { local, declaration: ready.value.alias?.tsonic.definition ?? field, receiver: ready.value.type }, ready.value.container, ready.proof);
-        current = next.access;
+        const value = ready.value;
+        if (next === undefined || value === null) return null;
+        const holding = fieldHolding(ready, value, admit);
+        ready = holding === null ? null : select(next, holding, fieldMemberOwner(value, holding), value.container, ready.proof);
       }
       return ready;
     };
@@ -469,7 +481,7 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
         || !admit(0, 1)) return null;
       return sourceObjectHolding((holding, container, presence) => {
         const actual = presentHolding(receiver, holding, presence, read);
-        return actual === null ? null : finish(select({ access: current, declaration }, actual, container, null));
+        return actual === null ? null : finish(select({ access: current, declaration }, actual, actual.declaration, container, null));
       },
         body, receiver.tsonic.resolution.local, read, before);
     }
@@ -536,20 +548,19 @@ function presentHolding(operand: HirNode, holding: SourceObjectHolding, presence
 }
 
 function heldObjectOperand<Proof extends object>(body: HirBody, operand: HirNode, read: CheckedSourceObjectRead,
-  select: (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null) => Proof | null): Proof | null {
+  select: ObjectOperandSelection<Proof>): Proof | null {
   if (operand.kind === "Identifier" && operand.tsonic.role === "value" && operand.tsonic.resolution.kind === "local")
     return settleHolding(sourceObjectHolding((holding, container, presence) => {
       const actual = presentHolding(operand, holding, presence, read);
-      return actual === null ? null : select(actual, container, null);
+      return actual === null ? null : select(actual, actual.declaration, container, null);
     },
       body, operand.tsonic.resolution.local, read), read);
   if (operand.kind !== "PropertyAccessExpression" || operand.tsonic.role !== "value" || !read.admit(1, 3)) return null;
   const source = settleHolding(sourceObjectFields(body, read).field(operand, null, null), read);
   if (source === null || source.value === null) return null;
-  const view = operand.tsonic.value.views.read;
-  if (view.kind !== "available" || view.value !== source.value.type || !read.admit(0, 1)) return null;
-  const { local, field } = source.proof;
-  return select({ local, declaration: source.value.alias?.tsonic.definition ?? field, receiver: source.value.type }, source.value.container, source.proof);
+  const { value, proof } = source;
+  const holding = fieldHolding(source, value, read.admit);
+  return holding === null ? null : select(holding, fieldMemberOwner(value, holding), value.container, proof);
 }
 
 function qualifiedSourceField(owner: DefId, container: FieldValue["container"], definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
@@ -653,9 +664,9 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
     || argument.kind === "Identifier" && argument.tsonic.resolution.kind !== "local"
     || argument.tsonic.value.views.read.kind !== "available" || argument.tsonic.value.views.read.value !== site.caller
     || !read.admit(1, 0)) return null;
-  const caller = heldObjectOperand(site.body, argument, read, (holding, container) => {
+  const caller = heldObjectOperand(site.body, argument, read, (holding, memberOwner, container) => {
     if (holding.receiver !== site.caller) return null;
-    return referenceSurface(holding.declaration, container, site.caller, read);
+    return referenceSurface(memberOwner, container, site.caller, read);
   });
   if (caller === null || !read.admit(1, 0)) return null;
   const callable = read.itemOf(site.endpoint.declaration);
@@ -776,9 +787,9 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   if (owner?.kind !== "VariableDeclaration" || owner.name !== pattern || owner.initializer === null) return null;
   const receiver = admittedOperand(owner.initializer, admit);
   if (receiver === null) return null;
-  const select = (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null): SourceObjectField | null => {
+  const select: ObjectOperandSelection<SourceObjectField> = (holding, memberOwner, container, parent) => {
     if (!admit(1, 0)) return null;
-    const field = qualifiedSourceField(holding.declaration, container, definition, itemOf);
+    const field = qualifiedSourceField(memberOwner, container, definition, itemOf);
     if (field === null) return null;
     if (key.kind === "text") {
       if (!matchesStaticTextPropertyName(field.name, key.value, admit)) return null;
