@@ -768,6 +768,10 @@ export interface TypeNodeLinks {
     declarationFailure?: Diagnostic;
     grammarFailure?: Diagnostic;
     resolutionFailure?: Diagnostic;
+    indexWriteFailure?: {
+        readonly index: IndexInfo;
+        readonly diagnostic: Diagnostic;
+    };
     resolvedTypeSource?: Node | TypeAliasLinks | readonly [Node, Node] | IndexedTypeReadSource;
 }
 export type IndexedTypeReadSource = {

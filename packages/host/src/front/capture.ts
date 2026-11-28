@@ -3535,10 +3535,12 @@ function capturedIndexUse(scope: CaptureScope, occurrence: RawNodeRef, info: Res
   const read = info.sourceReadType === undefined ? null
     : rawType(scope, () => viewRead?.answer ?? withoutTypeCause(info.sourceReadType), readComponent, null);
   if (scope.meter.refusal !== null) return null;
-  const writeComponent = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
+  const writeType = info.sourceWriteType;
+  const writeComponent = writeType === undefined ? null : component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
-  const write = info.sourceWriteType === undefined ? null
-    : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, null);
+  const write = writeType === undefined ? null
+    : rawType(scope, () => info.writeFailure === undefined ? withoutTypeCause(writeType)
+      : { type: writeType, causes: [info.writeFailure] }, writeComponent, null);
   if (scope.meter.refusal !== null || !admit(scope, "facts") || !admit(scope, "edges")) return null;
 
   return { kind: "property", occurrence, receiver, receiverComponent, receiverType, key, access: info.accessMode,

@@ -3056,11 +3056,12 @@ interface ResolvedSourceElementAccessInfoBase {
     readonly selectedDeclaration?: Node;
     readonly selectedElementIndex?: number;
     readonly writable: boolean;
+    readonly writeFailure?: Diagnostic;
     readonly optionalChain: boolean;
     readonly callCallee: boolean;
 }
 export type ResolvedSourceElementAccessInfo = ResolvedSourceElementAccessInfoBase & ResolvedSourceAccessTypes;
-export declare function Checker_getResolvedSourceElementAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>): ResolvedSourceElementAccessInfo | undefined;
+export declare function Checker_getResolvedSourceElementAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>, admitsDiagnostic: ((diagnostic: Diagnostic) => boolean) | undefined): ResolvedSourceElementAccessInfo | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isForInVariableForNumericPropertyNames","kind":"method","status":"implemented","sigHash":"82601ddae714cee228e98f32cf1c7a1dcce43471aea4e3478c9359c3c4816f2b","bodyHash":"070ed4e5c450a954fbbde2e6c60a694dd5c1766d496995219eed7571ac56ec18"}
  *

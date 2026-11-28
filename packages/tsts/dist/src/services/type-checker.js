@@ -107,7 +107,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const known = elementAccessInfos.get(node);
             if (known !== undefined)
                 return known;
-            const selected = Checker_getResolvedSourceElementAccessInfo(checker, node);
+            const selected = Checker_getResolvedSourceElementAccessInfo(checker, node, defaultOptions.admitsCheckerDiagnostic);
             if (selected === undefined || isSyntheticDefaultMember(checker, selected.sourceSymbol))
                 return undefined;
             const resolved = withResolvedSourceReceiverValueEvidence(checker, selected);
@@ -569,7 +569,7 @@ function getResolvedSourceStorageInfo(checker, expression) {
         });
     }
     if (IsElementAccessExpression(storageExpression)) {
-        const selected = Checker_getResolvedSourceElementAccessInfo(checker, storageExpression);
+        const selected = Checker_getResolvedSourceElementAccessInfo(checker, storageExpression, undefined);
         const type = sourceTypeAnswer(checker, storageExpression, selectedAccessType(selected));
         if (selected === undefined || type === undefined) {
             return undefined;

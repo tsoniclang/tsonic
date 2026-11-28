@@ -5412,7 +5412,7 @@ function checkElementAccessChainWithEvidence(receiver, node, checkMode, selected
 export function Checker_checkElementAccessExpression(receiver, node, exprType, checkMode) {
     return checkElementAccessExpressionWithEvidence(receiver, node, exprType, checkMode);
 }
-export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
+export function Checker_getResolvedSourceElementAccessInfo(receiver, node, admitsDiagnostic) {
     if (receiver === undefined || node === undefined || node.Kind !== KindElementAccessExpression) {
         return undefined;
     }
@@ -5442,6 +5442,14 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
     const accessMode = checkedAccessMode(node);
     const receiverSymbol = Checker_getResolvedSymbolOrNil(receiver, receiverExpression);
     const writable = selectedElementAccessIsWritable(receiver, node, selected);
+    let writeFailure;
+    if (!writable && (accessMode === "write" || accessMode === "read-write") && selected.indexSelections.length === 1) {
+        admitNativeChecker(receiver, "work");
+        const failed = LinkStore_TryGet(receiver.typeNodeLinks, node)?.indexWriteFailure;
+        if (failed !== undefined && failed.index === selected.indexSelections[0]?.indexInfo
+            && admitsDiagnostic?.(failed.diagnostic) !== false)
+            writeFailure = failed.diagnostic;
+    }
     admitNativeChecker(receiver, "retained", 4);
     return {
         expression: node,
@@ -5463,6 +5471,7 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
         writable,
+        ...(writeFailure === undefined ? {} : { writeFailure }),
         ...resolvedSourceAccessTypes(accessMode, accessMode === "read-write"
             ? selected.readType
             : accessMode === "read" || accessMode === "delete" ? sourceResultType : undefined, accessMode === "write" || accessMode === "read-write"
@@ -17783,7 +17792,17 @@ export function Checker_getSuggestionForNonexistentProperty(receiver, name, cont
  */
 export function Checker_errorIfWritingToReadonlyIndex(receiver, indexInfo, objectType, accessExpression) {
     if (indexInfo !== undefined && indexInfo.isReadonly && accessExpression !== undefined && (IsAssignmentTarget(accessExpression) || isDeleteTarget(accessExpression))) {
-        Checker_error(receiver, accessExpression, Index_signature_in_type_0_only_permits_reading, Checker_TypeToString(receiver, objectType));
+        const original = Checker_addDiagnostic(receiver, NewDiagnosticForNode(accessExpression, Index_signature_in_type_0_only_permits_reading, Checker_TypeToString(receiver, objectType)));
+        if (original !== undefined && accessExpression.Kind === KindElementAccessExpression && IsAssignmentTarget(accessExpression)
+            && receiver.flowLoopStack.length === 0) {
+            admitNativeChecker(receiver, "work");
+            const retained = LinkStore_TryGet(receiver.typeNodeLinks, accessExpression);
+            if (retained?.indexWriteFailure === undefined) {
+                admitNativeChecker(receiver, "retained", retained === undefined ? 2 : 1);
+                const links = retained ?? LinkStore_Get(receiver.typeNodeLinks, accessExpression);
+                links.indexWriteFailure = { index: indexInfo, diagnostic: original };
+            }
+        }
     }
 }
 /**

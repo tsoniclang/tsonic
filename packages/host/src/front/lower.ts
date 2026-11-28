@@ -953,16 +953,20 @@ function indexedUse(lowering: Lowering, node: Hir.ElementAccessExpression<Syntax
     origins = { kind: "available", value: [{ kind: "declared", declaration: lowering.deps.definitionOf(declaration) }] };
     accessor = { kind: "available", value: null };
     if (access !== "read") {
-      if (arm.readonly || selected.write === null)
+      if (selected.write === null)
         return throwInvariant(invariant("A selected indexed write needs its actual writable domain."));
       const written = typeFactOf(lowering, { kind: "available", value: selected.write });
       if (written.kind !== "complete") return written;
-      const read: ConversionResult<Hir.CapturedFact<TyId>> = selected.read === null
-        ? { kind: "complete", value: { kind: "unavailable", reason: "not-provided", causes: [] } }
-        : typeFactOf(lowering, { kind: "available", value: selected.read });
-      if (read.kind !== "complete") return read;
-      place = { kind: "available", value: { base: { kind: "receiver", node: node.expression.id },
-        step: { kind: "index", expression: node.argumentExpression.id }, read: read.value, write: written.value } };
+      if (written.value.kind === "unavailable" && written.value.reason === "checker-error") place = written.value;
+      else {
+        if (arm.readonly) return throwInvariant(invariant("A selected indexed write needs its actual writable domain."));
+        const read: ConversionResult<Hir.CapturedFact<TyId>> = selected.read === null
+          ? { kind: "complete", value: { kind: "unavailable", reason: "not-provided", causes: [] } }
+          : typeFactOf(lowering, { kind: "available", value: selected.read });
+        if (read.kind !== "complete") return read;
+        place = { kind: "available", value: { base: { kind: "receiver", node: node.expression.id },
+          step: { kind: "index", expression: node.argumentExpression.id }, read: read.value, write: written.value } };
+      }
     }
     lowering.memberUses.delete(node.id);
   }

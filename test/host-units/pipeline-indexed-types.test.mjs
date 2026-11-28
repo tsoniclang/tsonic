@@ -783,6 +783,34 @@ test("Raw capture keeps the authored infer binder distinct from the conditional'
   assert.deepEqual(annotation(no.type).form.value, { kind: "scalar", scalar: "never" });
 });
 
+test("the required inference walk reports each denied indexed write at its actual place", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  for (const operation of ["=", "+="]) {
+    const source = `export function update(a: readonly number[], value: number): void { a[0] ${operation} value; }`;
+    const input = analysisInput(fixture, "es5", source);
+    const checked = captureSourceBarrier(input);
+    assert.equal(checked.kind, "ok");
+    const { module } = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+    assert.equal(module.checkerDiagnostics.length, 1);
+    const [original] = module.checkerDiagnostics;
+    const node = fixture.hir.walkSyntaxTree(module.tree, []).find(node => node.kind === "ElementAccessExpression");
+    assert.equal(node.tsonic.role, "assignment-target");
+    assert.equal(node.tsonic.views.read.kind, "available");
+    assert.deepEqual(node.tsonic.place, { kind: "unavailable", reason: "checker-error", causes: [
+      { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: module.module, index: 0 } } },
+    ] });
+    assert.equal(original.code.rendered, "TS2542");
+    assert.equal(original.site.origin.start, node.origin.start);
+    const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+    assert.equal(typed.kind, "refused");
+    assert.equal(typed.diagnostics.length, 1);
+    assert.equal(typed.diagnostics[0] === original, true);
+  }
+});
+
 test("a readonly array annotation needs its actual readonly declaration", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
