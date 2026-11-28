@@ -429,6 +429,76 @@ test("a field binding authenticates its selected field in an actual placed array
   await checkPlacedArrayReturn();
 });
 
+test("inferred reference storage closes only its actual local cell inputs", async () => {
+  const { readSignature } = await import("../../packages/host/dist/ir-types/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Box = { flag: boolean };
+    declare function keep(...values: Box[]): void;
+    function other(value: Box): Box { return value; }
+    export function local(left: Box, right: Box): boolean {
+      let held = (left);
+      (held) = (right);
+      keep(left, (held));
+      return held.flag;
+    }
+    export function spread(left: Box, values: Box[]): boolean {
+      let held = left;
+      keep(...values, held);
+      return held.flag;
+    }
+    export function produced(left: Box, right: Box): boolean {
+      let held = left;
+      held = other(right);
+      return held.flag;
+    }
+    export function captured(left: Box, right: Box, input: { value?: boolean }): boolean {
+      let held = left;
+      const { value = (held = right, held.flag) } = input;
+      return value;
+    }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { modules, types: interner } = captured.value;
+  const checked = modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const bodies = checked.tree.statements.nodes.slice(3);
+  const declarations = bodies.map(body => body.body.statements.nodes[0].declarationList.declarations.nodes[0]);
+  const expected = [[0, 1], null, null, null];
+  assert.deepEqual(declarations.map(node => node.tsonic.inferredTypeBound.value.sources), expected);
+  const candidates = declarations.map(node => ({ local: node.tsonic.declaration.local,
+    type: node.tsonic.inferredTypeBound.value.type, initializer: node.initializer }));
+  assert.equal(checked.bodies.some(body => body.captures.some(local => local.body === candidates[3].local.body
+    && local.local === candidates[3].local.local)), true);
+  const nodes = product.indexSyntaxTree(checked.tree);
+  const cuts = [];
+  const run = (maximum, saveCut = () => {}) => {
+    let work = 0;
+    let stopped = false;
+    function* input() {
+      for (const node of nodes) {
+        assert.equal(stopped, false, "the next authored node is unread after refusal");
+        yield node;
+      }
+    }
+    return product.collectInferredStorageSources(candidates, input(), nodes.length, checked.bodies, id => {
+      assert.equal(stopped, false, "the selected signature is unread after refusal");
+      return readSignature(interner, id);
+    }, units => {
+      assert.equal(stopped, false);
+      if (units > maximum - work) { stopped = true; return false; }
+      work += units;
+      saveCut(work);
+      return true;
+    });
+  };
+  assert.deepEqual(run(100000, cut => cuts.push(cut)), expected);
+  assert.deepEqual(run(cuts.at(-1)), expected);
+  for (const cut of cuts) assert.equal(run(cut - 1), null, `inferred storage work ${cut - 1}`);
+});
+
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
   const fixture = await loadFrontFixture();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
