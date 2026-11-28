@@ -166,14 +166,14 @@ export async function checkDocumentedRefinementWalkthrough() {
       kind: "invalidated", sites: [{ kind: "call", at: { body: body.tir.body, node: clear.expression.id } }],
     } },
   ]);
-  checkWalkthroughLimits(analyzeHostProgram, input, 117648, 20080);
+  checkWalkthroughLimits(analyzeHostProgram, input, 117664, 20080);
 }
 
 export async function checkNativeRefinementWalkthrough() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116501, 20353]]) {
+  for (const [replace, work, records] of [[false, 115394, 20011], [true, 116533, 20353]]) {
     const prepared = await nativeRefinementInput(fixture, replace);
     const result = analyzeHostProgram(prepared);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));

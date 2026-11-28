@@ -4968,6 +4968,11 @@ export interface HirDeclarationScopes {
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
 }
 export type DeriveDeclarationScopes = (module: HirModule, nodes: readonly HirNode[]) => HirDeclarationScopes;
+export interface NativeArrayAnnotation {
+  readonly type: TyId;
+  readonly element: TyId | null;
+  readonly declarations: readonly DefId[];
+}
 export interface HirVerificationContext {
   readonly moduleOf: (module: ModuleId) => HirModule | null;
   readonly types: TypeTable;
@@ -4976,6 +4981,7 @@ export interface HirVerificationContext {
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopeAt: (node: SourceNodeRef) => BindingScope | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nativeArrayAnnotationOf: (module: ModuleId, node: NodeId) => NativeArrayAnnotation | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
   readonly localExists: (local: LocalRef) => boolean;
 }

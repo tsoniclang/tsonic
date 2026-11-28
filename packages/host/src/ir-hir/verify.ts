@@ -1,5 +1,5 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { encodeDefId, encodeKey } from "../ids/index.js";
 import { memberStorageData } from "../ir-types/index.js";
@@ -496,6 +496,27 @@ function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport)
     report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
 }
 
+function verifyNativeArrayAnnotation(node: HirNode, module: ModuleId, context: HirVerificationContext, site: HirSite, report: HirReport): void {
+  const array = node.kind === "ArrayType" ? node
+    : node.kind === "TypeOperator" && node.operator === "ReadonlyKeyword" && node.type.kind === "ArrayType" ? node.type : null;
+  if (array === null || node.kind !== "ArrayType" && node.kind !== "TypeOperator") return;
+  const expected = context.nativeArrayAnnotationOf(module, node.id);
+  const { type, referencedDefinitions } = node.tsonic;
+  const term = type.kind === "available" ? context.types.terms[type.value] : undefined;
+  if (expected === null) {
+    if (term?.kind === "array" || referencedDefinitions.length !== 0)
+      report("type-reference", site, "a native array annotation requires its independently captured application");
+    return;
+  }
+  const element = array.elementType.tsonic.type;
+  if (type.kind !== "available" || type.value !== expected.type || term?.kind !== "array"
+    || (element.kind === "available" ? element.value : null) !== expected.element
+    || node.kind === "TypeOperator" && !term.readonly
+    || expected.declarations.length === 0 || referencedDefinitions.length !== expected.declarations.length
+    || expected.declarations.some((declaration, position) => referencedDefinitions[position] !== declaration))
+    report("type-reference", site, "a native array annotation must retain its actual checked element and declaration evidence");
+}
+
 function sourceAssociationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths,
   arenas: readonly HirCandidateArena[], requests: HirBindingRequest[], report: HirReport): void {
   const memberships = new Map<DefId, Set<DefId>>();
@@ -530,6 +551,7 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
     const node = entry.node;
     const metadata = node.tsonic;
     const site: HirSite = { kind: "node", node: entry.source };
+    verifyNativeArrayAnnotation(node, module.module, context, site, report);
     if (checkedLayoutConstructionOf(node) !== null && (entry.parent === null || entry.item === entry.parent.item))
       report("definition-reference", site, "each actual checked layout constructor has its own declaration item");
     if (node.kind === "Identifier" && node.tsonic.role === "enum-qualifier") {

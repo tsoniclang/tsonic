@@ -628,7 +628,7 @@ test("Raw property conditionals distinguish the original authored branches from 
   }
 });
 
-test("Stage 3 preserves the actual mutable and readonly declared array annotations without selecting runtime storage", async () => {
+test("Stage 3 preserves the actual mutable and readonly array declarations without selecting runtime storage", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
@@ -655,35 +655,90 @@ test("Stage 3 preserves the actual mutable and readonly declared array annotatio
     && publishedStatements(row).some(node => node.kind === "InterfaceDeclaration" && node.name.text === "ReadonlyArray"));
   const expected = ["Array", "ReadonlyArray"].map(name => publishedStatements(library)
     .find(node => node.kind === "InterfaceDeclaration" && node.name.text === name).tsonic.definition);
-  assert.deepEqual(declared.map(term => term.definition), expected);
   assert.notEqual(expected[0], expected[1]);
+  assert.deepEqual([mutable.type, immutable.type, immutable.type.type].map(node => node.tsonic.declarations),
+    [[expected[0]], [expected[1]], [expected[1]]]);
+  assert.deepEqual(declared.map(term => [term.kind, term.readonly]), [["array", false], ["array", true]]);
   for (const term of declared) {
-    assert.equal(term.kind, "declared");
-    assert.equal(term.facet, "instance");
-    assert.equal(term.arguments.length, 1);
-    assert.deepEqual(index.types.terms[term.arguments[0]], { kind: "primitive", primitive: "bool" });
+    assert.deepEqual(index.types.terms[term.element], { kind: "primitive", primitive: "bool" });
   }
   assert.deepEqual(carrier(mutable.type.elementType), { kind: "primitive", primitive: "bool" });
   assert.deepEqual(carrier(immutable.type.type.elementType), { kind: "primitive", primitive: "bool" });
   assert.equal(module.bodies.some(body => body.kind === "selected" && body.tir.owner === ready.tsonic.definition), true);
   for (const alias of [mutable, immutable])
     assert.equal(module.bodies.some(body => body.tir.owner === alias.tsonic.definition), false);
+  const { parseModuleBodies, printModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const text = printModuleBodies(index, module);
+  const decoded = parseModuleBodies(index, text);
+  assert.equal(decoded.kind, "parsed");
+  const [decodedMutable, decodedReadonly] = publishedStatements(decoded.value);
+  assert.deepEqual([decodedMutable.type, decodedReadonly.type, decodedReadonly.type.type].map(node => node.tsonic.declarations),
+    [[expected[0]], [expected[1]], [expected[1]]]);
+  assert.equal(printModuleBodies(index, decoded.value) === text, true);
   const lower = pipelineWiring.front.lowerModule;
-  let crossed = false;
+  for (const field of ["type", "referencedDefinitions", "nativeArrayAnnotationOf"]) {
+    let crossed = false;
+    try {
+      pipelineWiring.front.lowerModule = (...arguments_) => {
+        const checked = lower(...arguments_);
+        if (checked.kind !== "ok" || checked.value.module.module !== snapshot.entryPoint) return checked;
+        const [plain, readonly] = checked.value.module.tree.statements.nodes;
+        crossed = true;
+        if (field === "nativeArrayAnnotationOf")
+          return { ...checked, value: { ...checked.value, nativeArrayAnnotationOf: () => null } };
+        assert.notDeepEqual(readonly.type.tsonic[field], plain.type.tsonic[field]);
+        readonly.type.tsonic[field] = plain.type.tsonic[field];
+        return checked;
+      };
+      assert.throws(() => analyzeHostProgram(input), /actual Front checked module failed its owning HIR verification barrier: type-reference/u);
+      assert.equal(crossed, true);
+    } finally {
+      pipelineWiring.front.lowerModule = lower;
+    }
+  }
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { verifyNativeArrayAnnotation } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const authority = typed.value.verifierOf(snapshot.entryPoint);
+  const moduleBody = authority.module.bodies.find(body => body.root === authority.module.tree.root);
+  assert.ok(moduleBody);
+  const verify = () => verifyTir(authority, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(moduleBody);
+  assert.deepEqual(verify(), { kind: "complete", violations: [] });
+  const [typedMutable, typedReadonly] = publishedStatements(authority.module);
+  for (const target of [typedReadonly.type, typedReadonly.type.type]) {
+    const original = target.tsonic.declarations;
+    target.tsonic.declarations = typedMutable.type.tsonic.declarations;
+    try {
+      const crossed = verify();
+      assert.equal(crossed.kind, "complete");
+      assert.equal(crossed.violations.some(row => row.rule === "cross-owner-qualified"
+        && row.detail.some(part => part.value === "native array annotation must retain its actual checked declaration evidence")), true);
+    } finally {
+      target.tsonic.declarations = original;
+    }
+  }
+  const target = typedReadonly.type;
+  const sourceAnnotation = authority.source.tree.statements.nodes[1].type;
+  const originalDeclarations = target.tsonic.declarations;
   try {
-    pipelineWiring.front.lowerModule = (...arguments_) => {
-      const checked = lower(...arguments_);
-      if (checked.kind !== "ok" || checked.value.module.module !== snapshot.entryPoint) return checked;
-      const [plain, readonly] = checked.value.module.tree.statements.nodes;
-      assert.equal(readonly.type.tsonic.type.value !== plain.type.tsonic.type.value, true);
-      readonly.type.tsonic.type = plain.type.tsonic.type;
-      crossed = true;
-      return checked;
-    };
-    assert.throws(() => analyzeHostProgram(input), /a readonly array annotation requires its actual checked operand type/iu);
-    assert.equal(crossed, true);
+    Object.defineProperty(target.tsonic, "declarations", { configurable: true,
+      get() { return assert.fail("The qualified declaration vector is unread before its admission."); } });
+    const header = createAccount({ maximumWork: 0, maximumResultEntries: 100 });
+    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, tirReadyReadAdmission(header), assert.fail) === accountFailure(header), true);
+    const declarations = new Array(originalDeclarations.length);
+    Object.defineProperty(declarations, 0, { get() { return assert.fail("The qualified declaration is unread before its admission."); } });
+    Object.defineProperty(target.tsonic, "declarations", { configurable: true, value: declarations });
+    const entry = createAccount({ maximumWork: 1, maximumResultEntries: 100 });
+    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, tirReadyReadAdmission(entry), assert.fail) === accountFailure(entry), true);
   } finally {
-    pipelineWiring.front.lowerModule = lower;
+    Object.defineProperty(target.tsonic, "declarations", { configurable: true, writable: true, value: originalDeclarations });
   }
 });
 

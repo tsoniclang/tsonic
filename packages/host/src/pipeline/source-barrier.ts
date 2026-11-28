@@ -4,7 +4,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId, decodeModuleId } from "../ids/index.js";
 import type { LowerDeps, LoweredModule, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawInterfaceGroupEvidence, RawModule, RawNodeRef } from "../front/contract.js";
-import type { CheckedPhase, EnumDeclaration, HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
+import type { CheckedPhase, EnumDeclaration, HirBindingViews, HirDeclarationScopes, NativeArrayAnnotation } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
 import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
 import { bindProviderLibraries } from "../libraries/index.js";
@@ -40,6 +40,7 @@ export interface SourceBarrier extends HirBindingViews {
   readonly layoutOperands: ReadonlySet<BodyId> | null;
   readonly definitionPaths: ReadonlyMap<DefId, DefinitionPath>;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nativeArrayAnnotationOf: (module: ModuleId, node: NodeId) => NativeArrayAnnotation | null;
   readonly interfaceDescriptionOf: (definition: DefId) => CheckedInterfaceDescription | null;
   readonly libraries: Libraries;
   readonly nativeGuaranteeOf: (declaration: DefId) => AdmittedNativeGuarantee | null;
@@ -151,18 +152,18 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     if (result.kind === "refused") return result;
     exported.set(module, result.value);
   }
-  const checked = new Map<ModuleId, HirModule>();
-  const descriptionsByModule = new Map<ModuleId, LoweredModule["interfaceDescriptions"]>();
+  const checked = new Map<ModuleId, LoweredModule>();
   const modules: SourceModule[] = [];
   for (const [module, captured] of raw) {
     const result = front.lowerModule(lowering, captured);
     if (result.kind === "refused") return result;
-    checked.set(module, result.value.module);
-    descriptionsByModule.set(module, result.value.interfaceDescriptions);
+    checked.set(module, result.value);
     const document = documents.get(module);
     if (document === undefined) return fail("A checked module retains its actual captured document and role.");
     modules.push({ module: result.value.module, nodes: indexSyntaxTree(result.value.module.tree), role: document.role });
   }
+  const nativeArrayAnnotationOf = (module: ModuleId, node: NodeId): NativeArrayAnnotation | null =>
+    checked.get(module)?.nativeArrayAnnotationOf(node) ?? null;
   const sources = checkedSourceViews(modules);
   const scopes = new Map<ModuleId, HirDeclarationScopes>();
   for (const { module, nodes } of modules) scopes.set(module.module, deriveDeclarationScopes(module, nodes));
@@ -183,7 +184,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   };
   for (const captured of raw.values()) {
     const groupRows = captured.types.interfaceGroups;
-    const completed = descriptionsByModule.get(captured.module) ?? fail("A captured module must have its actual lowered descriptions.");
+    const completed = checked.get(captured.module)?.interfaceDescriptions ?? fail("A captured module must have its actual lowered descriptions.");
     const localDescriptions = new Map<number, InterfaceDescriptionRecipe>();
     for (const row of completed) {
       const stop = admitTypePublicationStep(typeWork);
@@ -195,7 +196,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     for (let position = 0; position < groupRows.length; ++position) {
       const admit = (count = 1) => {
         const stopped = admitTypePublicationStep(typeWork, count);
-        const module = checked.get(captured.module);
+        const module = checked.get(captured.module)?.module;
         return stopped === null ? null : refuseTypeConstruction(typeWork, stopped,
           module?.tree.origin ?? fail("A captured type group must belong to its checked source."),
           { query: "checkedInterfaceGroups", key: [captured.module, position] });
@@ -292,7 +293,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   const table = viewTypes(types);
   for (const { module } of modules) {
     const violations = verifyHir(module, {
-      types: table, moduleOf: identity => checked.get(identity) ?? null,
+      types: table, moduleOf: identity => checked.get(identity)?.module ?? null,
       bodyPathOf: identity => { const path = decodeBodyId(identity); return path.kind === "decoded" ? path.value : null; },
       definitionPathOf: identity => paths.get(identity) ?? null,
       bindingScopeOf,
@@ -301,7 +302,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
         const owner = reference.kind === "item" ? reference.value.owner : sources.bodies.get(reference.value.body)?.owner;
         return source === null || owner === undefined ? null : bindingScopeOf(owner);
       },
-      nominalOf,
+      nominalOf, nativeArrayAnnotationOf,
       nodeOf: sources.nodeOf, localExists: sources.localExists,
     });
     if (violations.length !== 0) return fail(`The actual Front checked module failed its owning HIR verification barrier: ${violations[0]?.rule}.`);
@@ -400,5 +401,5 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   }
   return { kind: "ok", diagnostics: opened.diagnostics,
     value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, layoutOperands, definitionPaths: paths, nominalOf, interfaceDescriptionOf, libraries: admitted.value,
-      nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
+      nativeArrayAnnotationOf, nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
 }

@@ -501,6 +501,28 @@ export function verifyPatternBinding<Stop extends object>(node: VariableDeclarat
   return null;
 }
 
+export function verifyNativeArrayAnnotation<Stop extends object>(node: TirNode, original: HirNode | undefined,
+  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  if (!(node.kind === "ArrayType" && original?.kind === "ArrayType"
+    || node.kind === "TypeOperator" && original?.kind === "TypeOperator" && original.operator === "ReadonlyKeyword"
+      && original.type.kind === "ArrayType")) return null;
+  const header = admit({ kind: "row" });
+  if (header !== null) return header;
+  const expected = original.tsonic.referencedDefinitions;
+  const declared = node.tsonic.declarations;
+  if (expected.length === declared.length) {
+    for (let position = 0; position < expected.length; ++position) {
+      const read = admit({ kind: "row" });
+      if (read !== null) return read;
+      if (expected[position] !== declared[position]) {
+        emit("cross-owner-qualified", node, "native array annotation must retain its actual checked declaration evidence");
+        return null;
+      }
+    }
+  } else emit("cross-owner-qualified", node, "native array annotation must retain its actual checked declaration evidence");
+  return null;
+}
+
 export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefined, emit: TirOccurrenceEmit): void => {
   if (node.kind === "CallExpression") {
     const expected = original?.kind === "CallExpression" ? checkedLayoutRoleOf(original) : null;

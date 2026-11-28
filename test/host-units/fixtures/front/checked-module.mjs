@@ -11,6 +11,7 @@ export const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCa
   maximumCapturedEdgesPerModule: 100000 };
 const literalCapture = { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 };
 const byId = (left, right) => left.id < right.id ? -1 : 1;
+const arrayAuthorities = new WeakMap();
 
 export function captureSingleModule(front, deps, program, module) {
   const result = front.captureModules(deps, program, [module]);
@@ -35,6 +36,12 @@ export function lowerSingleCheckedModule(front, deps, raw) {
   const result = front.lowerModule(deps, raw);
   if (result.kind !== "ok") return result;
   assert.equal(result.value.module.module, raw.module);
+  let readers = arrayAuthorities.get(deps.types);
+  if (readers === undefined) {
+    readers = new Map();
+    arrayAuthorities.set(deps.types, readers);
+  }
+  readers.set(raw.module, result.value.nativeArrayAnnotationOf);
   return { ...result, value: result.value.module };
 }
 
@@ -312,6 +319,7 @@ export async function loadFrontFixture() {
         const owner = reference.kind === "item" ? reference.value.owner : domain.bodies.get(reference.value.body)?.owner;
         return owner === undefined ? null : bindingScopeOf(owner);
       }, nominalOf: () => null, nodeOf: domain.nodeOf,
+      nativeArrayAnnotationOf: (module, node) => arrayAuthorities.get(interner)?.get(module)?.(node) ?? null,
       localExists: domain.localExists,
     });
   }

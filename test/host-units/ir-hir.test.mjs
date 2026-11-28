@@ -1785,6 +1785,7 @@ function contextFor(value, additions = {}, additionalModules = []) {
     bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
     bindingScopeAt: reference => lexicalScopes.get(JSON.stringify(reference)) ?? null,
     nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
+    nativeArrayAnnotationOf: () => null,
     nodeOf: reference => checkedNodes.get(JSON.stringify(reference)) ?? null,
     localExists: reference => declaredLocals.has(JSON.stringify(reference)), ...additions };
 }

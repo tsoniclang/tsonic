@@ -12,7 +12,7 @@ import { admitMemberKeyEncoding, compareAdmittedMemberKeys, isNativeIntegerPrimi
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleAssertionProduct, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyNativeArrayAnnotation, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleAssertionProduct, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -985,6 +985,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const layout = verifyLayoutArguments(node, original, body, input, boundary.bodies, admit, emit);
       if (layout !== null) return { kind: "resource-stop", stop: layout };
     }
+    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, admit, emit);
+    if (arrayAnnotation !== null) return { kind: "resource-stop", stop: arrayAnnotation };
     verifyOccurrenceRole(node, original, emit);
     if (node.kind === "SpreadElement" && "role" in node.tsonic) {
       const paid = admit({ kind: "row" });
@@ -1488,6 +1490,8 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
       const stop = verifyPatternBinding(node, original, input.types, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
+    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, admit, emit);
+    if (arrayAnnotation !== null) return { kind: "resource-stop", stop: arrayAnnotation };
     verifyOccurrenceRole(node, original, emit);
   }
   verifyBodylessParameters(input, structure.nodes, sourceNodes, emit);

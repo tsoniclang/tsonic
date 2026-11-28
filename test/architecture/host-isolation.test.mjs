@@ -609,6 +609,8 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
         "export function read(context: HirVerificationContext) { const { bodyPathOf, ...legacy } = context; void bodyPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
       ["old-hir-definition-path-context", [["ir-hir", "HirVerificationContext"]],
         "export function read(context: HirVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
+      ["old-hir-native-array-context", [["ir-hir", "HirVerificationContext"]],
+        "export function read(context: HirVerificationContext) { const { nativeArrayAnnotationOf, ...legacy } = context; void nativeArrayAnnotationOf; const current: HirVerificationContext = legacy; return current; }", 2741],
       ["old-backward", [["dataflow", "BackwardProblem, BlockState"], ["ir-mir", "MirTerminator"]],
         "export function read(problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[]) { return problem.terminator(term, states); }", 2554],
       ["old-program-context", [["ir-program", "ProgramVerificationContext"]],

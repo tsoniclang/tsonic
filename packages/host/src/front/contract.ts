@@ -2,7 +2,7 @@ import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { InterfaceDescriptionRecipe, IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
-import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
+import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, NativeArrayAnnotation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryModuleModel, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import type { CompilerPreparation, ExtensionTable, OpenedProgram } from "./handles.js";
@@ -887,6 +887,7 @@ export type CaptureProgramModules = (deps: CaptureDeps, program: CheckedProgram)
 
 export interface LoweredModule {
   readonly module: HirModule;
+  readonly nativeArrayAnnotationOf: (node: NodeId) => NativeArrayAnnotation | null;
   readonly interfaceDescriptions: readonly { readonly ordinal: number; readonly recipe: InterfaceDescriptionRecipe }[];
 }
 

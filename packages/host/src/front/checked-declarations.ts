@@ -18,6 +18,7 @@ export interface DeclarationLowering {
     "type" | "declarations">>;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
   readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameters: readonly NodeId[]) => ConversionResult<Hir.CapturedFact<TyId>>;
+  readonly nativeArrayAnnotationOf: (node: NodeId) => Hir.NativeArrayAnnotation | null;
   readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral, kind: "number" | "bigint") =>
     ConversionResult<Extract<LiteralTypeValue, { readonly kind: "number" | "bigint" }>>;
   readonly numericOperand: (node: Hir.NumericLiteral<Syntax> | Hir.BigIntLiteral<Syntax>) => ConversionResult<Hir.CapturedFact<TyId>>;
@@ -124,7 +125,10 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
     }
     const type = context.checkedType(node, binders.get(node.id) ?? []);
     if (type.kind !== "complete") return type;
-    const tsonic: Hir.CheckedType = { core: context.core(node.id), type: type.value, referencedDefinitions: [] };
+    const array = node.kind === "ArrayType"
+      || node.kind === "TypeOperator" && node.operator === "ReadonlyKeyword" && node.type.kind === "ArrayType"
+      ? context.nativeArrayAnnotationOf(node.id) : null;
+    const tsonic: Hir.CheckedType = { core: context.core(node.id), type: type.value, referencedDefinitions: array?.declarations ?? [] };
     let result: Hir.TypeNode<Checked>;
     switch (node.kind) {
       case "NumberKeyword": case "StringKeyword": case "BooleanKeyword": case "BigIntKeyword": case "SymbolKeyword":

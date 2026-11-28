@@ -301,6 +301,7 @@ interface Lowering extends TypeConversion {
   readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
   readonly associations: ReadonlyMap<NodeId, RawCallableAssociation>;
   readonly authoredTypes: ReadonlyMap<NodeId, RawTypeId>;
+  nativeArrayAnnotations: Map<NodeId, Hir.NativeArrayAnnotation> | null;
   readonly bodies: Hir.HirBody[];
   readonly captureParent: ReadonlyMap<BodyId, BodyId>;
   readonly captures: Map<BodyId, { readonly ordered: LocalRef[]; readonly members: Map<BodyId, Set<LocalRef["local"]>> }>;
@@ -660,6 +661,7 @@ function admitNumericAnnotation(lowering: Lowering, node: NodeId, raw: RawFact<R
 function declarationLowering(lowering: Lowering): DeclarationLowering {
   return {
     core: node => coreOf(lowering, node), definitions: lowering.definitionAt, memory: node => memoryOf(lowering, node),
+    nativeArrayAnnotationOf: node => lowering.nativeArrayAnnotations?.get(node) ?? null,
     resolution: node => resolutionOf(lowering, node, "type"),
     heritage: node => {
       const captured = lowering.authoredTypes.get(node);
@@ -745,7 +747,40 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
         return throwInvariant(invariant("An InferType annotation must retain its actual parameter type."));
       const numeric = node.kind === "LiteralType" ? numericTypeSpelling(node.literal) : null;
       if (numeric !== null) admitNumericAnnotation(lowering, node.id, { kind: "available", value: captured }, numeric);
-      return typeFactOf(lowering, { kind: "available", value: captured });
+      const typed = typeFactOf(lowering, { kind: "available", value: captured });
+      const array = node.kind === "ArrayType" ? node
+        : node.kind === "TypeOperator" && node.operator === "ReadonlyKeyword" && node.type.kind === "ArrayType" ? node.type : null;
+      if (typed.kind !== "complete" || typed.value.kind !== "available" || form?.kind !== "available" || array === null)
+        return typed;
+      const application = form.value;
+      if ((application.kind !== "declared" && application.kind !== "merged-interface-dependency")
+        || application.nativeArrayReadonly === null) return typed;
+      const store = lowering.nativeArrayAnnotations;
+      const setup = admitTypePublicationStep(lowering.typeWork, 1, store === null ? 4 : 3);
+      if (setup !== null) return setup;
+      const elementSource = lowering.authoredTypes.get(array.elementType.id);
+      if (elementSource === undefined) return throwInvariant(invariant("A native array retains its actual checked element annotation."));
+      const element = typeFactOf(lowering, { kind: "available", value: elementSource });
+      if (element.kind !== "complete") return element;
+      const declarations: DefId[] = [];
+      if (application.kind === "declared") {
+        const read = admitTypePublicationStep(lowering.typeWork);
+        if (read !== null) return read;
+        declarations.push(lowering.deps.definitionOf(application.declaration));
+      } else {
+        const group = application.group.evidence.declarations;
+        for (let position = 0; position < group.length; ++position) {
+          const read = admitTypePublicationStep(lowering.typeWork);
+          if (read !== null) return read;
+          const declaration = group[position];
+          if (declaration === undefined) return throwInvariant(invariant("A native array retains its complete checked declaration group."));
+          declarations.push(lowering.deps.definitionOf(declaration));
+        }
+      }
+      const annotations = store ?? (lowering.nativeArrayAnnotations = new Map());
+      annotations.set(node.id, Object.freeze({ type: typed.value.value,
+        element: element.value.kind === "available" ? element.value.value : null, declarations: Object.freeze(declarations) }));
+      return typed;
     },
     numericLiteral: (type, spelling, kind) => {
       if (type.kind === "unavailable") return kind === "number" ? captureNumericLiteral(lowering.deps.literalCapture, spelling)
@@ -1914,7 +1949,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredM
     locals: new Map(structure.locals), variableLocals, inferredStorage: new Map(), bodies: [], expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
-    authoredTypes: authoredAnnotations(raw),
+    authoredTypes: authoredAnnotations(raw), nativeArrayAnnotations: null,
   };
   for (const { node, mutable, local, role } of structure.variables) {
     if (node.name?.kind !== "Identifier") return throwInvariant(invariant("A storage declaration has no actual identifier name."));
@@ -2002,7 +2037,8 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredM
     if (origin == null) return throwInvariant(invariant("A neutral description must retain its actual source origin."));
     interfaceDescriptions.push({ ordinal: row.group.ordinal, recipe: interfaceDescriptionRecipe(conversion, inventory, origin) });
   }
-  return { kind: "ok", diagnostics: [], value: { interfaceDescriptions, module: {
+  const nativeArrayAnnotations = lowering.nativeArrayAnnotations;
+  return { kind: "ok", diagnostics: [], value: { interfaceDescriptions, nativeArrayAnnotationOf: node => nativeArrayAnnotations?.get(node) ?? null, module: {
     module: raw.module, tree, items, bodies, exports: exported.entries,
     bindings: exported.bindings, moduleLinks: links, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } } };
 }

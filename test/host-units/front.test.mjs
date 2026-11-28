@@ -640,7 +640,8 @@ test("layout capture retains the same selected application and authored operands
     bodyPathOf: id => ids.decodeBodyId(id).value, definitionPathOf: id => pair.value.definitionPaths.get(id) ?? null,
     bindingScopeOf: id => pair.value.descriptions.get(id)?.generics ?? null,
     bindingScopeAt: ref => pair.value.descriptions.get(ref.kind === "item" ? ref.value.owner : pair.value.checked.bodies.get(ref.value.body)?.owner)?.generics ?? null,
-    nominalOf: pair.value.nominalOf, nodeOf: pair.value.checked.nodeOf, localExists: pair.value.checked.localExists,
+    nominalOf: pair.value.nominalOf, nativeArrayAnnotationOf: pair.value.nativeArrayAnnotationOf,
+    nodeOf: pair.value.checked.nodeOf, localExists: pair.value.checked.localExists,
   });
   assert.equal(findings.filter(row => row.rule === "definition-reference"
     && row.detail.some(detail => detail.value === "a layout definition retains its exact authored unnamed sibling ordinal")).length, 2);
@@ -738,7 +739,8 @@ test("field constructor and offset preserve their independent actual selector sl
     bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
     bindingScopeAt: position => source.descriptions.get(position.kind === "item" ? position.value.owner
       : source.checked.bodies.get(position.value.body)?.owner)?.generics ?? null,
-    nominalOf: source.nominalOf, nodeOf: source.checked.nodeOf, localExists: source.checked.localExists,
+    nominalOf: source.nominalOf, nativeArrayAnnotationOf: source.nativeArrayAnnotationOf,
+    nodeOf: source.checked.nodeOf, localExists: source.checked.localExists,
   };
   const selectorFinding = finding => finding.rule === "node-reference"
     && finding.detail.some(detail => detail.value === "a layout selector retains its actual call, formal and checked storage selection");

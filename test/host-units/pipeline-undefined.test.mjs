@@ -52,7 +52,8 @@ function checkLinkedOpposites(inputs, source, hir, supplied, shadow, authored, s
     bindingScopeOf, bindingScopeAt: reference => {
       const owner = reference.kind === "item" ? reference.value.owner : views.bodies.get(reference.value.body)?.owner;
       return owner === undefined ? null : bindingScopeOf(owner);
-    }, nominalOf: source.nominalOf, nodeOf: views.nodeOf, localExists: views.localExists });
+    }, nominalOf: source.nominalOf, nativeArrayAnnotationOf: source.nativeArrayAnnotationOf,
+    nodeOf: views.nodeOf, localExists: views.localExists });
   assert.deepEqual(hirViolations.filter(row => row.rule === "intrinsic-value-use").map(row => row.site),
     [{ kind: "node", node: { kind: "body", value: { body: supplied.body, node: authored.id } } }]);
 
