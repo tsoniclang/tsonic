@@ -442,6 +442,7 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
       let held = (left);
       (held) = (right);
       keep(left, (held));
+      held.flag = true;
       return held.flag;
     }
     export function spread(left: Box, values: Box[]): boolean {
@@ -512,6 +513,29 @@ test("inferred reference storage closes only its actual local cell inputs", asyn
   assert.deepEqual(run(100000, cut => cuts.push(cut)), expected);
   assert.deepEqual(run(cuts.at(-1)), expected);
   for (const cut of cuts) assert.equal(run(cut - 1), null, `inferred storage work ${cut - 1}`);
+
+  const writeOf = module => module.tree.statements.nodes[3].body.statements.nodes[3].expression.left;
+  const written = writeOf(checked);
+  const actualPlace = written.tsonic.place;
+  assert.equal(actualPlace.kind, "available");
+  assert.deepEqual(actualPlace.value.base, { kind: "receiver", node: written.expression.id });
+  const roots = [checked.tree, ...checked.bodies.map(body => body.root)];
+  const forest = product.walkSyntaxForest(roots.map(node => ({ path: "checked storage roots", read: () => node })), {
+    root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
+  });
+  assert.equal(forest.kind, "complete");
+  const hold = value => ({ kind: "copied", value });
+  const image = product.copyCheckedModule(checked, forest.value, { admit: () => null, syntaxNode: () => null,
+    type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+  assert.equal(image.kind, "copied");
+  const projected = image.value.module;
+  assert.equal(image.value.syntax.nodeOf(written.expression) === writeOf(projected).expression, true);
+  const copiedBounds = declarations.map(node => image.value.syntax.nodeOf(node).tsonic.inferredTypeBound.value);
+  assert.deepEqual(copiedBounds.map(bound => bound.sources), expected);
+  assert.notEqual(copiedBounds[0].sources, declarations[0].tsonic.inferredTypeBound.value.sources);
+  const restored = roundtrip(projected, "inferred reference and qualified field storage").value;
+  assert.deepEqual(writeOf(restored).tsonic.place, actualPlace);
+  assert.equal(writeOf(restored).expression.id, actualPlace.value.base.node);
 });
 
 test("an authored excluded expression stays checked through its copied image and HIR wire", async () => {
@@ -559,7 +583,10 @@ test("checked layout copying preserves the authored selector and every geometry 
   const input = create(`interface Header { payload: boolean }
     const word = make<boolean>({ stride: 8, fields: [], bytesize: 8, bytealignment: 8, datalayout: Abi });
     export const fieldInfo = field<Header, boolean>({ bytealignment: 8,
-      select: (record: Header) => record.payload, fieldlayout: word, byteoffset: 8 });`);
+      select: (record: Header) => record.payload, fieldlayout: word, byteoffset: 8 });
+    const row = makeArray<boolean, 2>({ length: 2, datalayout: Abi, elementlayout: word,
+      bytesize: 16, bytealignment: 8, stride: 16 });
+    export const width = measure(row);`);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const checked = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
@@ -567,7 +594,8 @@ test("checked layout copying preserves the authored selector and every geometry 
     .find(statement => statement.kind === "VariableStatement" && statement.declarationList.declarations.nodes[0].name.text === name)
     .declarationList.declarations.nodes[0].initializer;
   const roles = [["word", "value", ["stride", "bytesize", "bytealignment"]],
-    ["fieldInfo", "field", ["bytealignment", "byteoffset"]]];
+    ["fieldInfo", "field", ["bytealignment", "byteoffset"]],
+    ["row", "array", ["length", "bytesize", "bytealignment", "stride"]]];
   const roots = [checked.tree, ...checked.bodies.map(body => body.root)];
   const walk = product.walkSyntaxForest(roots.map(node => ({ path: "checked layout roots", read: () => node })), {
     root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, list: () => null,
@@ -602,6 +630,14 @@ test("checked layout copying preserves the authored selector and every geometry 
       assert.equal(projected.value.syntax.nodeOf(selector.body) === mappedProperties.get("select").body, true);
     }
   }
+  const originalQuery = readInitializer(checked, "width");
+  const mappedQuery = readInitializer(projected.value.module, "width");
+  const observation = mappedQuery.tsonic.observation.value;
+  assert.equal(observation.operation, "size");
+  assert.notEqual(observation, originalQuery.tsonic.observation.value);
+  assert.equal(observation.operand.node, originalQuery.arguments.nodes[0].id);
+  assert.equal(projected.value.syntax.nodeOf(originalQuery.arguments.nodes[0]) === mappedQuery.arguments.nodes[0], true);
+  assert.deepEqual(readInitializer(decoded, "width").tsonic.observation.value, observation);
 });
 
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
