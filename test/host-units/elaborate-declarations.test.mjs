@@ -81,6 +81,11 @@ test("actual alias and interface members retain checked types, declarations and 
   assert.equal(keys.members.nodes[0].parameters.nodes[0].tsonic.passing, null);
 });
 
+test("one declaration projection retains actual namespace-qualified type references, queries and import types", async () => {
+  const { checkQualifiedTypeHolding } = await import("./fixtures/qualified-type-holding.mjs");
+  await checkQualifiedTypeHolding();
+});
+
 test("checked interface fragments retain one nominal group before any application and through final publication", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

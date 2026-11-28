@@ -5,7 +5,7 @@ import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { SignatureParameter, TypeInterner, TypeTerm } from "../ir-types/contract.js";
 import { admitTypePublicationStep, internType, internTypeGraph, literalTypeValuesEqual, readType, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
-import type { DeclarationNameExpression, TypedPhase } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TypedName, TypedPhase } from "../ir-tir/contract.js";
 import type { ElaborateDeps } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
 
@@ -36,6 +36,30 @@ export function declarationModifiers(input: Hir.ModifierList<Checked> | null): H
 export function declarationName(node: Hir.Identifier<Checked>, storage: TyId | null): Hir.Identifier<TypedPhase> {
   if (node.tsonic.role !== "declaration-name") return fail("A declaration name requires its actual checked declaration target.");
   return { ...node, tsonic: { role: "declaration-name", declaration: node.tsonic.declaration, storage } };
+}
+
+function typeNameMetadata(name: Hir.EntityName<Checked>, type: TyId): Extract<TypedName, { readonly role: "type-name" }> {
+  if (name.tsonic.role !== "type-name") return fail("A declaration type requires its actual checked type-name projection.");
+  const selected = name.tsonic.resolution;
+  return { role: "type-name", type, declarations: selected.kind === "declarations" ? selected.definitions : [] };
+}
+
+function typeNameIdentifier(node: Hir.Identifier<Checked>, type: TyId): Hir.Identifier<TypedPhase> {
+  return { ...node, tsonic: typeNameMetadata(node, type) };
+}
+
+function qualifiedTypeName(name: Hir.EntityName<Checked>, type: TyId): Hir.EntityName<TypedPhase> {
+  if (name.kind === "Identifier") return typeNameIdentifier(name, type);
+  const chain: Hir.QualifiedName<Checked>[] = [];
+  let head: Hir.EntityName<Checked> = name;
+  while (head.kind === "QualifiedName") {
+    chain.push(head);
+    head = head.left;
+  }
+  let result: Hir.EntityName<TypedPhase> = typeNameIdentifier(head, type);
+  for (let tail = chain.pop(); tail !== undefined; tail = chain.pop())
+    result = { ...tail, left: result, right: typeNameIdentifier(tail.right, type), tsonic: typeNameMetadata(tail, type) };
+  return result;
 }
 
 type TypeReader = (node: Hir.TypeNode<Checked> | null) => Hir.TypeNode<TypedPhase> | null;
@@ -232,9 +256,7 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
         members: { ...node.members, nodes: node.members.nodes.map(memberOf) }, tsonic }; break;
       case "TypeReference": case "TypeQuery": {
         const checkedName = node.kind === "TypeReference" ? node.typeName : node.exprName;
-        if (checkedName.kind !== "Identifier" || checkedName.tsonic.role !== "type-name")
-          return fail("A declaration type requires its actual checked type-name projection.");
-        const name: Hir.Identifier<TypedPhase> = { ...checkedName, tsonic: { role: "type-name", type: tsonic.type, declarations: tsonic.declarations } };
+        const name = qualifiedTypeName(checkedName, tsonic.type);
         if (node.kind === "TypeQuery") {
           if (node.typeArguments !== null) return fail("An applied type query requires its actual typed argument placement.");
           result = { ...node, exprName: name, typeArguments: null, tsonic };
@@ -244,25 +266,7 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
       }
       case "ImportType": {
         if (node.attributes !== null) return fail("An import type with resolution attributes requires its actual typed projection.");
-        const qualify = (name: Hir.EntityName<Checked>): Hir.EntityName<TypedPhase> => {
-          const chain: Hir.QualifiedName<Checked>[] = [];
-          let head = name;
-          while (head.kind === "QualifiedName") { chain.push(head); head = head.left; }
-          const identifier = (current: Hir.Identifier<Checked>): Hir.Identifier<TypedPhase> => {
-            if (current.tsonic.role !== "type-name") return fail("An import type requires its actual checked qualifier.");
-            const selected = current.tsonic.resolution;
-            return { ...current, tsonic: { role: "type-name", type: tsonic.type, declarations: selected.kind === "declarations" ? selected.definitions : [] } };
-          };
-          let result: Hir.EntityName<TypedPhase> = identifier(head);
-          for (let tail = chain.pop(); tail !== undefined; tail = chain.pop()) {
-            if (tail.tsonic.role !== "type-name") return fail("An import type requires its actual checked qualifier.");
-            const selected = tail.tsonic.resolution;
-            result = { ...tail, left: result, right: identifier(tail.right),
-              tsonic: { role: "type-name", type: tsonic.type, declarations: selected.kind === "declarations" ? selected.definitions : [] } };
-          }
-          return result;
-        };
-        result = { ...node, argument: child(node.argument), attributes: null, qualifier: node.qualifier === null ? null : qualify(node.qualifier),
+        result = { ...node, argument: child(node.argument), attributes: null, qualifier: node.qualifier === null ? null : qualifiedTypeName(node.qualifier, tsonic.type),
           typeArguments: node.typeArguments === null ? null : { ...node.typeArguments, nodes: node.typeArguments.nodes.map(child) }, tsonic };
         break;
       }

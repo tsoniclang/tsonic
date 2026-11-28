@@ -215,6 +215,11 @@ test("S-1 binds the actual field through named imports, re-exports and a type-on
   await checkImportedObjectHolding();
 });
 
+test("S-1 uses object annotations through namespace names and inline import types", async () => {
+  const { checkQualifiedTypeHolding } = await import("./fixtures/qualified-type-holding.mjs");
+  await checkQualifiedTypeHolding();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

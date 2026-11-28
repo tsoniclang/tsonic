@@ -13,12 +13,17 @@ function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
 
 type SourceObjectDeclaration = Extract<HirNode, { readonly kind: "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "Parameter" | "VariableDeclaration" }>;
 type ObjectAlias = TypeAliasDeclaration<CheckedPhase, "TypeAliasDeclaration"> & { readonly type: TypeLiteral };
+type ObjectAliasReference = Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" | "ImportType" }>;
 
-function objectAliasOwner(annotation: Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" }>,
-  read: CheckedSourceStorageRead): DefId | null | undefined {
+function isObjectAliasReference(annotation: TypeNode<CheckedPhase>): annotation is ObjectAliasReference {
+  return annotation.kind === "TypeReference" || annotation.kind === "ImportType";
+}
+
+function objectAliasOwner(annotation: ObjectAliasReference, read: CheckedSourceStorageRead): DefId | null | undefined {
   if (annotation.typeArguments !== null) return null;
-  const name = annotation.typeName;
-  if (name.parent !== annotation.id || name.tsonic.role !== "type-name") return null;
+  const name = annotation.kind === "TypeReference" ? annotation.typeName
+    : annotation.isTypeOf || annotation.attributes !== null ? null : annotation.qualifier;
+  if (name === null || name.parent !== annotation.id || name.tsonic.role !== "type-name") return null;
   const resolution = name.tsonic.resolution;
   const recorded = annotation.tsonic.referencedDefinitions;
   if (resolution.kind === "declarations")
@@ -49,7 +54,7 @@ function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceS
     if (target.parent !== alias.id || target.tsonic.type.kind !== "available" || target.tsonic.type.value !== type
       || !ordinaryObjectRepresentation(target.tsonic.core)) return null;
     if (hasObjectLiteral(alias)) return alias;
-    if (target.kind !== "TypeReference") return null;
+    if (!isObjectAliasReference(target)) return null;
     if (!admit(1, 0)) return undefined;
     const next = objectAliasOwner(target, read);
     if (next == null) return next;
@@ -65,7 +70,7 @@ function ordinaryObjectDeclaration(declaration: SourceObjectDeclaration, annotat
   read: CheckedSourceStorageRead): SourceObjectDeclaration | null {
   if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
   if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? declaration : null;
-  if (annotation.kind !== "TypeReference") return null;
+  if (!isObjectAliasReference(annotation)) return null;
   const definition = objectAliasOwner(annotation, read);
   if (definition == null) return null;
   return ordinaryObjectAlias(definition, type, read) ?? null;
@@ -234,7 +239,7 @@ interface FieldValue {
 
 function fieldContainer(annotation: TypeNode<CheckedPhase>, type: TyId, read: CheckedSourceObjectRead): FieldValue["container"] | null | undefined {
   if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? annotation : null;
-  if (annotation.kind !== "TypeReference") return null;
+  if (!isObjectAliasReference(annotation)) return null;
   if (!read.admit(1, 0)) return undefined;
   const definition = objectAliasOwner(annotation, read);
   if (definition == null) return definition;
@@ -249,7 +254,7 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
   const declared = property.tsonic.declaredType;
   if (annotation === null || annotation.parent !== property.id || declared.kind !== "available" || declared.value === null
     || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== declared.value) return null;
-  if (annotation.kind === "TypeLiteral" || annotation.kind === "TypeReference") {
+  if (annotation.kind === "TypeLiteral" || isObjectAliasReference(annotation)) {
     const container = fieldContainer(annotation, declared.value, read);
     if (container === null || container === undefined) return container;
     if (!admit(1, 0)) return undefined;
@@ -266,7 +271,7 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
     if (!admit(1, 0)) return undefined;
     const arm = annotation.types.nodes[ordinal];
     if (arm === undefined || arm.parent !== annotation.id || arm.tsonic.type.kind !== "available") return null;
-    if (arm.kind === "TypeLiteral" || arm.kind === "TypeReference") {
+    if (arm.kind === "TypeLiteral" || isObjectAliasReference(arm)) {
       if (present !== null || arm.tsonic.type.value !== storage.value) return null;
       const container = fieldContainer(arm, storage.value, read);
       if (container === null || container === undefined) return container;

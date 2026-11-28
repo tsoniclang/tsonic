@@ -351,6 +351,11 @@ test("an imported object holding borrows each actual qualified binding hop befor
   await checkImportedObjectHolding();
 });
 
+test("qualified type names and type-only import annotations retain each actual checked name", async () => {
+  const { checkQualifiedTypeHolding } = await import("./fixtures/qualified-type-holding.mjs");
+  await checkQualifiedTypeHolding();
+});
+
 test("a placed field write authenticates the receiver's actual outer storage", async () => {
   const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
   await checkCapturedFieldRefinement();
