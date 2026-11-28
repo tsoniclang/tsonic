@@ -4,7 +4,7 @@ import { createAccount as createDataflowAccount } from "../../packages/host/dist
 import { test } from "node:test";
 import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
-import { checkCapturedFieldRefinement, checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkDocumentedRefinementWalkthrough, checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkInterruptedModuleInitialization, checkSelectedStaticExposure } from "./fixtures/program-static-exposure.mjs";
@@ -6363,6 +6363,7 @@ test("unannotated integral initializers select native int64 before materializing
 });
 
 test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", checkNativeRefinementWalkthrough);
+test("WT-10 documents separate guards before the pure and mutating calls", checkDocumentedRefinementWalkthrough);
 test("WT-10 distinguishes sibling and guarded writes through a placed capture", checkCapturedFieldRefinement);
 
 test("WT-10 follows actual native && and || edges without removing explicit field checks", async () => {

@@ -80,18 +80,9 @@ function checkReachedProofCuts(stateOf, run, expected, label, afterProbe = () =>
   }
 }
 
-export async function nativeRefinementInput(fixture, replace, policy = null) {
+async function refinementInput(fixture, source, policy) {
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
-  const input = await nativeInt32Input(fixture, `
-      function pure(): void {}
-      function clear(p: { x: { v: Native } | null }): void { p.x = null; }
-      export function read(o: { x: { v: Native } | null }, a: Native[], replacement: Native[]): Native {
-        let sum = 0;
-        for (let i = 0; i < a.length; i++) { ${replace ? "a = replacement;" : ""} sum += a[i]; }
-        if (o.x !== null) { pure(); sum += o.x.v; clear(o); sum += o.x.v; }
-        return sum;
-      }
-    `, true);
+  const input = await nativeInt32Input(fixture, source, true);
   const { nativeFacts } = input.snapshot;
   return { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...nativeFacts,
     arrayIndexFailure: policy?.bounds ?? nativeFacts.arrayIndexFailure,
@@ -101,6 +92,83 @@ export async function nativeRefinementInput(fixture, replace, policy = null) {
       { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
     ] } } };
+}
+
+export function nativeRefinementInput(fixture, replace, policy = null) {
+  return refinementInput(fixture, `
+      function pure(): void {}
+      function clear(p: { x: { v: Native } | null }): void { p.x = null; }
+      export function read(o: { x: { v: Native } | null }, a: Native[], replacement: Native[]): Native {
+        let sum = 0;
+        for (let i = 0; i < a.length; i++) { ${replace ? "a = replacement;" : ""} sum += a[i]; }
+        if (o.x !== null) { pure(); sum += o.x.v; clear(o); sum += o.x.v; }
+        return sum;
+      }
+    `, policy);
+}
+
+function checkWalkthroughLimits(analyze, input, work, records) {
+  const bounded = (maximumWork, maximumResultEntries) => analyze({ ...input, limits: { ...input.limits,
+    dataflow: { maximumWork, maximumResultEntries },
+  } });
+  assert.equal(bounded(work, records).kind, "ok");
+  for (const [limit, maximumWork, maximumResultEntries, maximum] of [
+    ["work", work - 1, records, work - 1],
+    ["result-entries", work, records - 1, records - 1],
+  ]) {
+    const refused = bounded(maximumWork, maximumResultEntries);
+    assert.equal(refused.kind, "refused");
+    assert.equal("value" in refused, false);
+    assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
+      ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
+        [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
+    ]);
+  }
+}
+
+export async function checkDocumentedRefinementWalkthrough() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = await refinementInput(await loadFrontFixture(), `
+    function pure(): void {}
+    function clear(p: { x: { v: Native } | null }): void { p.x = null; }
+    export function read(o: { x: { v: Native } | null }, a: Native[]): Native {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) sum += a[i];
+      if (o.x !== null) { pure(); sum += o.x.v; }
+      if (o.x !== null) { clear(o); return o.x.v + sum; }
+      return sum;
+    }
+  `, null);
+  const answer = analyzeHostProgram(input);
+  assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
+  const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+  const [ , loop, firstGuard, secondGuard] = body.tir.root.statements.nodes;
+  const index = loop.statement.expression.right;
+  const [pure, firstUse] = firstGuard.thenStatement.statements.nodes;
+  const [clear, secondUse] = secondGuard.thenStatement.statements.nodes;
+  const first = firstUse.expression.right.expression;
+  const second = secondUse.expression.left.expression;
+  const operations = body.mir.blocks.map(row => row.terminator);
+  assert.deepEqual(operations.filter(row => row.kind === "check").map(row => [row.tir.node, body.mir.places[row.place].base.projection.kind]),
+    [[index.id, "index"], [first.id, "refined"], [second.id, "refined"]]);
+  assert.deepEqual(operations.filter(row => row.kind === "call" && row.callee.kind === "direct").map(row => row.tir.node),
+    [pure.expression.id, clear.expression.id]);
+  const { countedLoops, integers, refinements } = body.facts.find(row => row.execution.provided === 2).refinements;
+  assert.equal(countedLoops.length, 1);
+  assert.equal(countedLoops[0].statement, loop.id);
+  assert.deepEqual(integers.filter(row => row.range !== null), [
+    { node: index.argumentExpression.id, range: { minimum: 0n, maximum: (1n << 63n) - 2n }, nonnegative: true },
+  ]);
+  assert.deepEqual(refinements, [
+    { kind: "proven", node: index.id, guards: [loop.condition.id] },
+    { kind: "proven", node: first.id, guards: [firstGuard.expression.id] },
+    { kind: "unproven", node: second.id, guards: [secondGuard.expression.id], reason: {
+      kind: "invalidated", sites: [{ kind: "call", at: { body: body.tir.body, node: clear.expression.id } }],
+    } },
+  ]);
+  checkWalkthroughLimits(analyzeHostProgram, input, 117648, 20080);
 }
 
 export async function checkNativeRefinementWalkthrough() {
@@ -139,22 +207,7 @@ export async function checkNativeRefinementWalkthrough() {
       { kind: "unproven", node: fieldChecks[1].tir.node, guards: [guard.expression.id],
         reason: { kind: "invalidated", sites: [{ kind: "call", at: clear.tir }] } },
     ]);
-    const bounded = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...prepared, limits: { ...prepared.limits,
-      dataflow: { maximumWork, maximumResultEntries },
-    } });
-    assert.equal(bounded(work, records).kind, "ok");
-    for (const [limit, maximumWork, maximumResultEntries, maximum] of [
-      ["work", work - 1, records, work - 1],
-      ["result-entries", work, records - 1, records - 1],
-    ]) {
-      const refused = bounded(maximumWork, maximumResultEntries);
-      assert.equal(refused.kind, "refused");
-      assert.equal("value" in refused, false);
-      assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
-        ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
-          [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
-      ]);
-    }
+    checkWalkthroughLimits(analyzeHostProgram, prepared, work, records);
   }
 }
 
