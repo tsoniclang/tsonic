@@ -388,7 +388,8 @@ for (const violation of rows) {
     if (step !== null) return step;
  const stop = node(guard); if (stop !== null) return stop; }
     const source = nodes.get(refinement.node);
-    if (source?.kind === "PropertyAccessExpression" && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
+    if ((source?.kind === "PropertyAccessExpression" || source?.kind === "Identifier")
+      && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
       const proved = provedFields();
       if (proved.kind !== "complete") return proved;
       const proof = proofAt(proved.value, refinement.node);

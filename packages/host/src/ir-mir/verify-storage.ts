@@ -904,10 +904,18 @@ export function verifyValues(
         if (source?.kind === "BindingElement" && source.tsonic.role === "field-binding"
           && (source.tsonic.present !== place.storage || source.tsonic.field.decision.read !== parent.storage))
           report("projection-type", site);
-        if (source?.kind === "PropertyAccessExpression" && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
+        if ((source?.kind === "PropertyAccessExpression" || source?.kind === "Identifier") && source.tsonic.role === "value"
+          && source.tsonic.narrowing?.kind === "narrowed") {
           const narrowing = source.tsonic.narrowing;
           if (narrowing.source !== parent.storage || narrowing.failure !== context.selectedNativeFacts.absentAccessFailure)
             report("projection-type", site);
+          if (source.kind === "Identifier") {
+            if (!admitWork(meter, 1)) return result;
+            const local = parent.base.kind === "local" ? body.locals[parent.base.local]?.source : null;
+            const resolution = source.tsonic.resolution;
+            if (resolution.kind !== "local" || local?.body !== resolution.local.body || local.local !== resolution.local.local)
+              report("projection-type", site);
+          }
         }
         break;
       }

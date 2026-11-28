@@ -72,9 +72,9 @@ export const createRuleTable: CreateRuleTable = deps => {
       return selected.kind === "refused" ? selected : decided(selected.value);
     },
     protocol: atContext("protocol"),
-    refinement: input => {
+    refinement: (input, presence) => {
       if (input.source.type === input.checked.type) return decided({ kind: "identity", type: input.source.type });
-      const refinement = narrowOptionalRead(deps, input.context.occurrence, input.source.type, input.checked.type, null);
+      const refinement = narrowOptionalRead(deps, input.context.occurrence, input.source.type, input.checked.type, presence);
       return refinement === null ? notDecidedYet("the refinement rule", input.context.origin) : decided(refinement);
     },
     library: atContext("library"),

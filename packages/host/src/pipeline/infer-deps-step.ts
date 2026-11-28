@@ -29,14 +29,14 @@ export function inferDepsOf(run: InferenceRun): InferDeps<MemberRuleContinuation
   const sourceFields: InferDeps<MemberRuleContinuation>["sourceFields"] = body => {
     if (admitTypePublicationStep(run.typeWork) !== null) return null;
     const previous = readers?.get(body);
-    if (previous !== undefined) return previous.field;
+    if (previous !== undefined) return previous;
     if (admitTypePublicationStep(run.typeWork, 0, readers === null ? 5 : 4) !== null) return null;
     const selected = checkedSourceObjectFieldsOf(run.hirBody(body), {
       bodyOf: run.hirBody, nodeOf: run.checkedNodeOf, itemOf: run.itemOf, bindingOf: run.bindingOf,
       typeOf: type => readType(run.rules.types, type), admit: (work, records) => admitTypePublicationStep(run.typeWork, work, records) === null,
     });
     (readers ??= new Map()).set(body, selected);
-    return selected.field;
+    return selected;
   };
   return { structuralCuts: run.structuralCuts, cuts: run.cuts, checkedNodeOf: run.checkedNodeOf, hirBody: run.hirBody, itemOf: run.itemOf, bindings: run.bindings, bindingOf: run.bindingOf, checkerDiagnosticsOf: run.checkerDiagnosticsOf, rules: pipelineWiring.rules.createRuleTable(run.rules),
     sourceFields, readySourceField: occurrence => readers?.get(occurrence.body)?.ready(occurrence.node) ?? null,

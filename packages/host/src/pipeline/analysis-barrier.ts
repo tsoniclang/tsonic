@@ -373,7 +373,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
             if (body === undefined) return fail("An executable source local belongs to its actual checked body.");
             const localRead = chargeWork(account, 5);
             if (localRead !== null) return localRead;
-            const holding = checkedSourceObjectHoldingOf(body, local, {
+            const holding = checkedSourceObjectHoldingOf(body, local, storage, {
               bodyOf: id => sources.bodies.get(id) ?? null,
               bindingOf: source.bindingOf,
               typeOf: type => readType(source.types, type),
@@ -386,7 +386,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
                 return reference === null ? null : sources.nodeOf(reference);
               }, admit: (work, records) => (chargeWork(account, work) ?? chargeResultEntries(account, records)) === null,
             });
-            return accountFailure(account) ?? { kind: "complete", value: holding?.receiver === storage };
+            return accountFailure(account) ?? { kind: "complete", value: holding };
           },
           sourceObjectFields: (meter, identity) => {
             const admitted = chargeWork(meter, 1 + identity.length) ?? chargeResultEntries(meter, 4);

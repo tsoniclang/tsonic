@@ -137,12 +137,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     } else if (place.base.kind !== "local")
       return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
   }
-  const preparedSource = projectedPlaces === null && staticPlaces === null ? null : sourceOccurrences(tir, account);
+  const preparedSource = projectedPlaces === null && staticPlaces === null && referenceViews === null ? null : sourceOccurrences(tir, account);
   if (preparedSource !== null && preparedSource.kind !== "complete") return preparedSource;
-  if (referenceViews !== null && projectedPlaces === null)
-    return bodyFrontier("A narrowed reference requires its actual field producer.");
-  const preparedProjections = preparedSource === null || projectedPlaces === null ? null
-    : heldProjections(deps, input, preparedSource.value, projectedPlaces, referenceViews);
+  const preparedProjections = preparedSource === null || projectedPlaces === null && referenceViews === null ? null
+    : heldProjections(deps, input, preparedSource.value, projectedPlaces ?? [], referenceViews);
   if (preparedProjections !== null && preparedProjections.kind !== "complete") return preparedProjections;
   const projections = preparedProjections?.value ?? null;
   if (projections?.includesAbsence === true) {
@@ -152,7 +150,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let referenceFormals: Map<number, "field" | "array"> | null = null;
   let referenceCaptures: Set<number> | null = null;
   let arrayLocals: Set<LocalId> | null = null;
-  let objectValues: Set<LocalId> | null = null;
+  let objectValues: Map<LocalId, "reference" | "reference-optional"> | null = null;
   let inlineRoots: Set<LocalId> | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
@@ -189,7 +187,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       local.source.body === tir.body && (local.role.kind === "parameter" && local.mode === "by-value" || local.role.kind === "user" && local.mode === "local"))) {
       const formal = deps.sourceObjectHolding(account, local.source, local.storage);
       if (formal.kind !== "complete") return formal;
-      if (formal.value) {
+      if (formal.value !== null) {
         if (local.role.kind === "parameter") {
           const retained = chargeResultEntries(account, referenceFormals === null ? 2 : 1);
           if (retained !== null) return retained;
@@ -198,8 +196,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         } else {
           const retained = chargeResultEntries(account, objectValues === null ? 2 : 1);
           if (retained !== null) return retained;
-          objectValues ??= new Set();
-          objectValues.add(local.id);
+          objectValues ??= new Map();
+          objectValues.set(local.id, formal.value);
           if (local.role.kind === "capture") {
             const retained = chargeResultEntries(account, referenceCaptures === null ? 2 : 1);
             if (retained !== null) return retained;
@@ -207,7 +205,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
             referenceCaptures.add(local.role.index);
           }
         }
-        kind = "reference";
+        kind = formal.value;
       }
     }
     if (kind === "array-reference" && local.role.kind === "parameter" && local.mode === "by-value") {
@@ -438,7 +436,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
     const holdingRead = objectValues === null ? null : chargeWork(account, 1);
     if (holdingRead !== null) return holdingRead;
-    const kind = objectValues?.has(local) === true ? "reference" : valueKind(deps, requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: null,
+    const kind = objectValues?.get(local) ?? valueKind(deps, requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: null,
       message: "An actual capture retains its selected local storage." }).storage);
     const classified = accountFailure(account);
     if (classified !== null) return classified;
@@ -1158,7 +1156,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (place.base.projection.kind === "index" && syntax?.kind === "ElementAccessExpression" && projections?.places.has(place.id) === true) {
         stopped = read({ kind: "place", place: place.base.place }, syntax.expression, assigned, point)
           ?? read(place.base.projection.operand, syntax.argumentExpression, assigned, point);
-      } else if (place.base.projection.kind === "refined" && syntax?.kind === "PropertyAccessExpression" && syntax.tsonic.role === "value"
+      } else if (place.base.projection.kind === "refined" &&
+        (syntax?.kind === "PropertyAccessExpression" || syntax?.kind === "Identifier" && projections?.refined?.has(place.id) === true)
+        && syntax.tsonic.role === "value"
         && syntax.tsonic.narrowing?.kind === "narrowed" && mir.places[place.base.place]?.base.kind === "local") {
         stopped = read({ kind: "place", place: place.base.place }, syntax, assigned, point);
       } else return bodyFrontier("A check requires its actual admitted typed receiver and index or selected narrowing.");
@@ -1262,7 +1262,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     hasFor ||= node.kind === "ForStatement";
     if (node.tsonic !== null && "convertedType" in node.tsonic) {
       if (node.tsonic.narrowing !== null) {
-        if (node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value" || node.tsonic.narrowing.kind !== "narrowed")
+        if ((node.kind !== "PropertyAccessExpression" && node.kind !== "Identifier") ||
+          node.tsonic.role !== "value" || node.tsonic.narrowing.kind !== "narrowed")
           return bodyFrontier("BodyAnalysis requires the actual selected guard proof/invalidation relation for this refinement.");
         hasNarrowedField = true;
       }

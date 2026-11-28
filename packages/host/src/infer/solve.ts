@@ -2,7 +2,7 @@ import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitReq
 import type { TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, BoundSourceObjectField, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, DefaultConstraint, FinalVariable, InferenceGroup,
-  BodyTyping, CaptureRow, InferenceValue, InferenceVariable, InferredPartType, MemberRuleCompletion, MemberRuleStep, QualifiedOperatorField, SolvedConstraint,
+  BodyTyping, CaptureRow, InferenceValue, InferenceVariable, InferredPartType, MemberRuleCompletion, MemberRuleStep, QualifiedOperatorPresence, SolvedConstraint,
 } from "../ir-infer/contract.js";
 import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep,
   PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
@@ -522,7 +522,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       const admit = (work: number, records: number): boolean => admitTypePublicationStep(deps.typeWork, work, records) === null;
       const original = constraint.origins.length === 1 ? constraint.origins[0] : undefined;
       const storage = node?.kind === "PropertyAccessExpression"
-        ? deps.sourceFields(item.set.body)?.(node) ?? null
+        ? deps.sourceFields(item.set.body)?.field(node) ?? null
         : node?.kind === "BindingElement" && original?.kind === "declared" && constraint.access === "read"
           ? checkedSourceBindingFieldOf(deps.hirBody(item.set.body), node, constraint.key, original.declaration, {
             bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf,
@@ -557,7 +557,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       const { constraint } = item.reached;
       const { operator } = constraint;
       const [first, second] = constraint.operands;
-      let reference: QualifiedOperatorField | null = null;
+      let reference: QualifiedOperatorPresence | null = null;
       if ((operator === "==" || operator === "!=" || operator === "===" || operator === "!==") && first !== undefined && second !== undefined) {
         const left = resolved(first);
         const right = resolved(second);
@@ -579,11 +579,12 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
               if (cut !== null) return refuseTypeConstruction(deps.typeWork, cut, node.origin, unit);
               field = field.expression;
             }
-            if (field.kind === "PropertyAccessExpression" && field.tsonic.role === "value") {
-              const proof = deps.sourceFields(item.set.body)?.(field);
+            if ((field.kind === "PropertyAccessExpression" || field.kind === "Identifier") && field.tsonic.role === "value"
+              && (field.kind === "PropertyAccessExpression" || field.tsonic.resolution.kind === "local")) {
+              const presence = deps.sourceFields(item.set.body)?.presence(field);
               const stop = admitTypePublicationStep(deps.typeWork, 0);
               if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
-              if (proof?.presence != null) reference = { operand, field: proof };
+              if (presence != null) reference = { operand, at: selected.value, presence };
             }
           }
         }
@@ -609,7 +610,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
           if (before !== null) return refuseTypeConstruction(deps.typeWork, before, source.origin, unit);
           const target = deps.checkedNodeOf(destination);
           if (target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target") {
-            const field = deps.sourceFields(item.set.body)?.(target);
+            const field = deps.sourceFields(item.set.body)?.field(target);
             if (field?.presence != null) optionalField = field;
           }
           const stop = admitTypePublicationStep(deps.typeWork, 0);

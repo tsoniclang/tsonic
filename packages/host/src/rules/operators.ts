@@ -1,6 +1,6 @@
 import type { NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { HirBinaryOperator, HirUnaryOperator } from "../ir-hir/contract.js";
-import type { OperationDecision, QualifiedOperatorField } from "../ir-infer/contract.js";
+import type { OperationDecision, QualifiedOperatorPresence } from "../ir-infer/contract.js";
 import type { NativeIntegerOperation, NativePrimitive, TypeEvidence } from "../ir-types/contract.js";
 import { internType, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, isNativeSignedIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
@@ -31,7 +31,7 @@ function overflowSelection(deps: RulesDeps, carrier: NativePrimitive, type: TyId
 }
 
 export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | HirBinaryOperator, operands: readonly TypeEvidence[],
-  occurrence: NodeRef, origin: Origin | null, reference: QualifiedOperatorField | null): OperationDecision {
+  occurrence: NodeRef, origin: Origin | null, reference: QualifiedOperatorPresence | null): OperationDecision {
   const terms = operands.map(operand => readType(deps.types, operand.type));
   const named = terms.map(termName).join(" and ");
   if (terms.some(term => term.kind === "open")) return callerDefect(`the operator ${operator} over ${named} at ${at(occurrence)}: an operand is an unsolved variable`, origin);
@@ -70,10 +70,13 @@ export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | Hir
   if (terms.length !== 2 || !form.binary || left === undefined || right === undefined || carrier === undefined)
     return callerDefect(`the operator ${operator} with ${terms.length} operands at ${at(occurrence)}`, origin);
   const equality = operator === "==" || operator === "===" || operator === "!=" || operator === "!==";
-  const presence = reference?.field.presence;
-  if (reference !== null && (!equality || presence == null || reference.field.occurrence.body !== occurrence.body
-    || (reference.operand === 0 ? left : right).type !== presence.storage))
-    return callerDefect("a reference absence comparison requires its actual checked operand", origin);
+  const presence = reference?.presence;
+  if (reference !== null) {
+    const operand = reference.operand === 0 ? left : right;
+    if (!equality || reference.at.body !== occurrence.body || operand.type !== reference.presence.storage ||
+      operand.component.kind !== "body" || operand.component.value.body !== reference.at.body || operand.component.value.node !== reference.at.node)
+      return callerDefect("a reference absence comparison requires its actual checked operand", origin);
+  }
   if (equality && nativeAbsenceComparisonOf(carrier, terms[1], type => readType(deps.types, type), presence?.present ?? null) === "native-absence") {
     return { kind: "selected", operation: { kind: "absence-test", negated: operator === "!=" || operator === "!==" },
       operands: [left.type, right.type], result: internType(deps.types, { kind: "primitive", primitive: "bool" }), execution: { kind: "pure" } };

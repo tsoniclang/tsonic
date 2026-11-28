@@ -3,12 +3,12 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, PropertyName, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand, TypedBindingElement,
   TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
-import type { BodyInstance, LiteralValue, TypeTerm } from "../ir-types/contract.js";
+import type { BodyInstance, LiteralValue, TypeEvidence, TypeTerm } from "../ir-types/contract.js";
 import { admitTypePublicationStep, artifactBindingsKey, optionalValueDomainOf, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
 import { attachFormalDefault, elaborateCatchBinding, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
@@ -467,6 +467,20 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   for (const rows of captureLocals.values()) for (const slot of rows.values())
     if (slot === null) return callerDefect("a retained capture requires its actual local slot", rootOrigin);
   const readEvidence = new Set<NodeId>();
+  const localPresence = (node: Identifier<CheckedPhase>, storage: TyId, present: TyId) => {
+    if (storage === present || node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available" ||
+      node.tsonic.value.views.read.value !== present) return null;
+    const term = deps.typeOf(storage);
+    if (term.kind !== "optional" || term.value !== present || deps.typeOf(present).kind !== "shape") return null;
+    const setup = admitTypePublicationStep(deps.typeWork, 1, 3);
+    if (setup !== null) return setup;
+    const presence = checkedSourceObjectFieldsOf(body, {
+      bodyOf: deps.bodyOf, nodeOf: deps.nodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf, typeOf: deps.typeOf,
+      admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
+    }).presence(node);
+    const stopped = admitTypePublicationStep(deps.typeWork, 0);
+    return stopped ?? (presence?.storage === storage && presence.present === present ? presence : null);
+  };
   if (captureLocals.size !== 0) for (const evidence of constraints.evidence) {
     const component = evidence.value.component;
     if (component.kind !== "body" || component.value.body !== body.body || readEvidence.has(component.value.node)) continue;
@@ -485,7 +499,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     const reference = node.tsonic.resolution.local;
     const slot = captureLocals.get(reference.body)?.get(reference.local);
     if (slot === undefined || slot === null) continue;
-    const storage = finalType(evidence.value.type, node.origin);
+    const type = finalType(evidence.value.type, node.origin);
+    const checkedSlot = body.locals[slot]?.checkerSlot;
+    const presence = checkedSlot?.kind === "available" ? localPresence(node, checkedSlot.value, type) : null;
+    if (presence !== null && "kind" in presence)
+      return refuseTypeConstruction(deps.typeWork, presence, node.origin, { query: "elaborateBody", key: body.body });
+    const storage = presence?.storage ?? type;
     if (storageOf[slot] !== undefined && storageOf[slot] !== storage)
       return callerDefect("the actual captured local reads disagree on their finalized storage type", node.origin);
     storageOf[slot] = storage;
@@ -584,7 +603,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const demandRight = (node: BinaryExpression<CheckedPhase>, logical: ShortCircuitOperator): void => {
     demandArm(node.left.id, node.right, logical === "and" ? "true" : logical === "or" ? "false" : "absent");
   };
-  const names: ({ readonly resolution: TirResolution; readonly storage: TyId; readonly role: "value" | "assignment-target" } | undefined)[] = [];
+  const names: ({ readonly resolution: TirResolution; readonly storage: TyId; readonly role: "value" | "assignment-target";
+    readonly narrowing?: TypedValue["narrowing"] } | undefined)[] = [];
   const visited = (node: HirNode): InvariantFailure => failure("compiler defect", `a ${node.kind} built without its visit`, node.origin);
 
   const enumConstant = (node: HirNode, declaration: ItemNodeRef, aliases: readonly SourceNodeRef[]):
@@ -678,6 +698,26 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (checkedSlot?.kind !== "available" || selected !== checkedSlot.value)
         return callerDefect("an assignment target retains its actual qualified writable storage type", node.origin);
     }
+    if (checked.role === "value" && checked.value.views.read.kind === "available") {
+      const present = checked.value.views.read.value;
+      const presence = localPresence(node, storage, present);
+      if (presence !== null) {
+        if ("kind" in presence)
+          return refuseTypeConstruction(deps.typeWork, presence, node.origin, { query: "elaborateBody", key: body.body });
+        const occurrence = { body: body.body, node: node.id };
+        const evidence = (type: TyId): TypeEvidence => ({ type, component: { kind: "body", value: occurrence },
+          category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null });
+        const result = deps.rules.refinement({ context: { occurrence, origin: node.origin,
+          bindings: instance.bindings.kind === "instantiated" ? instance.bindings.bindings : rigidBindings(input.scope) },
+        source: evidence(storage), checked: evidence(present) }, presence);
+        if (result.kind === "refused") return result;
+        const outcome = result.value;
+        if (outcome.kind !== "decided" || outcome.decision.kind !== "narrowed")
+          return callerDefect("a qualified local read retains its actual optional narrowing", node.origin);
+        names[position] = { resolution: { kind: "local", local: resolution.local }, storage, role: "value", narrowing: outcome.decision };
+        return;
+      }
+    }
     names[position] = { resolution: { kind: "local", local: resolution.local }, storage, role: checked.role };
   };
   const admitBinary = (node: BinaryExpression<CheckedPhase>, position: number): void => {
@@ -733,8 +773,9 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return { ...header(node), kind: "Identifier", text: node.text,
         tsonic: { role: "assignment-target", resolution: name.resolution, access } };
     }
+    const narrowed = name.narrowing?.kind === "narrowed" ? name.narrowing : null;
     return { ...header(node), kind: "Identifier", text: node.text,
-      tsonic: { role: "value", resolution: name.resolution, ...valueOf(position, name.storage, node.origin) } };
+      tsonic: { role: "value", resolution: name.resolution, ...valueOf(position, narrowed?.result ?? name.storage, node.origin, narrowed) } };
   };
 
   const shortCircuitOf = (node: BinaryExpression<CheckedPhase>, logical: ShortCircuitOperator, result: TyId,

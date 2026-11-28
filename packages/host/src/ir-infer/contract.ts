@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, ItemNodeRef, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayConstruction, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayConstruction, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, SourceObjectFieldPresence, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativeIntegerPrimitive, NativePrimitive, NominalDefinition, PassingMode, ReferenceArgumentView, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode, ReferenceArgumentRequest } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -802,15 +802,16 @@ export interface FlowContributionScheme {
     readonly optionalField: SourceObjectField | null }, work: RuleWork) => Result<ContributionOutcome>;
 }
 
-export interface QualifiedOperatorField {
+export interface QualifiedOperatorPresence {
   readonly operand: 0 | 1;
-  readonly field: SourceObjectField;
+  readonly at: NodeRef;
+  readonly presence: SourceObjectFieldPresence;
 }
 
 export interface OperatorContributionScheme {
   readonly enumerate: (input: EnumerationInput<OperatorConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<OperatorConstraint> & {
-    readonly reference: QualifiedOperatorField | null;
+    readonly reference: QualifiedOperatorPresence | null;
   }) => Result<ContributionOutcome>;
 }
 
@@ -869,7 +870,7 @@ export interface RuleTable<State> {
   readonly operator: (input: OperatorInput) => Result<RuleOutcome<OperationDecision>>;
   readonly literalFit: (input: LiteralFitInput, work: RuleWork) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly protocol: (input: ProtocolInput) => Result<RuleOutcome<OperationDecision>>;
-  readonly refinement: (input: RefinementInput) => Result<RuleOutcome<RefinementDecision>>;
+  readonly refinement: (input: RefinementInput, presence: SourceObjectFieldPresence | null) => Result<RuleOutcome<RefinementDecision>>;
   readonly library: (input: LibraryInput) => Result<RuleOutcome<OperationDecision>>;
   readonly core: (input: CoreInput) => Result<RuleOutcome<OperationDecision>>;
   readonly closure: (input: ClosureInput) => Result<RuleOutcome<ClosureDecision>>;

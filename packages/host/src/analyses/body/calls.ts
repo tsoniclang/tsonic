@@ -12,7 +12,6 @@ import type { TirApplication } from "../../ir-tir/contract.js";
 import { bindingVectorKey } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
 import { valueKind } from "./values.js";
-import { readLocal } from "./places.js";
 import { callWrites, primitiveExitLocals } from "./writes.js";
 import type { StaticCalleeCells } from "./static-calls.js";
 import type { ArrayReturn } from "./array-results.js";
@@ -431,8 +430,8 @@ export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirT
 
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
-  arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
-  captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null,
+  arena: RelationalArena, readValue: (operand: MirOperand) => OriginsId | DataflowStop,
+  captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlyMap<LocalId, "reference" | "reference-optional"> | null,
   arrayReturn: ArrayReturn | null, project: ReadAppliedValue): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;
   if (operation.destination !== null) {
@@ -444,8 +443,8 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     const holdingRead = objectValues === null ? null : chargeWork(deps.account, 2);
     if (holdingRead !== null) return holdingRead;
     const place = objectValues === null ? undefined : input.mir.places[operation.destination];
-    const kind = place?.base.kind === "local" && place.storage === signature.result && objectValues?.has(place.base.local) === true
-      ? "reference" : valueKind(deps, signature.result);
+    const holding = place?.base.kind === "local" && place.storage === signature.result ? objectValues?.get(place.base.local) : undefined;
+    const kind = holding ?? valueKind(deps, signature.result);
     const classified = accountFailure(deps.account);
     if (classified !== null) return classified;
     if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
@@ -478,14 +477,12 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
       continue;
     }
     if (argument?.kind !== "value") return frontier(operation, "A selected by-value call retains its actual operand.");
-    const operand = argument.operand;
-    arguments_.push({ kind: "provided", origins: requirePresent(
-      operand.kind === "constant" ? constants[operand.constant] : state[Number(readLocal(input.mir, operand))],
-      { owner: "analyses/body", query: null, origin: operation.origin, message: "A selected argument retains its actual value-flow Origins." }) });
+    const origins = readValue(argument.operand);
+    if (typeof origins !== "number") return origins;
+    arguments_.push({ kind: "provided", origins });
   }
   const entries: ValueEntryBinding[] = [];
-  const captureOrigins = (place: PlaceId) => requirePresent(state[readLocal(input.mir, { kind: "place", place })],
-    { owner: "analyses/body", query: null, origin: operation.origin, message: "A selected capture retains its actual caller slot content at this call." });
+  const captureOrigins = (place: PlaceId) => readValue({ kind: "place", place });
   const parameterOrigins = (index: number) => {
     const slot = arguments_[index];
     return slot?.kind === "provided" ? slot.origins : frontier(operation, "An incoming formal value requires an actual provided argument.");
@@ -508,8 +505,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     cells.push({ kind: "cell", index: location });
   }
   const context = valueContextId(arena.contexts.length);
-  const environment = callCaptureBindings(deps, operation, captures, place => requirePresent(state[readLocal(input.mir, place)], {
-    owner: "analyses/body", query: null, origin: operation.origin, message: "A copied capture retains its value at invocation." }));
+  const environment = callCaptureBindings(deps, operation, captures, readValue);
   if (environment.kind !== "complete") return environment;
   const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures: environment.value }] };
   const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells, () => null, arrayReturn);

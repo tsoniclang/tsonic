@@ -5,7 +5,7 @@ import type {
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
   NarrowedRefinement, OperationDecision, OperatorContributionScheme, RuleTable, RuleWork, VariableBound,
 } from "../ir-infer/contract.js";
-import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
+import type { CategoryEvidence, SourceObjectFieldPresence, TypeEvidence } from "../ir-types/contract.js";
 import { admitTypePublicationStep, compareAdmittedMemberKeys, compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData,
   nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
@@ -192,9 +192,8 @@ export function operatorScheme(deps: RulesDeps): OperatorContributionScheme {
   };
 }
 
-export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source: TyId, checked: TyId, field: SourceObjectField | null): NarrowedRefinement | null {
+export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source: TyId, checked: TyId, presence: SourceObjectFieldPresence | null): NarrowedRefinement | null {
   if (source === checked) return null;
-  const presence = field?.presence;
   if (presence?.storage !== source || presence.present !== checked) {
     const domain = optionalValueDomainOf(readType(deps.types, source), type => readType(deps.types, type));
     if (domain.kind !== "optional-value" || domain.present !== checked) return null;
@@ -273,7 +272,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
   const variable = variableOf(deps, destination.result, destination.occurrence, null);
   const refinement = access === "read" && destination.checkedRead !== null
-    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead, field) : null;
+    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead, field?.presence ?? null) : null;
   const value = resultEvidence(deps, refinement === null ? selected : refinement.result, destination.occurrence, []);
   return { kind: "done", value: ok({ kind: "contribution", value: {
     bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],

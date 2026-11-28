@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeBodyId, encodeKey } from "../ids/index.js";
-import type { CheckedPhase, CheckedSourceObjectFieldReader, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration, ReferenceArgumentRequest } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedSourceObjectFields, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration, ReferenceArgumentRequest } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
   checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
@@ -37,7 +37,7 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, boundary: 
   const bodyOf = (id: BodyId) => boundary.bodies.get(id) ?? null;
   let stopped: Stop | null = null;
   let missing = false;
-  let reader: CheckedSourceObjectFieldReader | null = null;
+  let reader: CheckedSourceObjectFields | null = null;
   const work = (work: number, records: number): boolean => {
     stopped ??= admit({ kind: "source-field-proof", work, records });
     return stopped === null;
@@ -58,20 +58,21 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, boundary: 
     if (node === null || node.id !== reference.value.node) { missing = true; return null; }
     return node;
   };
-  const field: CheckedSourceObjectFieldReader = access => {
+  const fields = (): CheckedSourceObjectFields | null => {
     missing = false;
     if (body === undefined) return null;
     if (reader === null) {
       if (!work(1, 3)) return null;
       reader = checkedSourceObjectFieldsOf(body, { bodyOf, nodeOf: read, itemOf: item, bindingOf: input.bindingOf,
-        typeOf: type => input.types.terms[type], admit: work }).field;
+        typeOf: type => input.types.terms[type], admit: work });
     }
-    return reader(access);
+    return reader;
   };
   const referenceArgument = (request: ReferenceArgumentRequest) => body === undefined ? null
     : checkedReferenceArgumentViewOf({ ...request, body }, { bodyOf, nodeOf: read, itemOf: item, bindingOf: input.bindingOf,
       typeOf: type => input.types.terms[type], admit: work });
-  return { field, referenceArgument, work, stop: () => stopped, missing: () => missing };
+  return { field: (access: PropertyAccessExpression<CheckedPhase>) => fields()?.field(access) ?? null,
+    presence: (operand: HirNode) => fields()?.presence(operand) ?? null, referenceArgument, work, stop: () => stopped, missing: () => missing };
 }
 
 function sameReferenceView<Stop extends object>(actual: ReferenceArgumentView, selected: ReferenceArgumentView,
@@ -143,8 +144,9 @@ function checkedComparisonPayload<Stop extends object>(input: TirVerifierInput, 
     if (!fields.work(1, 0)) return null;
     checked = checked.expression;
   }
-  if (checked.kind !== "PropertyAccessExpression" || checked.tsonic.role !== "value") return null;
-  const proof = fields.field(checked)?.presence;
+  if (checked.kind !== "PropertyAccessExpression" && checked.kind !== "Identifier" || checked.tsonic.role !== "value"
+    || checked.kind === "Identifier" && checked.tsonic.resolution.kind !== "local") return null;
+  const proof = fields.presence(checked);
   return proof != null && proof.storage === operands[selected] && proof.present === term.value ? proof.present : null;
 }
 
@@ -1012,6 +1014,22 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         || selection.decision.decision.location.kind !== "data" || selection.decision.decision.read !== narrowing.source
         || present !== narrowing.result)
         emit("refinement-destination", node, "a narrowed field requires its completed native storage and actual checked read endpoint");
+    }
+    if (node.kind === "Identifier" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      const { narrowing } = node.tsonic;
+      const read = original?.kind === "Identifier" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
+      const local = original?.kind === "Identifier" && original.tsonic.role === "value" && original.tsonic.resolution.kind === "local"
+        ? original.tsonic.resolution.local : null;
+      const witness = read?.kind === "available" && original !== undefined ? fields.presence(original) : null;
+      const stopped = fields.stop();
+      if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+      if (read?.kind !== "available" || read.value !== narrowing.result || local === null || node.tsonic.resolution.kind !== "local"
+        || !sameLocalReference(local, node.tsonic.resolution.local)
+        || witness?.storage !== narrowing.source || witness.present !== narrowing.result
+        || narrowing.failure !== input.selectedNativeFacts.absentAccessFailure)
+        emit("refinement-destination", node, "a narrowed reference local requires its actual saved optional storage and checked read");
     }
     if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
       && (node.tsonic.role === "array-extent" || original?.kind === "PropertyAccessExpression" && original.tsonic.role === "array-extent")) {

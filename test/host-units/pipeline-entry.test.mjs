@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { checkCapturedFieldRefinement, checkDocumentedRefinementWalkthrough, checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
+import { checkSavedReferencePresence } from "./fixtures/saved-reference-presence.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkInterruptedModuleInitialization, checkSelectedStaticExposure } from "./fixtures/program-static-exposure.mjs";
@@ -3363,10 +3364,10 @@ test("applied field reads follow the actual forwarded object rather than the cal
   const { sourceObjectHolding, source, storage, scalar } = witness;
   const limits = input.limits.dataflow;
   const account = createAccount(limits);
-  assert.deepEqual(sourceObjectHolding(account, source, storage), { kind: "complete", value: true });
+  assert.deepEqual(sourceObjectHolding(account, source, storage), { kind: "complete", value: "reference" });
   const { work } = InvocationAccount.stateOf(account);
-  assert.deepEqual(sourceObjectHolding(createAccount({ ...limits, maximumWork: work }), source, storage), { kind: "complete", value: true });
-  assert.deepEqual(sourceObjectHolding(createAccount(limits), source, scalar), { kind: "complete", value: false });
+  assert.deepEqual(sourceObjectHolding(createAccount({ ...limits, maximumWork: work }), source, storage), { kind: "complete", value: "reference" });
+  assert.deepEqual(sourceObjectHolding(createAccount(limits), source, scalar), { kind: "complete", value: null });
   for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
     const cut = createAccount({ ...limits, maximumWork });
     const refusal = sourceObjectHolding(cut, source, storage);
@@ -6410,6 +6411,7 @@ test("unannotated integral initializers select native int64 before materializing
 test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", checkNativeRefinementWalkthrough);
 test("WT-10 documents separate guards before the pure and mutating calls", checkDocumentedRefinementWalkthrough);
 test("WT-10 distinguishes sibling and guarded writes through a placed capture", checkCapturedFieldRefinement);
+test("WT-10 proves the saved nullable local itself before reading or forwarding its reference", checkSavedReferencePresence);
 
 test("WT-10 follows actual native && and || edges without removing explicit field checks", async () => {
   const fixture = await loadFrontFixture();

@@ -328,7 +328,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
   transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null, project: ReadAppliedValue,
   slots: StorageSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldProjections | null = null,
-  objectValues: ReadonlySet<LocalId> | null = null, reference: ReferenceRead | null = null): ForwardProblem<ValueState> {
+  objectValues: ReadonlyMap<LocalId, "reference" | "reference-optional"> | null = null, reference: ReferenceRead | null = null): ForwardProblem<ValueState> {
   return {
     direction: "forward", boundary,
     lattice: {
@@ -460,7 +460,8 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         const destination = terminator.destination === null ? null : rootSlot(input.mir, terminator.destination, slots);
         const arrayReturn = arrays?.returns?.get(block) ?? null;
         const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected,
-          arena, state.origins, constants, terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
+          arena, operand => operandOrigins(input, constants, state.origins, operand, slots, fields, reference),
+          terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
             origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues, arrayReturn, project);
         if (result.kind !== "complete") return outgoing;
         if (result.value.kind === "applied") {
@@ -523,7 +524,7 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  slots: StorageSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlySet<LocalId> | null,
+  slots: StorageSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlyMap<LocalId, "reference" | "reference-optional"> | null,
   transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null, reference: ReferenceRead | null, project: ReadAppliedValue): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;

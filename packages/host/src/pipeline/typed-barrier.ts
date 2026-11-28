@@ -257,7 +257,8 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       || origin.value.body !== owner.body || origin.value.node !== owner.root.id) return null;
     return readType(source.types, placed.signature.result).kind !== "error" ? placed.signature.result : null;
   };
-  const elaboration = { cuts, types: source.types, typeWork: source.typeWork, rules: inference.rules, nodeOf: sources.nodeOf, itemOf,
+  const elaboration = { cuts, types: source.types, typeWork: source.typeWork, rules: inference.rules, nodeOf: sources.nodeOf,
+    bodyOf: (body: BodyId) => sources.bodies.get(body) ?? null, itemOf,
     bindingOf: source.bindingOf, nominalOf: source.nominalOf, bindingScopeOf: scopeOf, staticStorageOf, enumValueTypeOf,
     typeOf: (type: Parameters<typeof readType>[1]) => readType(source.types, type),
     signatureOf: (signature: Parameters<typeof readSignature>[1]) => readSignature(source.types, signature),

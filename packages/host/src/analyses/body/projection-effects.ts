@@ -6,7 +6,7 @@ import type { AppliedSummary, BoundProducer, CallFieldBindings, Origins, Produce
 import { admitSelectionIdentity, fieldProjectionIdentityData, projectCallFields } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import { visitMirControlEdges, visitMirStorageExposures } from "../../ir-mir/index.js";
-import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
+import type { Identifier, PropertyAccessExpression } from "../../ir-hir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
 import type { ReferenceArgumentView, SourceObjectField } from "../../ir-types/contract.js";
 import type { IncomingValue } from "./calls.js";
@@ -26,7 +26,7 @@ type FieldValue = "scalar" | "scalar-optional" | "reference" | "reference-option
 type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } &
   (Exclude<ScalarProjection, { readonly kind: "field" }>
     | Extract<ScalarProjection, { readonly kind: "field" }> & { readonly sourceReference: boolean });
-type ReceiverProducer = LocalRef | NodeId | PropertyAccessExpression<TypedPhase>;
+type ReceiverProducer = LocalRef | NodeId | PropertyAccessExpression<TypedPhase> | Identifier<TypedPhase>;
 
 function sameReceiver(previous: ReceiverProducer, current: ReceiverProducer): boolean {
   if (previous === current) return true;
@@ -224,7 +224,9 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       receiver = receiver.expression;
     }
     const resolution = receiver.kind === "Identifier" && receiver.tsonic.role === "value" ? receiver.tsonic.resolution : null;
-    const receiverSource: ReceiverProducer | null = resolution?.kind === "local" ? resolution.local
+    const receiverSource: ReceiverProducer | null = resolution?.kind === "local"
+      ? receiver.kind === "Identifier" && receiver.tsonic.role === "value" && receiver.tsonic.narrowing?.kind === "narrowed"
+        ? receiver : resolution.local
       : receiver.kind === "CallExpression" && "application" in receiver.tsonic && receiver.tsonic.application.kind === "decided" ? receiver.id
       : receiver.kind === "PropertyAccessExpression" && receiver.tsonic.role === "value" && receiver.tsonic.selection?.kind === "decided"
         ? receiver : null;
@@ -256,6 +258,18 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       const temporary = base.kind === "checked" ? mir.places[base.place] : undefined;
       const local = temporary?.base.kind === "local" ? mir.locals[temporary.base.local] : undefined;
       const node = base.kind === "checked" && base.tir.body === tir.body ? source.get(base.tir.node) : undefined;
+      if (node?.kind === "Identifier" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
+        const { narrowing, resolution } = node.tsonic;
+        if (resolution.kind !== "local" || local === undefined ||
+          !(local.role.kind === "user" && local.mode === "local" || local.role.kind === "capture" && local.mode === "captured-value") ||
+          local.source?.body !== resolution.local.body || local.source.local !== resolution.local.local ||
+          narrowing.source !== local.storage || narrowing.result !== view.storage)
+          return bodyFrontier("A narrowed reference local must retain its actual selected storage and checked value.");
+        const keep = chargeResultEntries(account, 1);
+        if (keep !== null) return keep;
+        refined.set(view.id, local.id);
+        continue;
+      }
       const info = node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value" ? node.tsonic.narrowing : null;
       let binding = null;
       if (node?.kind === "BindingElement" && node.tsonic.role === "field-binding") {
@@ -499,10 +513,13 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     return id;
   }
   function observeAt(access: Access, family: "field" | "array", origins: Origins, bound: readonly BoundProducer[],
-    producers: readonly Producer[], locate: (parent: ProjectionPathId | null) => ProjectionPathId | DataflowStop): DataflowStop | null {
+    producers: readonly Producer[], mode: "selected-access" | "applied-may-effect",
+    locate: (parent: ProjectionPathId | null) => ProjectionPathId | DataflowStop): DataflowStop | null {
     const { account } = deps;
-    if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
+    if (origins.kind !== "complete" || mode === "selected-access" && origins.includesAbsence ||
+      origins.producers.length === 0 && !origins.includesAbsence)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");
+    if (origins.producers.length === 0) return null;
     if (access === "write" && writes === null && (referenceCaptures === null || referenceFormals !== null)) {
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
@@ -552,7 +569,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
   function observe(access: Access, projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
     producers: readonly Producer[]): DataflowStop | null {
     return observeAt(access, projection.kind === "field" ? "field" : "array", origins, bound,
-      producers, parent => remember(projection, parent));
+      producers, "selected-access", parent => remember(projection, parent));
   }
   function projectValue(receiver: OriginsId, absence: boolean, values: ValueOrigins, bound: BoundProducer[],
     producers: Producer[], admit: AdmitOrigins,
@@ -680,7 +697,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         if (origins === undefined || value?.kind !== "caller" || origins.id !== value.value.origins)
           return bodyFrontier("An applied field access requires its actual caller Origins.");
         const transported = projection.kind === "field"
-          ? observeAt(access, "field", origins, caller.boundProducers, caller.producers,
+          ? observeAt(access, "field", origins, caller.boundProducers, caller.producers, "applied-may-effect",
             parent => callerPath(callee.arena.projections, path.id, view, parent))
           : observe(access, projection, origins, caller.boundProducers, caller.producers);
         if (transported !== null) return transported;

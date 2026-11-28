@@ -657,7 +657,7 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
     set.constraints.some(constraint => constraint.kind === "op")));
   const constraints = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "op"));
   const body = program.domain.bodyOf.get(constraints.body);
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.inputs.typeWork, rules: program.deps.rules, nodeOf: program.domain.nodeOf, bindingOf: program.deps.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.inputs.typeWork, rules: program.deps.rules, nodeOf: program.domain.nodeOf, bindingOf: program.deps.bindingOf,
     typeOf: type => fixture.types.readType(program.interner, type),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: module => {
@@ -1092,7 +1092,7 @@ test(`Elaborate replays the actual solved placed-body rows for ${operand} withou
   const record = records.find(record => record.solution.bodies.some(typing => typing.body === body.body));
   const constraints = record.constraints.find(set => set.body === body.body);
   const typing = record.solution.bodies.find(typing => typing.body === body.body);
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.inputs.typeWork, rules: { ...program.deps.rules,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.inputs.typeWork, rules: { ...program.deps.rules,
     decideCaptureModes: () => assert.fail("Elaborate retains Rules authority; it does not select capture modes.") },
     ...fixture.hir.createModuleBindingViews([program.checked.bindings]),
     typeOf: type => fixture.types.readType(program.interner, type),

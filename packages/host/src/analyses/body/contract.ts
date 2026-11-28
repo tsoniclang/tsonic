@@ -18,7 +18,7 @@ export interface BodyRoundEnvironment {
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
   readonly carrierHoldingOf: (account: DataflowAccount, carrier: NativeHoldingCarrier) => DataflowResult<ReceiverAccess | null>;
-  readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
+  readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<"reference" | "reference-optional" | null>;
   readonly sourceObjectFields: (account: DataflowAccount, body: BodyId) => DataflowResult<(node: NodeId) => DataflowResult<SourceObjectField | null>>;
   readonly observationOf: (account: DataflowAccount, instance: BodyInstance, at: NodeRef) => DataflowResult<ObservationFact | null>;
   readonly enumValueOf: ReadyEnumValueOf;

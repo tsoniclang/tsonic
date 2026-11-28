@@ -786,7 +786,7 @@ test("real bodyless call, method, construct and index formals retain definitions
     for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
   }
   const bodies = new Map();
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
@@ -871,7 +871,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     assert.equal(answer.diagnostics.length, 0);
     for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
   }
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
@@ -1427,7 +1427,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     solution: crossed, placedSignatureOf: body => placed.get(body) ?? null, readySourceField: program.inputs.inference.readySourceField,
     ...program.verification(group, publication.constraints, publication) });
   assert.deepEqual(invalid.map(({ rule, detail }) => [rule, detail.map(part => part.value)]), [["endpoint-agreement", ["completion"]]]);
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
@@ -1521,7 +1521,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
@@ -1638,7 +1638,7 @@ test("actual plain local assignment retains the RHS embedding and writable targe
   const flow = constraints.constraints.find(candidate => candidate.kind === "flow" && candidate.role === "assignment");
   assert.equal(flow.occurrence.node, checked.right.id);
   assert.equal(constraints.constraints.some(candidate => candidate.kind === "op" && candidate.occurrence.node === checked.id), false);
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
@@ -1725,7 +1725,7 @@ test("throwing an actual string formal retains the value channel without a retur
   const constraints = completed.value.constraints.constraints.find(candidate => candidate.body === body.body);
   assert.deepEqual(constraints.variables, []);
   assert.deepEqual(constraints.constraints, []);
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
@@ -1814,7 +1814,7 @@ for (const [authored, annotation, kind, expected] of [
   assert.deepEqual(embedding.proof.steps, [{ from: { root: from.value.component, path: [] },
     to: { root: to.value.component, path: [] }, rule: "literal-fit", premises: [] }]);
   const typed = new Map();
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
@@ -1900,7 +1900,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     assert.equal(initializerRecord.solution.constraints[0].decision.embedding.conversion, "literal-fit");
   }
   const typed = new Map();
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
@@ -2020,7 +2020,7 @@ test("an actual null return completes its inferred declaration and selected body
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, bodyOf: identity => program.domain.sources.bodies.get(identity) ?? null, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,

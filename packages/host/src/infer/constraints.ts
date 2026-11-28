@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, findMemberByKey, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedBindingKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedBindingKeyOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -1405,6 +1405,23 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
   if (local.role === "catch") {
     if (local.checkerSlot.kind !== "available") return notInferredYet(PORT, "a handler without its actual checked payload carrier", node.origin);
     return local.checkerSlot.value;
+  }
+  if (name.role === "value" && name.value.views.read.kind === "available" && local.checkerSlot.kind === "available"
+    && name.value.views.read.value !== local.checkerSlot.value) {
+    const { deps, group } = walk.generation;
+    const type = readType(deps.types, local.checkerSlot.value);
+    if (type.kind === "optional" && type.value === name.value.views.read.value && readType(deps.types, type.value).kind === "shape") {
+      const unit = { query: "solutionOf", key: group.id };
+      const setup = admitTypePublicationStep(deps.typeWork, 1, 3);
+      if (setup !== null) return refuseTypeConstruction(deps.typeWork, setup, node.origin, unit);
+      const witness = checkedSourceObjectFieldsOf(walk.draft.body, {
+        bodyOf: deps.hirBody, nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, bindingOf: deps.bindingOf,
+        typeOf: type => readType(deps.types, type), admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
+      }).presence(node);
+      const stop = admitTypePublicationStep(deps.typeWork, 0);
+      if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
+      if (witness?.storage === local.checkerSlot.value && witness.present === type.value) return type.value;
+    }
   }
   const declared = declaration.tsonic.declaredType;
   if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", node.origin);

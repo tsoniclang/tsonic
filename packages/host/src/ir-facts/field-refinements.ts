@@ -4,7 +4,7 @@ import type { BlockId, LocalId, NodeId, NodeRef, PlaceId } from "../ids/contract
 import { encodeKey } from "../ids/index.js";
 import type { MirBlock, MirBody, MirOperand, MirTerminator } from "../ir-mir/contract.js";
 import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
-import type { MemberSelection } from "../ir-tir/contract.js";
+import type { MemberSelection, TirSyntaxOccurrence } from "../ir-tir/contract.js";
 import type { FieldRefinementInputs, FieldRefinementsOf, RefinementFact, RefinementInvalidation, Summary } from "./contract.js";
 import type { PlacedCapture, PlacedCaptures } from "./apply-summary.js";
 import { admitPlacedCapture, projectCallFields, refinementWriteSteps } from "./apply-summary.js";
@@ -380,6 +380,16 @@ function fieldOf(mir: MirBody, block: MirBlock, operand: MirOperand, before: num
     : finishFieldTask(fieldTask(mir, block, operand, before, read, flow, account), mir, flow, account);
 }
 
+function savedSlot(mir: MirBody, place: PlaceId, source: TirSyntaxOccurrence): LocalId | null {
+  if (source.kind !== "Identifier" || source.tsonic.role !== "value" || source.tsonic.resolution.kind !== "local") return null;
+  const base = mir.places[place]?.base;
+  const local = base?.kind === "local" ? mir.locals[base.local] : undefined;
+  const reference = source.tsonic.resolution.local;
+  return local !== undefined && (local.role.kind === "user" && local.mode === "local" || local.role.kind === "capture" && local.mode === "captured-value")
+    && local.source?.body === reference.body
+    && local.source.local === reference.local ? local.id : null;
+}
+
 function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Field, flow: Flow,
   inputs: FieldRefinementInputs, account: DataflowAccount): DataflowResult<NodeRef | null> {
   const paid = chargeWork(account, 2);
@@ -387,7 +397,15 @@ function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Fiel
   const branch = block.terminator;
   if (branch.kind !== "switch" || branch.operand.kind !== "place" || branch.step !== null || branch.targets.length !== 1) return missing;
   const whenTrue = branch.targets[0];
-  const assignment = block.statements.at(-1);
+  let position = block.statements.length - 1;
+  let assignment = block.statements[position];
+  while (assignment?.kind === "storage-live" || assignment?.kind === "storage-dead") {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const control = mir.places[branch.operand.place]?.base;
+    if (control?.kind !== "local" || assignment.local === control.local || assignment.local === field.receiver) return missing;
+    assignment = block.statements[--position];
+  }
   if (whenTrue === undefined || assignment?.kind !== "assign" || assignment.place !== branch.operand.place
     || assignment.tir.body !== mir.body || assignment.value.kind !== "binary") return missing;
   const constant = mir.constants[whenTrue.constant]?.value;
@@ -414,9 +432,15 @@ function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Fiel
     if (step !== null) return step;
     authored = authored.expression;
   }
+  if (field.path.length === 0) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    return operand.kind === "place" && savedSlot(mir, operand.place, authored) === field.receiver
+      ? { kind: "complete", value: assignment.tir } : missing;
+  }
   if (authored.kind !== "PropertyAccessExpression" || authored.tsonic.role !== "value"
     || authored.tsonic.selection.kind !== "decided") return missing;
-  const tested = fieldOf(mir, block, operand, block.statements.length - 1, "sample", flow, account);
+  const tested = fieldOf(mir, block, operand, position, "sample", flow, account);
   if (tested.kind !== "complete") return tested;
   const actual = tested.value;
   if (actual?.path[0]?.node !== authored.id || actual.receiver !== field.receiver || actual.path.length !== field.path.length) return missing;
@@ -459,7 +483,7 @@ function writesField(mir: MirBody, block: MirBlock, before: number, place: Place
   if (paid !== null) return paid;
   const base = mir.places[place]?.base;
   if (base?.kind === "local") return base.local === receiver ? available : unavailable;
-  if (base?.kind !== "place" && base?.kind !== "checked") return unavailable;
+  if (path.length === 0 || base?.kind !== "place" && base?.kind !== "checked") return unavailable;
   if (base.projection.kind !== "field") return base.projection.kind === "deref" || base.projection.kind === "capture" ? available : unavailable;
   return writesProjectedField(mir, block, before, place, receiver, path, flow, account);
 }
@@ -550,7 +574,7 @@ function effectSummary(flow: Flow, block: BlockId, call: Call): DataflowResult<S
   return placement != null && "kind" in placement ? { kind: "complete", value: placement.summary } : flow.summaryAt(block, call);
 }
 
-function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
+function fieldProof(mir: MirBody, block: MirBlock, check: Check, source: TirSyntaxOccurrence, flow: Flow,
   inputs: FieldRefinementInputs, account: DataflowAccount): DataflowResult<RefinementFact> {
   const unproved = (guards: readonly NodeId[], detail: string): DataflowResult<RefinementFact> =>
     chargeResultEntries(account, 3) ?? { kind: "complete", value: {
@@ -560,10 +584,21 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
   if (setup !== null) return setup;
   const base = mir.places[check.place]?.base;
   if (base?.kind !== "checked" || base.projection.kind !== "refined") return unproved([], "No actual narrowed field view.");
-  const read = fieldOf(mir, block, { kind: "place", place: base.place }, block.statements.length, "sample", flow, account);
-  if (read.kind !== "complete") return read;
-  if (read.value?.path[0]?.node !== check.tir.node) return unproved([], "No proved reaching field receiver.");
-  const field = read.value;
+  let field: Field;
+  if (source.kind === "Identifier") {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const local = savedSlot(mir, base.place, source);
+    if (local === null || flow.locations.get(local) === "exposed") return unproved([], "No proved saved-local presence slot.");
+    const retained = chargeResultEntries(account, 1);
+    if (retained !== null) return retained;
+    field = { receiver: local, path: noFields };
+  } else {
+    const read = fieldOf(mir, block, { kind: "place", place: base.place }, block.statements.length, "sample", flow, account);
+    if (read.kind !== "complete") return read;
+    if (read.value?.path[0]?.node !== check.tir.node) return unproved([], "No proved reaching field receiver.");
+    field = read.value;
+  }
   const canReassign = flow.locations.get(field.receiver) === "reassigned" || mir.locals[field.receiver]?.role.kind === "user";
   const assignsReceiver = (place: PlaceId): DataflowResult<boolean> => {
     const base = mir.places[place]?.base;
@@ -625,15 +660,15 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
       }
       const term = predecessor.terminator;
       let effectWrites = false;
-      if (term.kind === "call") {
+      if (field.path.length !== 0 && term.kind === "call") {
         const summary = effectSummary(flow, predecessor.id, term);
         if (summary.kind !== "complete") return summary;
         const effect = finishFieldTask(appliedWrite(predecessor, term, summary.value, field.receiver, field.path, flow, account),
           mir, flow, account);
         if (effect.kind !== "complete") return effect;
         effectWrites = effect.value;
-      } else if (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
-        || term.kind === "invoke" && term.operation.decision.execution.kind === "invocation" && term.operation.decision.execution.writesStorage) {
+      } else if (field.path.length !== 0 && (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
+        || term.kind === "invoke" && term.operation.decision.execution.kind === "invocation" && term.operation.decision.execution.writesStorage)) {
         effectWrites = true;
       }
       if (effectWrites) {
@@ -755,8 +790,9 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
     const check = block.terminator;
     if (check.kind !== "check" || check.tir.body !== mir.body || flow.reachable[block.id] !== true) continue;
     const source = inputs.sourceOf(check.tir.node);
-    if (source?.kind !== "PropertyAccessExpression" || source.tsonic.role !== "value" || source.tsonic.narrowing?.kind !== "narrowed") continue;
-    const proved = fieldProof(mir, block, check, flow, inputs, account);
+    if ((source?.kind !== "PropertyAccessExpression" && source?.kind !== "Identifier")
+      || source.tsonic.role !== "value" || source.tsonic.narrowing?.kind !== "narrowed") continue;
+    const proved = fieldProof(mir, block, check, source, flow, inputs, account);
     if (proved.kind !== "complete") return proved;
     const retained = chargeResultEntries(account, 1);
     if (retained !== null) return retained;

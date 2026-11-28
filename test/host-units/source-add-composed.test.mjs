@@ -434,7 +434,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
       checkedBody.root.kind === "SourceFile" ? [] : ["op", "flow"]);
   }
   const typed = new Map();
-  const elaborateDeps = { cuts: domain.sources.cuts, types: interner, typeWork, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
+  const elaborateDeps = { cuts: domain.sources.cuts, bodyOf: identity => domain.sources.bodies.get(identity) ?? null, types: interner, typeWork, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
     staticStorageOf: () => null,
     enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     signatureOf: signature => types.readSignature(interner, signature), bindingOf: deps.bindingOf, checkerDiagnosticsOf: () => checked.checkerDiagnostics };

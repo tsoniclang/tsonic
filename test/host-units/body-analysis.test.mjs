@@ -180,6 +180,7 @@ let noCallBoundary;
 let valueOrigins;
 let valueProblem;
 let transferValue;
+let operandOrigins;
 let callValueEffects;
 let prepareCallCaptures;
 let cellMustAtExit;
@@ -219,7 +220,8 @@ before(async () => {
   const originValues = await import("../../packages/host/dist/analyses/body/values.js");
   ({ joinOrigins, valueOrigins } = originValues);
   appliedOrigins = (deps, values, value, admit) => originValues.appliedOrigins(deps, values, value, admit, noCallBoundary, null);
-  ({ valueProblem, transferValue, collectExitContents, removeUnchangedContents } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
+  ({ valueProblem, transferValue, operandOrigins, collectExitContents, removeUnchangedContents } =
+    await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
   ({ cellMustAtExit, callExitAssigned, sourceNeedAssigned, callSlotAt, recordUninitializedRead } =
     await import("../../packages/host/dist/analyses/body/initialization.js"));
@@ -267,7 +269,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
-  const deps = { types: TABLE, typeOf, signatureOf, bindingScopeOf: () => null, sourceObjectHolding: () => ({ kind: "complete", value: false }),
+  const deps = { types: TABLE, typeOf, signatureOf, bindingScopeOf: () => null, sourceObjectHolding: () => ({ kind: "complete", value: null }),
     sourceObjectFields: () => ({ kind: "complete", value: () => ({ kind: "complete", value: null }) }),
     carrierHoldingOf: (meter, carrier) => accountFailure(meter) ?? { kind: "complete",
       value: nativeCarrierHoldingOf(canonical.selectedNativeFacts.carrierHolding, carrier) },
@@ -1731,7 +1733,8 @@ test("an omitted reference formal is initialized by its real body, with no ficti
     ...result.summary.arena.boundProducers, { id: 1, producer: 1, context: 0, bindings: EMPTY_BINDINGS },
   ] } };
   const state = current.input.mir.locals.map(() => supplied.origins);
-  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null, null,
+  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena,
+    operand => operandOrigins(current.input, [], state, operand, null, null, null), [], null, null, null,
     () => assert.fail("An omitted formal cannot request a projected value.")),
     /actual provided argument/);
 });
@@ -5048,7 +5051,8 @@ test("one held field joins its independently selected arms at paid cuts without 
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,
-    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null, null,
+    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena,
+    operand => operandOrigins(current.input, [], state, operand, null, null, null), [], null, null, null,
     () => assert.fail("The selected reference formal has no projected producer."));
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
     /A selected callee entry value requires its actual argument or capture transport/u);
@@ -5369,7 +5373,7 @@ test("Origins rows are interned by complete payload within their actual arena, n
   const actual = indexedOrigins(current, [...rows]);
   const count = actual.rows.length;
   const repeated = callValueEffects({ ...current.deps, account: createAccount(limits) }, current.input, operation,
-    point, summary, pair.facts.arena, state, [], [], null, null, null,
+    point, summary, pair.facts.arena, operand => operandOrigins(current.input, [], state, operand, null, null, null), [], null, null, null,
     () => assert.fail("The repeated call has only its direct reference argument."));
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.kind, "applied");

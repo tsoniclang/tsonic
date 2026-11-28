@@ -1,4 +1,5 @@
-import type { CheckedBindingKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
+import type { CheckedBindingKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldReader,
+  CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
   HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, PropertyName, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, LocalRef, NodeId, TyId } from "../ids/contract.js";
 import type { Member, MemberKey, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
@@ -117,7 +118,7 @@ interface SavedHolding<Proof> {
 
 type HoldingProof<Proof> = Proof | SavedHolding<Proof> | null;
 
-function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, container: ObjectContainer) => Proof | null,
+function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, container: ObjectContainer, presence: SourceObjectFieldPresence | null) => Proof | null,
   body: HirBody, local: LocalRef, read: CheckedSourceObjectRead, before: LocalRef | null = null): HoldingProof<Proof> {
   let initial: HirLocal | undefined;
   if (local.body === body.body) {
@@ -150,15 +151,18 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
   let captured: Set<HirLocal> | null = null;
   let alias: DefId | null = null;
   let container: ObjectContainer | null = null;
+  let presence: SourceObjectFieldPresence | null = null;
   let current = initial.id;
   let currentBody = body;
   let localRow = initial;
-  const retain = (actual: DefId, actualContainer: ObjectContainer | null): boolean => {
+  const retain = (actual: DefId, actualContainer: ObjectContainer | null, optional: SourceObjectFieldPresence | null): boolean => {
     alias ??= actual;
     if (alias !== actual) return false;
     if (actualContainer !== null) {
+      if (container !== null && (presence?.storage !== optional?.storage || presence?.present !== optional?.present)) return false;
       container ??= actualContainer;
       if (container !== actualContainer) return false;
+      presence = optional;
     }
     reached?.add(localRow);
     return true;
@@ -166,8 +170,10 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
   const advance = (saved: CheckedField | null): HoldingProof<Proof> => {
     if (saved !== null) {
       const value = saved.value;
-      if (value === null || value.type !== type || !retain(value.container.kind === "TypeAliasDeclaration"
-        ? value.container.tsonic.definition : saved.proof.field, value.container)) return null;
+      if (value === null) return null;
+      const optional = value.presence?.storage === type ? value.presence : null;
+      if (optional === null && value.type !== type || !retain(value.container.kind === "TypeAliasDeclaration"
+        ? value.container.tsonic.definition : saved.proof.field, value.container, optional)) return null;
     }
     for (;;) {
       let actual: DefId | null = null;
@@ -249,7 +255,7 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
         if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
         localRow = next;
       }
-      if (actual !== null && !retain(actual, actualContainer)) return null;
+      if (actual !== null && !retain(actual, actualContainer, null)) return null;
       saved = null;
       if (inputs === null || inputs.length === 0) break;
       if (!admit(1, 0)) return null;
@@ -262,13 +268,14 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
       if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
       localRow = next;
     }
-    return alias === null || container === null ? null : accept({ local, declaration: alias, receiver: type }, container);
+    return alias === null || container === null ? null : accept({ local, declaration: alias, receiver: type }, container, presence);
   };
   return advance(null);
 }
 
-export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, read) =>
-  settleHolding(sourceObjectHolding(holding => holding, body, local, read), read);
+export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, storage, read) =>
+  settleHolding(sourceObjectHolding((holding, _container, presence): "reference" | "reference-optional" | null =>
+    holding.receiver !== storage ? null : presence === null ? "reference" : "reference-optional", body, local, read), read);
 
 type Property = Extract<HirNode, { readonly kind: "PropertySignature" }>;
 type TypeLiteral = Extract<HirNode, { readonly kind: "TypeLiteral" }>;
@@ -420,15 +427,18 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
       }
       if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local"
         || !admit(0, 1)) return null;
-      return sourceObjectHolding((holding, container) => finish(select({ access: current, declaration }, holding, container, null)),
+      return sourceObjectHolding((holding, container, presence) => {
+        const actual = presentHolding(receiver, holding, presence, read);
+        return actual === null ? null : finish(select({ access: current, declaration }, actual, container, null));
+      },
         body, receiver.tsonic.resolution.local, read, before);
     }
   };
   return { field, ready: (node: NodeId) => fields?.get(node)?.proof ?? null };
 }
 
-function settleHolding<Proof extends object>(result: HoldingProof<Proof>, read: CheckedSourceObjectRead): Proof | null {
-  if (result === null || !("resumeHolding" in result)) return result;
+function settleHolding<Proof extends object | "reference" | "reference-optional">(result: HoldingProof<Proof>, read: CheckedSourceObjectRead): Proof | null {
+  if (result === null || typeof result !== "object" || !("resumeHolding" in result)) return result;
   for (;;) {
     if (!read.admit(1, 3)) return null;
     const active = new Set<HirBody>();
@@ -452,19 +462,41 @@ function settleHolding<Proof extends object>(result: HoldingProof<Proof>, read: 
       field = next.resumeHolding(field);
     }
     result = result.resumeHolding(field);
-    if (result === null || !("resumeHolding" in result)) return result;
+    if (result === null || typeof result !== "object" || !("resumeHolding" in result)) return result;
   }
 }
 
 export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => {
   const source = sourceObjectFields(body, read);
-  return { field: access => settleHolding(source.field(access, null), read)?.proof ?? null, ready: source.ready };
+  const field: CheckedSourceObjectFieldReader = access => settleHolding(source.field(access, null), read)?.proof ?? null;
+  const presence: ReturnType<CheckedSourceObjectFieldsOf>["presence"] = operand => {
+    if (operand.kind === "PropertyAccessExpression" && operand.tsonic.role === "value") return field(operand)?.presence ?? null;
+    if (operand.kind !== "Identifier" || operand.tsonic.role !== "value" || operand.tsonic.resolution.kind !== "local" ||
+      operand.tsonic.value.views.read.kind !== "available" || !read.admit(1, 0) ||
+      read.nodeOf({ kind: "body", value: { body: body.body, node: operand.id } }) !== operand) return null;
+    const actual = operand.tsonic.value.views.read.value;
+    return settleHolding(sourceObjectHolding((_holding, _container, value) =>
+      value !== null && (value.storage === actual || value.present === actual) ? value : null,
+    body, operand.tsonic.resolution.local, read), read);
+  };
+  return { field, presence, ready: source.ready };
 };
+
+function presentHolding(operand: HirNode, holding: SourceObjectHolding, presence: SourceObjectFieldPresence | null,
+  read: CheckedSourceObjectRead): SourceObjectHolding | null {
+  if (presence === null) return holding;
+  if (operand.kind !== "Identifier" || operand.tsonic.role !== "value" || operand.tsonic.value.views.read.kind !== "available" ||
+    operand.tsonic.value.views.read.value !== presence.present || !read.admit(1, 1)) return null;
+  return { ...holding, receiver: presence.present };
+}
 
 function heldObjectOperand<Proof extends object>(body: HirBody, operand: HirNode, read: CheckedSourceObjectRead,
   select: (holding: SourceObjectHolding, container: FieldValue["container"], parent: SourceObjectField | null) => Proof | null): Proof | null {
   if (operand.kind === "Identifier" && operand.tsonic.role === "value" && operand.tsonic.resolution.kind === "local")
-    return settleHolding(sourceObjectHolding((holding, container) => select(holding, container, null),
+    return settleHolding(sourceObjectHolding((holding, container, presence) => {
+      const actual = presentHolding(operand, holding, presence, read);
+      return actual === null ? null : select(actual, container, null);
+    },
       body, operand.tsonic.resolution.local, read), read);
   if (operand.kind !== "PropertyAccessExpression" || operand.tsonic.role !== "value" || !read.admit(1, 3)) return null;
   const source = settleHolding(sourceObjectFields(body, read).field(operand, null), read);
