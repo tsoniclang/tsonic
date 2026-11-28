@@ -494,7 +494,7 @@ export async function checkNativeCountedLoopProofs() {
   const fixture = await loadFrontFixture();
   for (const { start, write, tail = "", minimum, counted, audit, callee = "", declaration = null, nativeInvoke = false,
     step = "++i", bound = "3", receiver = "values", exit = null, afterLoop = false, proven = false,
-    writeChecks = 0, extraParameter = "", writeProjection = null, setup = "", additive = false } of [
+    writeChecks = 0, extraParameter = "", writeProjection = null, setup = "", additive = false, stepFailure = null } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
     ...["i += 1", "i = i + 1", "i = 1 + i", "(i) += (1)", "i = ((i) + (1))"].map(step => ({
@@ -502,6 +502,12 @@ export async function checkNativeCountedLoopProofs() {
     })),
     { start: 0, write: "", minimum: null, counted: false, step: "i += 2", additive: true },
     { start: 0, write: "", minimum: null, counted: false, setup: "const other = 0;", step: "i = other + 1", additive: true },
+    ...["abort", "unwind"].flatMap(stepFailure => [
+      { step: "i++", additive: false, audit: stepFailure === "unwind" ? "unit-invoke" : undefined },
+      { step: "i += 1", additive: true, audit: stepFailure === "abort" ? "unit-invoke" : undefined },
+      { step: "i = 1 + i", additive: true },
+    ].map(test => ({ start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", proven: true, stepFailure, ...test }))),
+    { start: 0, write: "", minimum: null, counted: false, step: "i += 2", additive: true, stepFailure: "unwind" },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
     { start: 0, write: "values = replacement;", minimum: 0n, counted: true },
     { start: 1, write: "", minimum: 1n, counted: true },
@@ -548,8 +554,8 @@ export async function checkNativeCountedLoopProofs() {
       libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
     if (declaration !== null) snapshot.source.input.packages.modules.find(row => row.path.endsWith("/native.d.ts")).role = "declaration";
     const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
-      integerOverflow: [...(nativeInvoke || additive ? [{ carrier: "int64", operation: "add", result: "int64", law: nativeInvoke ? "abort" : "wrap" }] : []),
-        { carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
+      integerOverflow: [...(nativeInvoke || additive ? [{ carrier: "int64", operation: "add", result: "int64", law: nativeInvoke ? "abort" : stepFailure ?? "wrap" }] : []),
+        { carrier: "int64", operation: "increment", result: "int64", law: !additive && stepFailure !== null ? stepFailure : "wrap" }] } } };
     const result = analyzeHostProgram(operands);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
@@ -560,6 +566,16 @@ export async function checkNativeCountedLoopProofs() {
     if (nativeInvoke) assert.deepEqual(selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke")
       .map(row => row.operation.decision.execution), [{ kind: "invocation", writesStorage: false, failure: "abort" }]);
     const [facts] = selected.facts;
+    if (stepFailure !== null) {
+      const invokes = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke");
+      assert.equal(invokes.length, 1, step);
+      const [invoke] = invokes;
+      assert.deepEqual(invoke.operation.decision.execution, { kind: "invocation", writesStorage: false, failure: stepFailure });
+      assert.deepEqual(invoke.unwind, { kind: stepFailure === "abort" ? "abort" : "escape" });
+      const [commit] = selected.mir.blocks[invoke.next].statements;
+      assert.equal(commit.kind, "assign");
+      assert.deepEqual(commit.value, { kind: "use", operand: { kind: "place", place: invoke.destination } });
+    }
     if (!counted) {
       assert.deepEqual(facts.refinements.refinements, []);
       assert.deepEqual(facts.refinements.countedLoops, []);
@@ -675,9 +691,9 @@ export async function checkNativeCountedLoopProofs() {
         assert.equal(lookups, admitted ? 1 : 0);
       }
     }
-    if (audit === "counter-copy" || audit === "content-store" || audit === "content-call" || audit === "unit-add") {
+    if (audit === "counter-copy" || audit === "content-store" || audit === "content-call" || audit === "unit-add" || audit === "unit-invoke") {
       checkReachedProofCuts(InvocationAccount.stateOf, account => countedLoopsOf(account, selected.mir, facts.execution.provided, proofInput),
-        replay.value, `${audit}: ${audit === "unit-add" ? step : write}`);
+        replay.value, `${audit}: ${stepFailure ?? "wrap"} ${audit === "unit-add" || audit === "unit-invoke" ? step : write}`);
       continue;
     }
     for (const unavailable of [null, selected.mir]) {

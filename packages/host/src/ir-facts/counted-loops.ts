@@ -5,7 +5,7 @@ import { admitIntegerKey } from "../ids/index.js";
 import type { BinaryExpression, ElementAccessExpression, Expression, ForStatement, Identifier } from "../ir-hir/contract.js";
 import type { MirBlock, MirBody, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import type { TypedOperation, TypedPhase } from "../ir-tir/contract.js";
 import { isNativeIntegerPrimitive, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { BodyInstance, NativeIntegerPrimitive, ReceiverAccess } from "../ir-types/contract.js";
 import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
@@ -554,32 +554,76 @@ function loopFact(
   const storageOf = (operand: MirOperand) => operand.kind === "place" ? mir.places[operand.place]?.storage : mir.constants[operand.constant]?.type;
   const boundType = storageOf(right);
   if (boundType !== counter.storage) return absent;
-  const step = latch.statements.at(-2);
   const commit = latch.statements.at(-1);
-  if (step?.kind !== "assign" || commit?.kind !== "assign" || commit.place !== left.place
-    || commit.value.kind !== "use" || commit.value.operand.kind !== "place" || commit.value.operand.place !== step.place
-    || commit.tir.body !== mir.body || commit.tir.node !== syntax.value.commit
-    || step.tir.body !== mir.body || step.tir.node !== syntax.value.calculation) return absent;
+  if (commit?.kind !== "assign" || commit.place !== left.place || commit.value.kind !== "use" || commit.value.operand.kind !== "place"
+    || commit.tir.body !== mir.body || commit.tir.node !== syntax.value.commit) return absent;
+  const destination = commit.value.operand.place;
+  let stepBlock = latch;
+  let stepBefore = latch.statements.length - 2;
+  let selectedStep: TypedOperation;
+  let firstOperand: MirOperand;
+  let secondOperand: MirOperand | null;
+  if (latch.statements.length === 1) {
+    const entrance = chargeWork(account, 2 + mir.entries.length);
+    if (entrance !== null) return entrance;
+    const incoming = storage.predecessors[latch.id];
+    const predecessor = incoming?.length === 1 ? incoming[0] : undefined;
+    if (predecessor === undefined || mir.entries.some(entry => entry.block === latch.id)) return absent;
+    const read = chargeWork(account, 4);
+    if (read !== null) return read;
+    const block = mir.blocks[predecessor];
+    const invoke = block?.terminator;
+    if (block === undefined || invoke?.kind !== "invoke" || invoke.next !== latch.id || invoke.destination !== destination
+      || invoke.step !== null || invoke.tir.body !== mir.body || invoke.tir.node !== syntax.value.calculation) return absent;
+    const execution = invoke.operation.decision.execution;
+    if (execution.kind !== "invocation" || execution.writesStorage) return absent;
+    const { unwind } = invoke;
+    if (execution.failure === "abort") {
+      if (unwind.kind !== "abort") return absent;
+    } else if (execution.failure !== "unwind" || unwind.kind !== "escape"
+      && (unwind.kind !== "handler" && unwind.kind !== "carry" || unwind.target === latch.id)) return absent;
+    const operands = chargeWork(account, 2);
+    if (operands !== null) return operands;
+    const first = invoke.operands[0];
+    if (first === undefined || invoke.operands.length !== (syntax.value.kind === "increment" ? 1 : 2)) return absent;
+    stepBlock = block;
+    stepBefore = block.statements.length;
+    selectedStep = invoke.operation;
+    firstOperand = first;
+    secondOperand = invoke.operands[1] ?? null;
+  } else {
+    const step = latch.statements[stepBefore];
+    if (step?.kind !== "assign" || step.place !== destination || step.tir.body !== mir.body || step.tir.node !== syntax.value.calculation) return absent;
+    const value = step.value;
+    if (value.kind === "unary" && syntax.value.kind === "increment") {
+      selectedStep = value.operation;
+      firstOperand = value.operand;
+      secondOperand = null;
+    } else if (value.kind === "binary" && syntax.value.kind === "add") {
+      selectedStep = value.operation;
+      firstOperand = value.left;
+      secondOperand = value.right;
+    } else return absent;
+    if (selectedStep.decision.execution.kind !== "pure") return absent;
+  }
+  const arithmetic = selectedStep.decision;
+  if (arithmetic.operation.kind !== "native-operator" || arithmetic.operation.carrier !== decision.carrier) return absent;
   let incrementOperand: MirOperand;
   if (syntax.value.kind === "increment") {
-    if (step.value.kind !== "unary") return absent;
-    const incrementDecision = step.value.operation.decision.operation;
-    if (incrementDecision.kind !== "native-operator" || incrementDecision.operator !== "++" || incrementDecision.carrier !== decision.carrier) return absent;
-    incrementOperand = step.value.operand;
+    if (arithmetic.operation.operator !== "++" || secondOperand !== null) return absent;
+    incrementOperand = firstOperand;
   } else {
     const paid = chargeWork(account, 4);
     if (paid !== null) return paid;
-    if (step.value.kind !== "binary") return absent;
-    const added = step.value.operation.decision;
-    if (added.kind !== "selected" || added.operation.kind !== "native-operator" || added.operation.operator !== "+"
-      || added.operation.carrier !== decision.carrier || added.execution.kind !== "pure" || added.result !== counter.storage
-      || added.operands.length !== 2 || added.operands[0] !== counter.storage || added.operands[1] !== counter.storage
+    if (secondOperand === null || arithmetic.kind !== "selected" || arithmetic.operation.operator !== "+" || arithmetic.result !== counter.storage
+      || arithmetic.operands.length !== 2 || arithmetic.operands[0] !== counter.storage || arithmetic.operands[1] !== counter.storage
       || storageOf(commit.value.operand) !== counter.storage || syntax.value.unitType !== counter.storage) return absent;
-    const unit = syntax.value.counterSide === "left" ? step.value.right : step.value.left;
+    const counterFirst = syntax.value.counterSide === "left";
+    const unit = counterFirst ? secondOperand : firstOperand;
     const exact = integerConstant(mir, unit, counter.storage, account);
     if (exact.kind !== "complete") return exact;
     if (exact.value !== 1n) return absent;
-    incrementOperand = step.value[syntax.value.counterSide];
+    incrementOperand = counterFirst ? firstOperand : secondOperand;
   }
   if (incrementOperand.kind !== "place") return absent;
   if (incrementOperand.place !== left.place) {
@@ -588,7 +632,7 @@ function loopFact(
     const operand = mir.places[incrementOperand.place];
     const saved = operand?.base.kind === "local" ? mir.locals[operand.base.local] : undefined;
     if (saved?.role.kind !== "temporary" || saved.mode !== "local" || operand?.storage !== counter.storage) return absent;
-    const prior = reachingAssignment(latch, latch.statements.length - 2, incrementOperand.place, storage, account);
+    const prior = reachingAssignment(stepBlock, stepBefore, incrementOperand.place, storage, account);
     if (prior.kind !== "complete") return prior;
     const read = prior.value;
     if (read?.tir.body !== mir.body || read.tir.node !== stepRead.id || read.value.kind !== "use"
@@ -598,7 +642,7 @@ function loopFact(
   const members = chargeWork(account, loop.members.length) ?? chargeResultEntries(account, loop.members.length + 1);
   if (members !== null) return members;
   const inside = new Set(loop.members);
-  if (!inside.has(whenTrue.target) || inside.has(branch.otherwise)) return absent;
+  if (!inside.has(stepBlock.id) || !inside.has(whenTrue.target) || inside.has(branch.otherwise)) return absent;
   let entry: number | undefined;
   const headerIncoming = storage.predecessors[loop.header] ?? [];
   for (let index = 0; index < headerIncoming.length; index += 1) {
