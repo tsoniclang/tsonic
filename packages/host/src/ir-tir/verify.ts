@@ -985,7 +985,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const layout = verifyLayoutArguments(node, original, body, input, boundary.bodies, admit, emit);
       if (layout !== null) return { kind: "resource-stop", stop: layout };
     }
-    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, admit, emit);
+    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, input.types, admit, emit);
     if (arrayAnnotation !== null) return { kind: "resource-stop", stop: arrayAnnotation };
     verifyOccurrenceRole(node, original, emit);
     if (node.kind === "SpreadElement" && "role" in node.tsonic) {
@@ -1490,7 +1490,7 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
       const stop = verifyPatternBinding(node, original, input.types, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
-    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, admit, emit);
+    const arrayAnnotation = verifyNativeArrayAnnotation(node, original, input.types, admit, emit);
     if (arrayAnnotation !== null) return { kind: "resource-stop", stop: arrayAnnotation };
     verifyOccurrenceRole(node, original, emit);
   }

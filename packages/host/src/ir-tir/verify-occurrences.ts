@@ -502,12 +502,18 @@ export function verifyPatternBinding<Stop extends object>(node: VariableDeclarat
 }
 
 export function verifyNativeArrayAnnotation<Stop extends object>(node: TirNode, original: HirNode | undefined,
-  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   if (!(node.kind === "ArrayType" && original?.kind === "ArrayType"
     || node.kind === "TypeOperator" && original?.kind === "TypeOperator" && original.operator === "ReadonlyKeyword"
       && original.type.kind === "ArrayType")) return null;
   const header = admit({ kind: "row" });
   if (header !== null) return header;
+  const checked = original.tsonic.type;
+  const expectedType = checked.kind === "available" ? types.terms[checked.value] : undefined;
+  const actualType = types.terms[node.tsonic.type];
+  if (expectedType?.kind === "array" && actualType !== undefined
+    && (actualType.kind !== "array" || actualType.readonly !== expectedType.readonly))
+    emit("type-closed", node, "native array annotation must retain its actual checked array mode");
   const expected = original.tsonic.referencedDefinitions;
   const declared = node.tsonic.declarations;
   if (expected.length === declared.length) {

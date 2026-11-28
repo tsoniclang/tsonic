@@ -723,6 +723,18 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
     } finally {
       target.tsonic.declarations = original;
     }
+    const actualType = target.tsonic.type;
+    for (const replacement of [typedMutable.type.tsonic.type, typedMutable.type.elementType.tsonic.type]) {
+      target.tsonic.type = replacement;
+      try {
+        const crossed = verify();
+        assert.equal(crossed.kind, "complete");
+        assert.equal(crossed.violations.some(row => row.rule === "type-closed"
+          && row.detail.some(part => part.value === "native array annotation must retain its actual checked array mode")), true);
+      } finally {
+        target.tsonic.type = actualType;
+      }
+    }
   }
   const target = typedReadonly.type;
   const sourceAnnotation = authority.source.tree.statements.nodes[1].type;
@@ -731,12 +743,12 @@ test("Stage 3 preserves the actual mutable and readonly array declarations witho
     Object.defineProperty(target.tsonic, "declarations", { configurable: true,
       get() { return assert.fail("The qualified declaration vector is unread before its admission."); } });
     const header = createAccount({ maximumWork: 0, maximumResultEntries: 100 });
-    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, tirReadyReadAdmission(header), assert.fail) === accountFailure(header), true);
+    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, authority.types, tirReadyReadAdmission(header), assert.fail) === accountFailure(header), true);
     const declarations = new Array(originalDeclarations.length);
     Object.defineProperty(declarations, 0, { get() { return assert.fail("The qualified declaration is unread before its admission."); } });
     Object.defineProperty(target.tsonic, "declarations", { configurable: true, value: declarations });
     const entry = createAccount({ maximumWork: 1, maximumResultEntries: 100 });
-    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, tirReadyReadAdmission(entry), assert.fail) === accountFailure(entry), true);
+    assert.equal(verifyNativeArrayAnnotation(target, sourceAnnotation, authority.types, tirReadyReadAdmission(entry), assert.fail) === accountFailure(entry), true);
   } finally {
     Object.defineProperty(target.tsonic, "declarations", { configurable: true, writable: true, value: originalDeclarations });
   }
