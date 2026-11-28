@@ -57,7 +57,7 @@ function enterBranch(lowering: Lowering, step: Extract<ConditionStep, { readonly
   if (payload.role !== "short-circuit" || selection.kind === "coalesce")
     return callerDefect("a native condition requires its actual Boolean selection", node.origin);
   checkDemand(lowering, payload, node);
-  const left = { ...step, kind: "condition-branch", node: node.left } as const;
+  const left: typeof step = { ...step, node: node.left };
   if (selection.disposition === "left") {
     lowering.work.push(left);
     return true;
