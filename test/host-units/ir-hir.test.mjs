@@ -323,6 +323,11 @@ test("checked by-value reference views pair actual field declarations and native
   }
 });
 
+test("checked reference correspondence qualifies both actual declarations of a quoted key", async () => {
+  const { checkLiteralFieldCall } = await import("./fixtures/literal-field-call.mjs");
+  await checkLiteralFieldCall();
+});
+
 test("a placed field write authenticates the receiver's actual outer storage", async () => {
   const { checkCapturedFieldRefinement } = await import("./fixtures/native-refinement-proofs.mjs");
   await checkCapturedFieldRefinement();

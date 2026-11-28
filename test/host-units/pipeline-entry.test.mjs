@@ -190,6 +190,11 @@ test("S-1 uses the original literal field key without renaming its destination",
   await checkNamedBindingSelectors();
 });
 
+test("S-1 a quoted field effect crosses to its actual by-value caller reference", async () => {
+  const { checkLiteralFieldCall } = await import("./fixtures/literal-field-call.mjs");
+  await checkLiteralFieldCall();
+});
+
 test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

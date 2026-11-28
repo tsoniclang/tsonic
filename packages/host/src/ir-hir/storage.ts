@@ -1,5 +1,5 @@
 import type { CheckedBindingTextKeyOf, CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedSourceObjectRead, CheckedSourceStorageRead, CheckedVariableStorageOf,
-  HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
+  HirBody, HirCoreCapture, HirLocal, HirNode, PropertyAccessExpression, PropertyName, ReadWriteRootStorageOf, TypeAliasDeclaration, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
 import type { Member, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
 import { compareMemberKeys } from "../ir-types/index.js";
@@ -388,6 +388,17 @@ function directOrigin(origins: Member["origins"], declaration: DefId): boolean {
   return origins.length === 1 && origin?.kind === "declared" && origin.declaration === declaration;
 }
 
+function isStaticTextPropertyName(name: PropertyName<CheckedPhase>):
+  name is Extract<PropertyName<CheckedPhase>, { readonly kind: "Identifier" | "StringLiteral" }> {
+  return name.kind === "Identifier" || name.kind === "StringLiteral";
+}
+
+function matchesStaticTextPropertyName(name: PropertyName<CheckedPhase>, key: string, admit: CheckedSourceObjectRead["admit"]): boolean {
+  if (!isStaticTextPropertyName(name)) return false;
+  const text = name.text;
+  return admit(text.length + key.length, 0) && text === key;
+}
+
 function referenceSurface(owner: DefId, syntax: TypeLiteral, type: TyId, read: CheckedSourceObjectRead): ReferenceSurface | null {
   if (!read.admit(1, 0)) return null;
   const term = read.typeOf(type);
@@ -403,8 +414,8 @@ function referenceField(surface: ReferenceSurface, member: Member, read: Checked
   if (member.origins.length !== 1 || origin?.kind !== "declared" || !directOrigin(member.readOrigins, origin.declaration)
     || (member.readonly ? member.writeOrigins.length !== 0 : !directOrigin(member.writeOrigins, origin.declaration))) return null;
   const field = qualifiedSourceField(surface.owner, surface.syntax, origin.declaration, read.itemOf);
-  if (field === null || field.name.kind !== "Identifier" || (field.postfixToken?.kind === "QuestionToken") !== member.optional
-    || !read.admit(field.name.text.length + member.key.value.length, 0) || field.name.text !== member.key.value) return null;
+  if (field === null || (field.postfixToken?.kind === "QuestionToken") !== member.optional
+    || !matchesStaticTextPropertyName(field.name, member.key.value, read.admit)) return null;
   const annotation = field.type;
   const declared = field.tsonic.declaredType;
   if (annotation === null || annotation.parent !== field.id || declared.kind !== "available" || declared.value === null
@@ -545,7 +556,7 @@ export const checkedBindingTextKeyOf: CheckedBindingTextKeyOf = element => {
   if (element.name?.kind !== "Identifier" || element.dotDotDotToken !== null) return null;
   const written = element.propertyName;
   if (written === null) return element.name.text;
-  if ((written.kind !== "Identifier" && written.kind !== "StringLiteral") || written.tsonic.role !== "property-name") return null;
+  if (!isStaticTextPropertyName(written) || written.tsonic.role !== "property-name") return null;
   const key = written.tsonic.key;
   return key.kind === "available" && key.value.kind === "text" && key.value.value === written.text ? key.value.value : null;
 };
@@ -565,8 +576,7 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   return sourceObjectHolding((holding, declaration) => {
     if (declaration.type?.kind !== "TypeLiteral" || !admit(1, 0)) return null;
     const field = qualifiedSourceField(holding.declaration, declaration.type, definition, itemOf);
-    if (field === null || (field.name.kind !== "Identifier" && field.name.kind !== "StringLiteral")
-      || !admit(field.name.text.length + key.value.length, 0) || field.name.text !== key.value) return null;
+    if (field === null || !matchesStaticTextPropertyName(field.name, key.value, admit)) return null;
     const value = fieldValue(field, read);
     return value === undefined || !admit(0, 1) ? null
       : { ...holding, occurrence, field: definition, parent: null, requiredReference: value?.presence === null ? value.type : null,
